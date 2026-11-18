@@ -1,6 +1,8 @@
 """Build/activate a content-addressed Rego snapshot from policy source."""
+
 import argparse
 import json
+
 from app.policy.snapshots import build_snapshot
 
 

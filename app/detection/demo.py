@@ -3,6 +3,7 @@
 M2 replaces this adapter with Presidio and pinned local NLP models. Any result
 from this adapter is eligible for the sovereign simulator ONLY, never egress.
 """
+
 import re
 
 from app.domain.contracts import DetectionResult, DetectionStatus, Finding, Sensitivity
@@ -21,7 +22,9 @@ class DemoPatternDetector:
         matches: list[tuple[int, Finding]] = []
         for category, pattern, priority in self._PATTERNS:
             for m in pattern.finditer(prompt):
-                matches.append((priority, Finding(category, m.start(), m.end(), "demo-patterns", 1.0)))
+                matches.append(
+                    (priority, Finding(category, m.start(), m.end(), "demo-patterns", 1.0))
+                )
         # Resolve overlaps in a predictable priority/start/category order.
         matches.sort(key=lambda pair: (-pair[0], pair[1].start, pair[1].category))
         kept: list[Finding] = []
@@ -32,7 +35,9 @@ class DemoPatternDetector:
         sensitive = any(f.category in ("API_CREDENTIAL", "PRIVATE_KEY") for f in kept)
         return DetectionResult(
             status=DetectionStatus.PRIVATE if kept else DetectionStatus.NO_PRIVATE_DETECTED,
-            sensitivity=Sensitivity.HIGH if sensitive else (Sensitivity.MEDIUM if kept else Sensitivity.NONE),
+            sensitivity=Sensitivity.HIGH
+            if sensitive
+            else (Sensitivity.MEDIUM if kept else Sensitivity.NONE),
             findings=tuple(kept),
             coverage=("EMAIL_ADDRESS", "API_CREDENTIAL", "PRIVATE_KEY"),
             detector_version=self.VERSION,

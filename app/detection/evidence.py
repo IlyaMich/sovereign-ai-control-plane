@@ -3,10 +3,12 @@
 A valid provenance reference is NOT an NLP classification replay: no plaintext
 prompt, installed model binary, or claim of detection completeness is supplied.
 """
+
 from __future__ import annotations
+
 import json
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 
 from app.detection.provenance import DetectorIntegrityError, find_archived
 
@@ -52,7 +54,9 @@ def verify_detector_references(db_path: str, archive_root: str | None) -> dict:
             count += 1
         except (KeyError, TypeError, ValueError, DetectorIntegrityError) as exc:
             raise DetectorEvidenceError(f"Detector evidence invalid at sequence {seq}") from exc
-    return {"detector_provenance_verified": count,
-            "legacy_decisions_without_detector_provenance": legacy,
-            "unique_detector_manifests": len(seen),
-            "classification_replayed": 0}
+    return {
+        "detector_provenance_verified": count,
+        "legacy_decisions_without_detector_provenance": legacy,
+        "unique_detector_manifests": len(seen),
+        "classification_replayed": 0,
+    }

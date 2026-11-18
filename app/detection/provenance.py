@@ -3,6 +3,7 @@
 The image-build manifest covers model *file bytes*, selected local classifier code
 and installed dependency versions. It does not attest the host or entire image.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -10,9 +11,9 @@ import importlib.metadata
 import importlib.util
 import json
 import os
-from pathlib import Path
 import sys
 import tempfile
+from pathlib import Path
 from typing import Any
 
 DOMAIN = b"sovereign-detector-manifest-v1\0"
@@ -24,8 +25,15 @@ SOURCE_PATHS = (
     "app/domain/contracts.py",
 )
 PACKAGES = (
-    "presidio-analyzer", "spacy", "en-core-web-sm", "tldextract",
-    "thinc", "numpy", "srsly", "spacy-legacy", "spacy-loggers",
+    "presidio-analyzer",
+    "spacy",
+    "en-core-web-sm",
+    "tldextract",
+    "thinc",
+    "numpy",
+    "srsly",
+    "spacy-legacy",
+    "spacy-loggers",
 )
 
 
@@ -34,8 +42,9 @@ class DetectorIntegrityError(RuntimeError):
 
 
 def canonical(data: Any) -> bytes:
-    return json.dumps(data, sort_keys=True, ensure_ascii=False, separators=(",", ":"),
-                      allow_nan=False).encode("utf-8")
+    return json.dumps(
+        data, sort_keys=True, ensure_ascii=False, separators=(",", ":"), allow_nan=False
+    ).encode("utf-8")
 
 
 def sha256(data: bytes) -> str:
@@ -81,8 +90,11 @@ def live_payload(root: Path | str = "/service") -> dict:
         try:
             versions[package] = importlib.metadata.version(package)
         except importlib.metadata.PackageNotFoundError as exc:
-            raise DetectorIntegrityError("Required detection dependency missing: " + package) from exc
+            raise DetectorIntegrityError(
+                "Required detection dependency missing: " + package
+            ) from exc
     from app.detection.presidio_detector import MODEL_NAME, MODEL_VERSION, VERSION
+
     if versions["en-core-web-sm"] != MODEL_VERSION:
         raise DetectorIntegrityError("Installed spaCy model has wrong version")
     return {
@@ -103,7 +115,13 @@ def create_manifest(root: Path | str = "/service") -> dict:
 def verify_manifest(document: dict) -> str:
     """Verify an untrusted archived manifest without installed spaCy packages."""
     if not isinstance(document, dict) or set(document) != {
-        "schema_version", "detector_version", "model", "python", "dependency_versions", "files", "digest"
+        "schema_version",
+        "detector_version",
+        "model",
+        "python",
+        "dependency_versions",
+        "files",
+        "digest",
     }:
         raise DetectorIntegrityError("Malformed detector manifest")
     if document["schema_version"] != SCHEMA:
@@ -113,13 +131,18 @@ def verify_manifest(document: dict) -> str:
         raise DetectorIntegrityError("Invalid detector artifact list")
     previous = ""
     for item in files:
-        if (not isinstance(item, dict) or set(item) != {"path", "size", "sha256"}
-                or not isinstance(item["path"], str)
-                or not item["path"].startswith(("model/", "source/"))
-                or ".." in Path(item["path"]).parts
-                or item["path"] <= previous
-                or type(item["size"]) is not int or item["size"] < 0
-                or not isinstance(item["sha256"], str) or len(item["sha256"]) != 64):
+        if (
+            not isinstance(item, dict)
+            or set(item) != {"path", "size", "sha256"}
+            or not isinstance(item["path"], str)
+            or not item["path"].startswith(("model/", "source/"))
+            or ".." in Path(item["path"]).parts
+            or item["path"] <= previous
+            or type(item["size"]) is not int
+            or item["size"] < 0
+            or not isinstance(item["sha256"], str)
+            or len(item["sha256"]) != 64
+        ):
             raise DetectorIntegrityError("Invalid detector artifact entry")
         try:
             bytes.fromhex(item["sha256"])
@@ -139,8 +162,9 @@ def verify_manifest(document: dict) -> str:
     return digest
 
 
-def load_verified(path: Path | str, *, verify_live: bool = False,
-                  root: Path | str = "/service") -> dict:
+def load_verified(
+    path: Path | str, *, verify_live: bool = False, root: Path | str = "/service"
+) -> dict:
     try:
         raw = Path(path).read_bytes()
         obj = json.loads(raw)

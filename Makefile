@@ -14,7 +14,7 @@ endif
 
 COMPOSE_CMD = $(COMPOSE) -f deploy/compose.yaml --env-file "$(ENV_FILE)"
 
-.PHONY: help venv setup setup-nlp install test policy-build policy-verify build up down restart status logs smoke test-policy check-containers
+.PHONY: help venv setup setup-nlp install test lint lint-fix format format-check typecheck check policy-build policy-verify build up down restart status logs smoke test-policy check-containers
 
 help:
 	@echo "  make setup-nlp        Set up development dependencies and pinned spaCy model"
@@ -22,6 +22,12 @@ help:
 	@echo "  make setup            Create .venv and install development dependencies"
 	@echo "  make install          Install development dependencies into existing .venv"
 	@echo "  make test             Run Python tests (TEST_ARGS defaults to -q)"
+	@echo "  make lint             Check Python code with Ruff"
+	@echo "  make lint-fix         Apply safe Ruff lint fixes"
+	@echo "  make format           Format Python code with Ruff"
+	@echo "  make format-check     Check formatting without changing files"
+	@echo "  make typecheck        Check Python types with mypy"
+	@echo "  make check            Run lint, formatting, type checks, and tests"
 	@echo "  make policy-build     Generate and archive an active policy snapshot"
 	@echo "  make policy-verify    Verify active and archived policy snapshots"
 	@echo "  make build            Build default Compose images"
@@ -49,6 +55,23 @@ install:
 
 test:
 	"$(VENV_PYTHON)" -m pytest $(TEST_ARGS)
+
+lint:
+	"$(VENV_PYTHON)" -m ruff check .
+
+lint-fix:
+	"$(VENV_PYTHON)" -m ruff check --fix .
+
+format:
+	"$(VENV_PYTHON)" -m ruff format .
+
+format-check:
+	"$(VENV_PYTHON)" -m ruff format --check .
+
+typecheck:
+	"$(VENV_PYTHON)" -m mypy
+
+check: lint format-check typecheck test
 
 policy-build:
 	"$(VENV_PYTHON)" -m tools.build_policy_snapshot

@@ -2,7 +2,9 @@
 
 The container smoke checks additionally use the real installed spaCy model.
 """
+
 from types import SimpleNamespace
+
 import pytest
 
 from app.detection.aggregation import REQUIRED_COVERAGE
@@ -27,10 +29,18 @@ class StubAnalyzer:
 
 def test_presidio_adapter_maps_explanations_and_hides_values():
     prompt = "Email bob@example.com please"
-    stub = StubAnalyzer([SimpleNamespace(
-        entity_type="EMAIL_ADDRESS", start=6, end=21, score=0.97,
-        recognition_metadata={"recognizer_name": "EmailPattern"}, analysis_explanation=None,
-    )])
+    stub = StubAnalyzer(
+        [
+            SimpleNamespace(
+                entity_type="EMAIL_ADDRESS",
+                start=6,
+                end=21,
+                score=0.97,
+                recognition_metadata={"recognizer_name": "EmailPattern"},
+                analysis_explanation=None,
+            )
+        ]
+    )
     result = PresidioDetector(stub).detect(prompt)
     assert result.status == DetectionStatus.PRIVATE
     assert result.findings[0].recognizer == "EmailPattern"
@@ -47,6 +57,7 @@ def test_presidio_analyzer_failure_propagates_to_orchestrator():
     class BadAnalyzer(StubAnalyzer):
         def analyze(self, **kwargs):
             raise RuntimeError("sensitive value! should never log this")
+
     with pytest.raises(RuntimeError):
         PresidioDetector(BadAnalyzer()).detect("sensitive value")
 

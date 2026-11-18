@@ -1,10 +1,11 @@
 """Independent audit verifier; never imports or uses the writer's private key."""
+
 from __future__ import annotations
 
 import base64
 import json
-from pathlib import Path
 import sqlite3
+from pathlib import Path
 from typing import Any
 
 from cryptography.exceptions import InvalidSignature
@@ -25,7 +26,9 @@ def load_public_key(path: str | Path) -> Ed25519PublicKey:
     return key
 
 
-def verify_database(db_path: str, public_key_path: str, checkpoint_path: str | None = None) -> dict[str, Any]:
+def verify_database(
+    db_path: str, public_key_path: str, checkpoint_path: str | None = None
+) -> dict[str, Any]:
     public_key = load_public_key(public_key_path)
     previous_hash = GENESIS_HASH
     expected_sequence = 1
@@ -34,16 +37,28 @@ def verify_database(db_path: str, public_key_path: str, checkpoint_path: str | N
             "SELECT sequence, event_id, request_id, tenant_id, event_type, event_json, previous_hash, "
             "event_hash, signature FROM events ORDER BY sequence ASC"
         ).fetchall()
-    for sequence, event_id, request_id, tenant_id, event_type, raw_event, previous, digest, signature in records:
+    for (
+        sequence,
+        event_id,
+        request_id,
+        tenant_id,
+        event_type,
+        raw_event,
+        previous,
+        digest,
+        signature,
+    ) in records:
         if sequence != expected_sequence or previous != previous_hash:
             raise VerificationError(f"Chain gap or incorrect predecessor at sequence {sequence}")
         try:
             event = json.loads(raw_event)
-            if (canonical_bytes(event).decode("utf-8") != raw_event
-                    or event["event_id"] != event_id
-                    or event["request_id"] != request_id
-                    or event["tenant_id"] != tenant_id
-                    or event["event_type"] != event_type):
+            if (
+                canonical_bytes(event).decode("utf-8") != raw_event
+                or event["event_id"] != event_id
+                or event["request_id"] != request_id
+                or event["tenant_id"] != tenant_id
+                or event["event_type"] != event_type
+            ):
                 raise VerificationError(f"Event metadata mismatch at sequence {sequence}")
             actual_hash = calculate_hash(previous, sequence, event)
             if actual_hash != digest:
@@ -54,10 +69,16 @@ def verify_database(db_path: str, public_key_path: str, checkpoint_path: str | N
         previous_hash = digest
         expected_sequence += 1
 
-    result = {"verified_events": len(records), "latest_sequence": expected_sequence - 1, "latest_hash": previous_hash}
+    result = {
+        "verified_events": len(records),
+        "latest_sequence": expected_sequence - 1,
+        "latest_hash": previous_hash,
+    }
     if checkpoint_path is not None:
         checkpoint = json.loads(Path(checkpoint_path).read_text(encoding="utf-8"))
         # Checkpoint is an independently retained full-chain head. Event signatures cover the head hash.
         if checkpoint != result:
-            raise VerificationError("Database does not match the trusted checkpoint (truncation/rewrite?)")
+            raise VerificationError(
+                "Database does not match the trusted checkpoint (truncation/rewrite?)"
+            )
     return result

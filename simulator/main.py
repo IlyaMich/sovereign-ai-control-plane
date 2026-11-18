@@ -1,8 +1,9 @@
 """No real model inference: deterministic, in-boundary HTTP adapter fixture."""
+
 import hashlib
 
 from fastapi import FastAPI
-from pydantic import BaseModel, Field, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 app = FastAPI(title="Sovereign Model Simulator")
 

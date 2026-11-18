@@ -1,4 +1,5 @@
 """Deterministic single-pass redaction using original offsets; never expose values."""
+
 from app.domain.contracts import DetectionResult
 
 
@@ -12,11 +13,11 @@ def redact(prompt: str, classification: DetectionResult, categories: tuple[str, 
     if not findings or not allowed or any(f.category not in allowed for f in findings):
         raise RedactionError("Missing required span or category")
     cursor = 0
-    parts = []
+    parts: list[str] = []
     for finding in findings:
         if not (cursor <= finding.start < finding.end <= len(prompt)):
             raise RedactionError("Invalid or overlapping span")
-        parts.extend((prompt[cursor:finding.start], f"[REDACTED_{finding.category}]"))
+        parts.extend((prompt[cursor : finding.start], f"[REDACTED_{finding.category}]"))
         cursor = finding.end
     parts.append(prompt[cursor:])
     result = "".join(parts)

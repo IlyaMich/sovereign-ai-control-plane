@@ -1,15 +1,18 @@
 """Runs against installed Presidio/spaCy in the Podman image, skipped otherwise."""
+
 import importlib.util
+
 import pytest
 
 
 @pytest.mark.skipif(
-    importlib.util.find_spec("presidio_analyzer") is None or
-    importlib.util.find_spec("en_core_web_sm") is None,
+    importlib.util.find_spec("presidio_analyzer") is None
+    or importlib.util.find_spec("en_core_web_sm") is None,
     reason="Presidio and pinned spaCy model are only installed in the M2 container",
 )
 def test_real_presidio_detects_patterns_and_completes_coverage():
     from app.detection.presidio_detector import PresidioDetector
+
     detector = PresidioDetector.create()
 
     email = detector.detect("Contact jane@example.com")

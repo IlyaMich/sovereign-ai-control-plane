@@ -10,7 +10,9 @@ from tests.conftest import RecordingModel, StaticPolicy
 
 def app_with_fakes(audit):
     settings = Settings(api_key="a-secret-for-tests-that-is-long-enough")
-    orchestrator = RequestOrchestrator(DemoPatternDetector(), StaticPolicy(), audit, RecordingModel(audit), EnforcementPlanner())
+    orchestrator = RequestOrchestrator(
+        DemoPatternDetector(), StaticPolicy(), audit, RecordingModel(audit), EnforcementPlanner()
+    )
     return create_app(Components(settings, orchestrator, audit))
 
 

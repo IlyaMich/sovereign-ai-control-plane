@@ -1,28 +1,34 @@
 """API ingress; no prompt echo in exceptions, logs, audit, or validation errors."""
+
 from __future__ import annotations
 
+import hmac
+import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
-import hmac
-import uuid
 
 import httpx
 from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
-from app.api.schemas import PromptInput
 from app.api.body_limit import RequestBodyLimitMiddleware
+from app.api.schemas import PromptInput
 from app.application.orchestrator import RequestOrchestrator
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
 from app.detection.presidio_detector import PresidioDetector
 from app.domain.contracts import Principal, PromptCommand, RequestStatus
-from app.enforcement.gateway import Destination, DestinationRegistry, EnforcementPlanner, HTTPModelGateway
+from app.enforcement.gateway import (
+    Destination,
+    DestinationRegistry,
+    EnforcementPlanner,
+    HTTPModelGateway,
+)
 from app.infrastructure.config import Settings
-from app.policy.opa import OPAPolicyEvaluator, parse_decision
+from app.policy.opa import OPAPolicyEvaluator
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
-from app.release.approvals import ReleaseStore, ReleaseIntegrityError
+from app.release.approvals import ReleaseIntegrityError, ReleaseStore
 
 
 @dataclass
@@ -39,23 +45,31 @@ def make_components() -> Components:
     audit = SQLiteAuditStore(settings.db_path, settings.signing_key_path)
     destinations = [Destination("sovereign-model", settings.model_url, "INTERNAL")]
     if settings.enable_external_simulator:
-        destinations.append(Destination("external-simulator", settings.egress_gateway_url, "EXTERNAL_SIMULATED"))
+        destinations.append(
+            Destination("external-simulator", settings.egress_gateway_url, "EXTERNAL_SIMULATED")
+        )
     registry = DestinationRegistry(tuple(destinations))
     snapshot_store = PolicySnapshotStore(settings.active_policy_path, settings.policy_archive_path)
     # Reject an invalid or missing policy snapshot at startup.
     snapshot_store.verify_active()
-    release_store = (ReleaseStore(
-        active=Path(settings.release_active_path),
-        archive=Path(settings.release_archive_path),
-        trust=Path(settings.release_trust_path),
-        policy_store=snapshot_store,
-        detector_manifest=Path(settings.detector_manifest_path),
-    ) if settings.require_signed_release else None)
+    release_store = (
+        ReleaseStore(
+            active=Path(settings.release_active_path),
+            archive=Path(settings.release_archive_path),
+            trust=Path(settings.release_trust_path),
+            policy_store=snapshot_store,
+            detector_manifest=Path(settings.detector_manifest_path),
+        )
+        if settings.require_signed_release
+        else None
+    )
     if release_store is not None:
         release_store.verify_active()
     orchestrator = RequestOrchestrator(
-        detector=PresidioDetector.create(manifest_path=settings.detector_manifest_path,
-                                        archive_root=settings.detector_archive_path),
+        detector=PresidioDetector.create(
+            manifest_path=settings.detector_manifest_path,
+            archive_root=settings.detector_archive_path,
+        ),
         policy=OPAPolicyEvaluator(client, settings.opa_url, snapshot_store, release_store),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry),
@@ -112,16 +126,20 @@ def create_app(components: Components | None = None) -> FastAPI:
         try:
             response = await deps.client.post(
                 deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/decision",
-                json={"input": {}}, timeout=1.0,
+                json={"input": {}},
+                timeout=1.0,
             )
             response.raise_for_status()
             result = response.json().get("result")
             if not isinstance(result, dict):
                 raise ValueError("OPA policy result missing")
-            if deps.orchestrator.policy.snapshots is not None:
-                info = deps.orchestrator.policy.snapshots.verify_active()
-                if (result.get("policy_digest") != info.policy_digest or
-                    result.get("policy_revision") != info.policy_revision):
+            policy = deps.orchestrator.policy
+            if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None:
+                info = policy.snapshots.verify_active()
+                if (
+                    result.get("policy_digest") != info.policy_digest
+                    or result.get("policy_revision") != info.policy_revision
+                ):
                     raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
@@ -131,17 +149,31 @@ def create_app(components: Components | None = None) -> FastAPI:
             if deps.orchestrator.release_store is not None:
                 deps.orchestrator.release_store.verify_active()
             deps.audit.check_writable()
-            model = await deps.client.get(deps.settings.model_url.rstrip("/") + "/health", timeout=1.0)
+            model = await deps.client.get(
+                deps.settings.model_url.rstrip("/") + "/health", timeout=1.0
+            )
             model.raise_for_status()
-        except (httpx.HTTPError, ValueError, RuntimeError, OSError, AuditUnavailable, SnapshotError, ReleaseIntegrityError):
+        except (
+            httpx.HTTPError,
+            ValueError,
+            RuntimeError,
+            OSError,
+            AuditUnavailable,
+            SnapshotError,
+            ReleaseIntegrityError,
+        ):
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         return {"status": "READY"}
 
     @app.post("/v1/prompts")
-    async def submit(payload: PromptInput, x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    async def submit(
+        payload: PromptInput, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+    ):
         principal = authenticate(x_api_key)
         request_id = str(uuid.uuid4())
-        command = PromptCommand(request_id, payload.prompt, payload.destination_id, payload.purpose, principal)
+        command = PromptCommand(
+            request_id, payload.prompt, payload.destination_id, payload.purpose, principal
+        )
         result = await deps.orchestrator.process(command)
         body = {
             "request_id": result.request_id,
@@ -153,11 +185,17 @@ def create_app(components: Components | None = None) -> FastAPI:
             "model_id": result.model_id,
             "output": result.output,
         }
-        http_code = {RequestStatus.COMPLETED: 200, RequestStatus.BLOCKED: 403, RequestStatus.ERROR: 502}[result.status]
+        http_code = {
+            RequestStatus.COMPLETED: 200,
+            RequestStatus.BLOCKED: 403,
+            RequestStatus.ERROR: 502,
+        }[result.status]
         return JSONResponse(status_code=http_code, content=body)
 
     @app.get("/v1/requests/{request_id}")
-    async def get_request(request_id: uuid.UUID, x_api_key: str | None = Header(default=None, alias="X-API-Key")):
+    async def get_request(
+        request_id: uuid.UUID, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+    ):
         principal = authenticate(x_api_key)
         events = deps.audit.get_events(str(request_id), principal.tenant_id)
         if not events:

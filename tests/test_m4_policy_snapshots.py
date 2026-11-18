@@ -1,17 +1,20 @@
-import json
 import shutil
 
 import httpx
 import pytest
 
-from app.domain.contracts import (DetectionResult, DetectionStatus, Principal,
-                                  PolicyContext, PromptCommand, Sensitivity)
+from app.domain.contracts import (
+    DetectionResult,
+    DetectionStatus,
+    PolicyContext,
+    Principal,
+    PromptCommand,
+    Sensitivity,
+)
 from app.policy.opa import OPAPolicyEvaluator, PolicyEvaluationError
-from app.policy.snapshots import (PolicySnapshotStore, SnapshotError, build_snapshot,
-                                  verify_snapshot)
+from app.policy.snapshots import PolicySnapshotStore, SnapshotError, build_snapshot, verify_snapshot
 
-
-SOURCE = '''package sovereign.authz
+SOURCE = """package sovereign.authz
 import rego.v1
 revision := "redaction-baseline-v3"
 decision := {
@@ -19,7 +22,7 @@ decision := {
  "reason_codes": ["TEST_PERMIT"], "policy_revision": revision,
  "policy_digest": data.sovereign.policy_meta.digest,
 } if { true }
-'''
+"""
 
 
 def setup_snapshot(tmp_path):
@@ -40,8 +43,10 @@ def context():
 
 def payload(info, digest=None):
     return {
-        "effect": "PERMIT", "obligations": [{"type": "ROUTE", "destination_id": "sovereign-model"}],
-        "reason_codes": ["TEST_PERMIT"], "policy_revision": info.policy_revision,
+        "effect": "PERMIT",
+        "obligations": [{"type": "ROUTE", "destination_id": "sovereign-model"}],
+        "reason_codes": ["TEST_PERMIT"],
+        "policy_revision": info.policy_revision,
         "policy_digest": digest or info.policy_digest,
     }
 
@@ -76,14 +81,18 @@ async def test_opa_must_return_exact_content_digest(tmp_path):
     _, archive, active, info = setup_snapshot(tmp_path)
     snapshots = PolicySnapshotStore(active, archive)
     mismatch = payload(info, "f" * 64)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(
-        lambda request: httpx.Response(200, json={"result": mismatch})
-    )) as client:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"result": mismatch})
+        )
+    ) as client:
         with pytest.raises(PolicyEvaluationError):
             await OPAPolicyEvaluator(client, "http://opa", snapshots).evaluate(context())
-    async with httpx.AsyncClient(transport=httpx.MockTransport(
-        lambda request: httpx.Response(200, json={"result": payload(info)})
-    )) as client:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"result": payload(info)})
+        )
+    ) as client:
         result = await OPAPolicyEvaluator(client, "http://opa", snapshots).evaluate(context())
     assert result.policy_digest == info.policy_digest
 
@@ -92,8 +101,12 @@ async def test_opa_must_return_exact_content_digest(tmp_path):
 async def test_missing_archived_snapshot_fails_closed(tmp_path):
     _, archive, active, info = setup_snapshot(tmp_path)
     shutil.rmtree(archive / info.policy_digest)
-    async with httpx.AsyncClient(transport=httpx.MockTransport(
-        lambda request: httpx.Response(200, json={"result": payload(info)})
-    )) as client:
+    async with httpx.AsyncClient(
+        transport=httpx.MockTransport(
+            lambda request: httpx.Response(200, json={"result": payload(info)})
+        )
+    ) as client:
         with pytest.raises(PolicyEvaluationError):
-            await OPAPolicyEvaluator(client, "http://opa", PolicySnapshotStore(active, archive)).evaluate(context())
+            await OPAPolicyEvaluator(
+                client, "http://opa", PolicySnapshotStore(active, archive)
+            ).evaluate(context())
