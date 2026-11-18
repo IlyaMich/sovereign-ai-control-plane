@@ -4,7 +4,9 @@
 [CmdletBinding()]
 param(
     [string]$KeyDirectory = "$env:USERPROFILE\.sovereign-ai-control-plane",
-    [switch]$UseExistingKey
+    [switch]$UseExistingKey,
+    [switch]$SkipBuild,
+    [string]$Python = "python"
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
@@ -19,7 +21,7 @@ $publicKey = (Join-Path (Resolve-Path .\release-trust).Path 'release-signing.pub
 if (-not (Test-Path $privateKey)) {
     if ($UseExistingKey) { throw 'Existing release signing private key is missing.' }
     Write-Host '[Key] Generate local development-only release key' -ForegroundColor Cyan
-    python -m tools.generate_release_key --private-key $privateKey --public-key $publicKey
+    & $Python -m tools.generate_release_key --private-key $privateKey --public-key $publicKey
     if ($LASTEXITCODE -ne 0) { throw 'Key generation failed' }
     Write-Host "Private key stored outside repo: $privateKey" -ForegroundColor Yellow
     Write-Host 'Protect this file using Windows ACLs; production requires HSM/KMS or managed signing.' -ForegroundColor Yellow
@@ -35,16 +37,20 @@ $trustHash = (Get-FileHash $publicKey -Algorithm SHA256).Hash
 if ($pinHash -ne $trustHash) { throw 'Public-key pin mismatch; investigate before activating.' }
 
 Write-Host '[1/5] Verify active archived policy' -ForegroundColor Cyan
-python -m tools.verify_policy_snapshot
+& $Python -m tools.verify_policy_snapshot
 if ($LASTEXITCODE -ne 0) { throw 'Policy snapshot invalid' }
 
-Write-Host '[2/5] Build the M6 control-plane image (do not start it before approval)' -ForegroundColor Cyan
-podman compose -f deploy/compose.yaml --env-file .env build control-plane
-if ($LASTEXITCODE -ne 0) { throw 'Podman image build failed' }
+if ($SkipBuild) {
+    Write-Host '[2/5] Inspect the existing image without rebuilding it' -ForegroundColor Cyan
+} else {
+    Write-Host '[2/5] Build the M6 control-plane image (do not start it before approval)' -ForegroundColor Cyan
+    podman compose -f deploy/compose.yaml --env-file .env build control-plane
+    if ($LASTEXITCODE -ne 0) { throw 'Podman image build failed' }
+}
 
 Write-Host '[3/5] Get artifact digest directly from freshly built image' -ForegroundColor Cyan
 $lines = & podman compose -f deploy/compose.yaml --env-file .env `
-    run --rm --no-deps --entrypoint python control-plane -m tools.verify_detector_manifest
+    run --rm --no-deps --pull never --entrypoint python control-plane -m tools.verify_detector_manifest
 if ($LASTEXITCODE -ne 0) { throw 'Detector artifact verification failed' }
 # The detector tool prints a one-line JSON object. Filter out compose-provider status lines.
 $found = @($lines | Where-Object { $_ -match '^\s*\{.*"detector_artifact_digest".*\}\s*$' })
@@ -73,13 +79,13 @@ $arguments = @('-m', 'tools.sign_release', '--private-key', $privateKey,
                '--policy-snapshot', 'policy-active', '--detector-digest', $digest,
                '--generation', "$generation", '--out', $candidate)
 if ($previous) { $arguments += @('--previous-release-id', $previous) }
-& python @arguments
+& $Python @arguments
 if ($LASTEXITCODE -ne 0) { throw 'Release signing failed' }
 
 Write-Host '[5/5] Verify signature and activate immutable release' -ForegroundColor Cyan
-python -m tools.activate_release --candidate $candidate --detector-digest $digest
+& $Python -m tools.activate_release --candidate $candidate --detector-digest $digest
 if ($LASTEXITCODE -ne 0) { throw 'Release activation failed' }
-python -m tools.verify_release
+& $Python -m tools.verify_release
 if ($LASTEXITCODE -ne 0) { throw 'Activated release does not verify' }
 Write-Host 'Signed approval ready. Start containers WITHOUT rebuilding the image:' -ForegroundColor Green
 Write-Host 'podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d'

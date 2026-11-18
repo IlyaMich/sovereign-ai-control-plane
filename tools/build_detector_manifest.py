@@ -4,13 +4,18 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 
 from app.detection.provenance import write_build_manifest
+from app.infrastructure.config import Settings
 
 
 def main() -> None:
     p = argparse.ArgumentParser()
-    p.add_argument("--output", default="/service/detector-active/manifest.json")
+    p.add_argument(
+        "--output",
+        default=os.environ.get("DETECTOR_MANIFEST_PATH", Settings.detector_manifest_path),
+    )
     p.add_argument("--root", default="/service")
     args = p.parse_args()
     result = write_build_manifest(args.output, args.root)

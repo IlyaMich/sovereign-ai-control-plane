@@ -13,6 +13,7 @@ import json
 import os
 import sqlite3
 import uuid
+from contextlib import closing
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -77,13 +78,17 @@ class SQLiteAuditStore:
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path, timeout=5.0, isolation_level=None)
-        connection.row_factory = sqlite3.Row
-        connection.execute("PRAGMA busy_timeout = 5000")
-        connection.execute("PRAGMA synchronous = FULL")
+        try:
+            connection.row_factory = sqlite3.Row
+            connection.execute("PRAGMA busy_timeout = 5000")
+            connection.execute("PRAGMA synchronous = FULL")
+        except sqlite3.Error:
+            connection.close()
+            raise
         return connection
 
     def _initialize_db(self) -> None:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             conn.execute("PRAGMA journal_mode = WAL")
             conn.execute("""
                 CREATE TABLE IF NOT EXISTS events (
@@ -108,7 +113,7 @@ class SQLiteAuditStore:
             if not isinstance(key, Ed25519PrivateKey):
                 raise AuditUnavailable("Invalid signing key type")
             return key
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         if count:
             raise AuditUnavailable("Existing audit history but signing key is missing")
@@ -131,7 +136,7 @@ class SQLiteAuditStore:
     def check_writable(self) -> None:
         """Non-mutating readiness probe; a later commit can still fail."""
         try:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute("BEGIN IMMEDIATE")
                 conn.rollback()
         except sqlite3.Error as exc:
@@ -153,7 +158,7 @@ class SQLiteAuditStore:
             "payload": payload,
         }
         try:
-            with self._connect() as conn:
+            with closing(self._connect()) as conn, conn:
                 conn.execute("BEGIN IMMEDIATE")
                 previous = conn.execute(
                     "SELECT sequence, event_hash FROM events ORDER BY sequence DESC LIMIT 1"
@@ -185,7 +190,7 @@ class SQLiteAuditStore:
             raise AuditUnavailable("Durable audit commit failed") from exc
 
     def get_events(self, request_id: str, tenant_id: str) -> list[dict[str, Any]]:
-        with self._connect() as conn:
+        with closing(self._connect()) as conn, conn:
             rows = conn.execute(
                 "SELECT sequence, event_json, event_hash, signature FROM events "
                 "WHERE request_id=? AND tenant_id=? ORDER BY sequence ASC",

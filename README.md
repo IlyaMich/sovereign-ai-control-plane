@@ -2,7 +2,7 @@
 
 A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, and records independently checkable evidence.
 
-**Current implementation: Milestone 6 · API version 0.6.0.** M1–M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
+**Current implementation: Milestone 6 Â· API version 0.6.0.** M1â€“M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
 
 ## Capabilities at a glance
 
@@ -142,7 +142,9 @@ podman compose -f deploy/compose.yaml --env-file .env exec control-plane python 
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
 ~~~
 
-A `Makefile` also provides `make test`, `make smoke`, `make test-policy` and other conveniences (requires Make). **Do not use `make up` as a signed production-style deployment command:** it invokes `up --build` and can rebuild detector artifacts after release approval. Use explicit `--no-build` Compose commands for M6 deployment.
+A `Makefile` also provides `make test`, `make smoke`, `make test-policy` and other conveniences (requires Make). `make up` and `make restart` verify the image against the mounted signed release and start with `--no-build`. `make build` remains a separate operation; approve its resulting detector identity before starting it.
+
+If startup reports `Installed detector identity is not approved`, the rebuilt image differs from the active approval. For an intended change, approve that existing image with `.\Initialize-Milestone6.ps1 -UseExistingKey -SkipBuild -Python .\.venv\Scripts\python.exe`, then run `make up` and `make check-containers`. Omitting `-SkipBuild` builds the image before approval. The helper signs a successor generation with the existing key and preserves release archives.
 
 ### API smoke test (PowerShell)
 
@@ -172,7 +174,7 @@ The exporter (`python -m tools.export_evidence_package --out /var/lib/sovereign/
 
 A result of `EVIDENCE_PACKAGE_SELF_CONSISTENT` with `REPLAY_VERIFIED` confirms the package's internal signatures, chain, manifests and eligible policy replays. It does **not** by itself authenticate the audit signing key or establish complete history. A separately provisioned release verification key authenticates release approvals only. Use separately retained `--trusted-public-key` and `--trusted-checkpoint` for stronger audit authentication. A checkpoint generated inside the same ZIP is not an independent witness.
 
-The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1–M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
+The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1â€“M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
 
 ## Documentation
 
@@ -193,3 +195,5 @@ The verifier cannot replay original NLP classifications: raw prompts and origina
 This prototype does **not** provide a real external inference provider, evidence of geographic model residency, output DLP, OIDC or multi-tenant RBAC, full detector replay, production key protection, hardware anti-rollback, independent audit witnessing, or distributed audit sequencing. It uses synchronous processing and SQLite as one local writer.
 
 The proposed next priorities are **independently witnessed audit checkpoints and externally pinned audit trust anchors**, then a real local inference runtime with stronger egress/workload identity, followed by enterprise governance and operations. These are roadmap items, **not implemented guarantees**. Security and compliance claims must be bounded by the threat model and actual deployment evidence.
+
+See [Configuration](docs/configuration.md) for request limits, timeouts, deployment overrides, and signed detector rules.

@@ -5,6 +5,7 @@ from __future__ import annotations
 import base64
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -32,7 +33,10 @@ def verify_database(
     public_key = load_public_key(public_key_path)
     previous_hash = GENESIS_HASH
     expected_sequence = 1
-    with sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True) as conn:
+    with (
+        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as conn,
+        conn,
+    ):
         records = conn.execute(
             "SELECT sequence, event_id, request_id, tenant_id, event_type, event_json, previous_hash, "
             "event_hash, signature FROM events ORDER BY sequence ASC"

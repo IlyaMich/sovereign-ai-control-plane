@@ -11,31 +11,11 @@ import json
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from app.detection.config import DEFAULT_CONFIG
 from app.domain.contracts import DetectionResult, DetectionStatus, Finding, Sensitivity
 
-# Unknown categories must never silently become safe-to-route data.
-SENSITIVITY_BY_CATEGORY: dict[str, Sensitivity] = {
-    "EMAIL_ADDRESS": Sensitivity.MEDIUM,
-    "PHONE_NUMBER": Sensitivity.MEDIUM,
-    "PERSON": Sensitivity.MEDIUM,
-    "LOCATION": Sensitivity.MEDIUM,
-    "CREDIT_CARD": Sensitivity.HIGH,
-    "US_SSN": Sensitivity.HIGH,
-    "IBAN_CODE": Sensitivity.HIGH,
-    "API_CREDENTIAL": Sensitivity.HIGH,
-    "PRIVATE_KEY": Sensitivity.HIGH,
-}
-REQUIRED_COVERAGE: frozenset[str] = frozenset(
-    {
-        "EMAIL_ADDRESS",
-        "PHONE_NUMBER",
-        "PERSON",
-        "CREDIT_CARD",
-        "US_SSN",
-        "API_CREDENTIAL",
-        "PRIVATE_KEY",
-    }
-)
+SENSITIVITY_BY_CATEGORY = dict(DEFAULT_CONFIG.sensitivity_mapping)
+REQUIRED_COVERAGE = DEFAULT_CONFIG.required_coverage
 SEVERITY = {Sensitivity.NONE: 0, Sensitivity.MEDIUM: 1, Sensitivity.HIGH: 2}
 
 
@@ -61,12 +41,16 @@ class FindingAggregator:
         version: str,
         config_digest: str,
         required: frozenset[str] = REQUIRED_COVERAGE,
-        threshold: float = 0.50,
+        threshold: float = DEFAULT_CONFIG.threshold,
+        sensitivity_mapping: dict[str, Sensitivity] | None = None,
     ) -> None:
         self.version = version
         self.config_digest = config_digest
         self.required = required
         self.threshold = threshold
+        self.sensitivity_mapping = dict(
+            SENSITIVITY_BY_CATEGORY if sensitivity_mapping is None else sensitivity_mapping
+        )
 
     def aggregate(
         self,
@@ -84,7 +68,7 @@ class FindingAggregator:
         # not a trustworthy negative detection result. Fail closed instead of dropping it.
         for item in observations:
             if (
-                item.category not in SENSITIVITY_BY_CATEGORY
+                item.category not in self.sensitivity_mapping
                 or not isinstance(item.start, int)
                 or not isinstance(item.end, int)
                 or not (0 <= item.start < item.end <= len(prompt))
@@ -103,7 +87,7 @@ class FindingAggregator:
         # stable lexical tie-breakers remove order dependence from recognizer calls.
         observations.sort(
             key=lambda x: (
-                -SEVERITY[SENSITIVITY_BY_CATEGORY[x.category]],
+                -SEVERITY[self.sensitivity_mapping[x.category]],
                 -x.score,
                 -(x.end - x.start),
                 x.start,
@@ -120,7 +104,7 @@ class FindingAggregator:
         findings = tuple(Finding(x.category, x.start, x.end, x.recognizer, x.score) for x in kept)
         sensitivity = (
             Sensitivity.HIGH
-            if any(SENSITIVITY_BY_CATEGORY[f.category] == Sensitivity.HIGH for f in findings)
+            if any(self.sensitivity_mapping[f.category] == Sensitivity.HIGH for f in findings)
             else Sensitivity.MEDIUM
             if findings
             else Sensitivity.NONE

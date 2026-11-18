@@ -14,6 +14,7 @@ from app.domain.contracts import (
     PolicyDecision,
     PromptCommand,
 )
+from app.infrastructure.config import HTTPTimeouts
 
 
 class InvalidPlan(Exception):
@@ -101,9 +102,15 @@ class EnforcementPlanner:
 
 class HTTPModelGateway:
     def __init__(
-        self, client: httpx.AsyncClient, model_url: str, registry: DestinationRegistry | None = None
+        self,
+        client: httpx.AsyncClient,
+        model_url: str,
+        registry: DestinationRegistry | None = None,
+        *,
+        timeout: float = HTTPTimeouts.model,
     ):
         self._client = client
+        self._timeout = timeout
         self.registry = registry or DestinationRegistry(
             (Destination("sovereign-model", model_url, "INTERNAL"),)
         )
@@ -116,7 +123,7 @@ class HTTPModelGateway:
             response = await self._client.post(
                 destination.url.rstrip("/") + "/generate",
                 json={"request_id": request_id, "prompt": prompt},
-                timeout=10.0,
+                timeout=self._timeout,
             )
             response.raise_for_status()
             payload = response.json()

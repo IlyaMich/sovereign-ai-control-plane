@@ -4,32 +4,40 @@ services:
     build:
       context: ..
       dockerfile: deploy/Containerfile
+      args:
+        DETECTOR_MANIFEST_PATH: ${DETECTOR_MANIFEST_PATH:-/service/detector-active/manifest.json}
     environment:
+      MAX_PROMPT_BYTES: ${MAX_PROMPT_BYTES:-8192}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-16384}
+      MAX_FORWARDED_PROMPT_BYTES: ${MAX_FORWARDED_PROMPT_BYTES:-8192}
+      OPA_TIMEOUT_SECONDS: ${OPA_TIMEOUT_SECONDS:-2.0}
+      MODEL_TIMEOUT_SECONDS: ${MODEL_TIMEOUT_SECONDS:-10.0}
+      READINESS_TIMEOUT_SECONDS: ${READINESS_TIMEOUT_SECONDS:-1.0}
       CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY:?Set a long random key in .env}
-      OPA_URL: http://opa:8181
-      MODEL_URL: http://sovereign-model:9000
+      OPA_URL: ${OPA_URL:-http://opa:8181}
+      MODEL_URL: ${MODEL_URL:-http://sovereign-model:9000}
       ENABLE_EXTERNAL_SIMULATOR: ${ENABLE_EXTERNAL_SIMULATOR:-false}
-      EGRESS_GATEWAY_URL: http://egress-gateway:9010
+      EGRESS_GATEWAY_URL: ${EGRESS_GATEWAY_URL:-http://egress-gateway:9010}
       EXPECTED_POLICY_REVISION: ${EXPECTED_POLICY_REVISION:-redaction-baseline-v3}
-      ACTIVE_POLICY_PATH: /policy-active
-      POLICY_ARCHIVE_PATH: /policy-archive
-      DETECTOR_MANIFEST_PATH: /service/detector-active/manifest.json
-      DETECTOR_ARCHIVE_PATH: /var/lib/sovereign/detector-archive
+      ACTIVE_POLICY_PATH: ${ACTIVE_POLICY_PATH:-/policy-active}
+      POLICY_ARCHIVE_PATH: ${POLICY_ARCHIVE_PATH:-/policy-archive}
+      DETECTOR_MANIFEST_PATH: ${DETECTOR_MANIFEST_PATH:-/service/detector-active/manifest.json}
+      DETECTOR_ARCHIVE_PATH: ${DETECTOR_ARCHIVE_PATH:-${AUDIT_DATA_DIR:-/var/lib/sovereign}/detector-archive}
       REQUIRE_SIGNED_RELEASE: ${REQUIRE_SIGNED_RELEASE:-true}
-      RELEASE_ACTIVE_PATH: /release-active/release.json
-      RELEASE_ARCHIVE_PATH: /release-archive
-      RELEASE_TRUST_PATH: /release-trust
-      AUDIT_DB_PATH: /var/lib/sovereign/audit.sqlite
-      AUDIT_SIGNING_KEY_PATH: /var/lib/sovereign/audit-key.pem
+      RELEASE_ACTIVE_PATH: ${RELEASE_ACTIVE_PATH:-${RELEASE_ACTIVE_DIR:-/release-active}/release.json}
+      RELEASE_ARCHIVE_PATH: ${RELEASE_ARCHIVE_PATH:-/release-archive}
+      RELEASE_TRUST_PATH: ${RELEASE_TRUST_PATH:-/release-trust}
+      AUDIT_DB_PATH: ${AUDIT_DB_PATH:-${AUDIT_DATA_DIR:-/var/lib/sovereign}/audit.sqlite}
+      AUDIT_SIGNING_KEY_PATH: ${AUDIT_SIGNING_KEY_PATH:-${AUDIT_DATA_DIR:-/var/lib/sovereign}/audit-key.pem}
     ports:
-      - "127.0.0.1:8000:8000"
+      - "${API_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     volumes:
-      - audit-data:/var/lib/sovereign
-      - ../policy-active:/policy-active:ro
-      - ../policy-archive:/policy-archive:ro
-      - ../release-active:/release-active:ro
-      - ../release-archive:/release-archive:ro
-      - ../release-trust:/release-trust:ro
+      - audit-data:${AUDIT_DATA_DIR:-/var/lib/sovereign}
+      - ../policy-active:${ACTIVE_POLICY_PATH:-/policy-active}:ro
+      - ../policy-archive:${POLICY_ARCHIVE_PATH:-/policy-archive}:ro
+      - ../release-active:${RELEASE_ACTIVE_DIR:-/release-active}:ro
+      - ../release-archive:${RELEASE_ARCHIVE_PATH:-/release-archive}:ro
+      - ../release-trust:${RELEASE_TRUST_PATH:-/release-trust}:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -61,9 +69,9 @@ services:
       context: ..
       dockerfile: deploy/ReviewerContainerfile
     volumes:
-      - audit-data:/var/lib/sovereign:ro
-      - ../policy-archive:/policy-archive:ro
-      - ../release-trust:/release-trust:ro
+      - audit-data:${AUDIT_DATA_DIR:-/var/lib/sovereign}:ro
+      - ../policy-archive:${POLICY_ARCHIVE_PATH:-/policy-archive}:ro
+      - ../release-trust:${RELEASE_TRUST_PATH:-/release-trust}:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -77,6 +85,14 @@ services:
     build:
       context: ..
       dockerfile: deploy/Containerfile
+      args:
+        DETECTOR_MANIFEST_PATH: ${DETECTOR_MANIFEST_PATH:-/service/detector-active/manifest.json}
+    environment:
+      MAX_PROMPT_BYTES: ${MAX_PROMPT_BYTES:-8192}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-16384}
+      MAX_FORWARDED_PROMPT_BYTES: ${MAX_FORWARDED_PROMPT_BYTES:-8192}
+      SIMULATOR_UPSTREAM_URL: ${SIMULATOR_UPSTREAM_URL:-http://external-simulator:9000}
+      SIMULATOR_EGRESS_TIMEOUT_SECONDS: ${SIMULATOR_EGRESS_TIMEOUT_SECONDS:-5.0}
     command: ["uvicorn", "simulator.egress:app", "--host", "0.0.0.0", "--port", "9010", "--no-access-log", "--no-proxy-headers"]
     read_only: true
     cap_drop: [ALL]
@@ -90,6 +106,12 @@ services:
     build:
       context: ..
       dockerfile: deploy/Containerfile
+      args:
+        DETECTOR_MANIFEST_PATH: ${DETECTOR_MANIFEST_PATH:-/service/detector-active/manifest.json}
+    environment:
+      MAX_PROMPT_BYTES: ${MAX_PROMPT_BYTES:-8192}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-16384}
+      MAX_FORWARDED_PROMPT_BYTES: ${MAX_FORWARDED_PROMPT_BYTES:-8192}
     command: ["uvicorn", "simulator.external:app", "--host", "0.0.0.0", "--port", "9000", "--no-access-log", "--no-proxy-headers"]
     read_only: true
     cap_drop: [ALL]
@@ -101,6 +123,12 @@ services:
     build:
       context: ..
       dockerfile: deploy/Containerfile
+      args:
+        DETECTOR_MANIFEST_PATH: ${DETECTOR_MANIFEST_PATH:-/service/detector-active/manifest.json}
+    environment:
+      MAX_PROMPT_BYTES: ${MAX_PROMPT_BYTES:-8192}
+      MAX_REQUEST_BODY_BYTES: ${MAX_REQUEST_BODY_BYTES:-16384}
+      MAX_FORWARDED_PROMPT_BYTES: ${MAX_FORWARDED_PROMPT_BYTES:-8192}
     command: ["uvicorn", "simulator.main:app", "--host", "0.0.0.0", "--port", "9000", "--no-access-log", "--no-proxy-headers"]
     read_only: true
     tmpfs:

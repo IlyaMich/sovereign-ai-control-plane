@@ -53,7 +53,7 @@ Preserve `.env`, audit volume, and existing `policy-archive` and `policy-active`
 5. Run `./Verify-Milestone6.ps1` to check actual runtime approval, signed
    evidence, export and network-disabled offline release verification.
 
-**Caution:** The root `Makefile` has a `make up` target using `up --build`. Do not use that target after signing a release: it can rebuild detector artifacts and invalidate what was approved. Use the explicit `--no-build` Compose startup shown above.
+`make up` and `make restart` run a release preflight and use `--no-build`, preserving the approved image. If `make build` was already run, `.\Initialize-Milestone6.ps1 -UseExistingKey -SkipBuild` approves the existing image as a new successor generation without rebuilding it.
 
 ### Subsequent policy rollouts / rollback
 
@@ -99,7 +99,7 @@ an independent witness of completeness.
   atomic cross-volume transaction.
 - Verifying a signed release in the same compromised container is insufficient
   against a malicious administrator who can change the container binary.
-- The historical archive retains M1–M5 records as integrity-replayable where
+- The historical archive retains M1â€“M5 records as integrity-replayable where
   supported; it does not manufacture release approvals for older events.
 - A disabled `REQUIRE_SIGNED_RELEASE=false` switch is for **local migration/
   development only**; it bypasses the new authorization boundary.

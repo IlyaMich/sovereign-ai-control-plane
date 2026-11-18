@@ -1,0 +1,67 @@
+{
+  "threshold": 0.5,
+  "entity_categories": [
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "PERSON",
+    "LOCATION",
+    "CREDIT_CARD",
+    "US_SSN",
+    "IBAN_CODE",
+    "API_CREDENTIAL",
+    "PRIVATE_KEY"
+  ],
+  "required_coverage": [
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "PERSON",
+    "CREDIT_CARD",
+    "US_SSN",
+    "API_CREDENTIAL",
+    "PRIVATE_KEY"
+  ],
+  "sensitivity_mapping": {
+    "EMAIL_ADDRESS": "MEDIUM",
+    "PHONE_NUMBER": "MEDIUM",
+    "PERSON": "MEDIUM",
+    "LOCATION": "MEDIUM",
+    "CREDIT_CARD": "HIGH",
+    "US_SSN": "HIGH",
+    "IBAN_CODE": "HIGH",
+    "API_CREDENTIAL": "HIGH",
+    "PRIVATE_KEY": "HIGH"
+  },
+  "patterns": {
+    "API_CREDENTIAL": [
+      [
+        "aws-access-key",
+        "\\bAKIA[0-9A-Z]{16}\\b",
+        0.99
+      ],
+      [
+        "openai-style-key",
+        "\\bsk-[A-Za-z0-9_-]{16,}\\b",
+        0.98
+      ],
+      [
+        "github-pat",
+        "\\bgh[pousr]_[A-Za-z0-9]{20,}\\b",
+        0.98
+      ]
+    ],
+    "PRIVATE_KEY": [
+      [
+        "pem-private-key-header",
+        "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
+        0.99
+      ]
+    ],
+    "EMAIL_ADDRESS": [
+      [
+        "standard-email",
+        "\\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}\\b",
+        0.97
+      ]
+    ]
+  }
+}

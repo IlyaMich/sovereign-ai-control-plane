@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import closing
 
 import pytest
 
@@ -18,7 +19,7 @@ def test_verified_chain_detects_modification_and_truncation(audit, tmp_path):
     checkpoint.write_text(json.dumps(before))
     assert verify_database(str(audit.db_path), public_key, str(checkpoint)) == before
 
-    with sqlite3.connect(audit.db_path) as conn:
+    with closing(sqlite3.connect(audit.db_path)) as conn, conn:
         conn.execute("UPDATE events SET event_json=? WHERE sequence=1", ('{"changed":"yes"}',))
     with pytest.raises(VerificationError):
         verify_database(str(audit.db_path), public_key)
@@ -33,7 +34,7 @@ def test_truncation_detected_by_independent_checkpoint(audit, tmp_path):
     before = verify_database(str(audit.db_path), public_key)
     checkpoint = tmp_path / "checkpoint.json"
     checkpoint.write_text(json.dumps(before))
-    with sqlite3.connect(audit.db_path) as conn:
+    with closing(sqlite3.connect(audit.db_path)) as conn, conn:
         conn.execute("DELETE FROM events WHERE sequence=2")
     assert verify_database(str(audit.db_path), public_key)["verified_events"] == 1
     with pytest.raises(VerificationError, match="checkpoint"):

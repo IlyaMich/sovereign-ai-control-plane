@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from app.release.approvals import HEX64, ReleaseIntegrityError, load_approval, summary
@@ -21,7 +22,10 @@ def verify_release_references(
     authenticated = 0
     legacy = 0
     unique: set[str] = set()
-    with sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True) as conn:
+    with (
+        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as conn,
+        conn,
+    ):
         rows = conn.execute(
             "SELECT sequence,event_json FROM events WHERE event_type='DECISION' ORDER BY sequence"
         ).fetchall()

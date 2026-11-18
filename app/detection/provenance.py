@@ -19,6 +19,8 @@ from typing import Any
 DOMAIN = b"sovereign-detector-manifest-v1\0"
 SCHEMA = 1
 SOURCE_PATHS = (
+    "app/detection/config.py",
+    "app/detection/rules.json",
     "app/detection/aggregation.py",
     "app/detection/presidio_detector.py",
     "app/detection/provenance.py",
@@ -79,8 +81,11 @@ def live_payload(root: Path | str = "/service") -> dict:
         items.append({"path": "model/" + rel, "size": len(raw), "sha256": sha256(raw)})
     if not items:
         raise DetectorIntegrityError("Empty spaCy model artifact set")
+    from app.detection.config import RULES_PATH
+
     for rel in SOURCE_PATHS:
-        file = root / rel
+        # Hash the configuration actually consumed by the installed detector.
+        file = RULES_PATH if rel == "app/detection/rules.json" else root / rel
         if not _regular_file(file):
             raise DetectorIntegrityError("Detector source file missing or linked: " + rel)
         raw = file.read_bytes()

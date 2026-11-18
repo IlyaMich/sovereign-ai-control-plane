@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 from app.detection.provenance import DetectorIntegrityError, find_archived
@@ -21,7 +22,10 @@ def verify_detector_references(db_path: str, archive_root: str | None) -> dict:
     count = 0
     legacy = 0
     seen: set[str] = set()
-    with sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True) as connection:
+    with (
+        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as connection,
+        connection,
+    ):
         events = connection.execute(
             "SELECT sequence,event_json FROM events WHERE event_type='DECISION' ORDER BY sequence"
         ).fetchall()

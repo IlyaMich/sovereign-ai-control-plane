@@ -2,8 +2,107 @@
 
 from __future__ import annotations
 
+import math
 import os
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from urllib.parse import urlsplit
+
+
+def positive_int(name: str, default: int) -> int:
+    try:
+        value = int(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a positive integer") from exc
+    if value <= 0:
+        raise ValueError(f"{name} must be a positive integer")
+    return value
+
+
+def positive_float(name: str, default: float) -> float:
+    try:
+        value = float(os.environ.get(name, str(default)))
+    except ValueError as exc:
+        raise ValueError(f"{name} must be a finite positive number") from exc
+    if not math.isfinite(value) or value <= 0:
+        raise ValueError(f"{name} must be a finite positive number")
+    return value
+
+
+@dataclass(frozen=True)
+class RequestLimits:
+    max_prompt_bytes: int = 8192
+    max_request_body_bytes: int = 16384
+    max_forwarded_prompt_bytes: int = 8192
+
+    def __post_init__(self) -> None:
+        for value in (
+            self.max_prompt_bytes,
+            self.max_request_body_bytes,
+            self.max_forwarded_prompt_bytes,
+        ):
+            if type(value) is not int or value <= 0:
+                raise ValueError("Request limits must be positive integers")
+        if self.max_request_body_bytes <= self.max_prompt_bytes:
+            raise ValueError(
+                "MAX_REQUEST_BODY_BYTES must exceed MAX_PROMPT_BYTES for JSON overhead"
+            )
+
+    @classmethod
+    def from_env(cls) -> RequestLimits:
+        return cls(
+            max_prompt_bytes=positive_int("MAX_PROMPT_BYTES", cls.max_prompt_bytes),
+            max_request_body_bytes=positive_int(
+                "MAX_REQUEST_BODY_BYTES", cls.max_request_body_bytes
+            ),
+            max_forwarded_prompt_bytes=positive_int(
+                "MAX_FORWARDED_PROMPT_BYTES", cls.max_forwarded_prompt_bytes
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class HTTPTimeouts:
+    opa: float = 2.0
+    model: float = 10.0
+    readiness: float = 1.0
+    simulator_egress: float = 5.0
+
+    def __post_init__(self) -> None:
+        for value in (self.opa, self.model, self.readiness, self.simulator_egress):
+            if isinstance(value, bool) or not math.isfinite(value) or value <= 0:
+                raise ValueError("HTTP timeouts must be finite positive numbers")
+
+    @classmethod
+    def from_env(cls) -> HTTPTimeouts:
+        return cls(
+            opa=positive_float("OPA_TIMEOUT_SECONDS", cls.opa),
+            model=positive_float("MODEL_TIMEOUT_SECONDS", cls.model),
+            readiness=positive_float("READINESS_TIMEOUT_SECONDS", cls.readiness),
+            simulator_egress=positive_float(
+                "SIMULATOR_EGRESS_TIMEOUT_SECONDS", cls.simulator_egress
+            ),
+        )
+
+
+def simulator_upstream_url() -> str:
+    value = os.environ.get("SIMULATOR_UPSTREAM_URL", "http://external-simulator:9000")
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError as exc:
+        raise ValueError("SIMULATOR_UPSTREAM_URL must be an HTTP(S) origin") from exc
+    if (
+        parsed.scheme not in {"http", "https"}
+        or not parsed.hostname
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.path not in {"", "/"}
+        or parsed.query
+        or parsed.fragment
+        or (port is not None and not 1 <= port <= 65535)
+    ):
+        raise ValueError("SIMULATOR_UPSTREAM_URL must be an HTTP(S) origin")
+    return value.rstrip("/")
 
 
 @dataclass(frozen=True)
@@ -24,6 +123,8 @@ class Settings:
     release_active_path: str = "/release-active/release.json"
     release_archive_path: str = "/release-archive"
     release_trust_path: str = "/release-trust"
+    limits: RequestLimits = field(default_factory=RequestLimits)
+    http: HTTPTimeouts = field(default_factory=HTTPTimeouts)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -34,6 +135,8 @@ class Settings:
             )
         return cls(
             api_key=key,
+            limits=RequestLimits.from_env(),
+            http=HTTPTimeouts.from_env(),
             opa_url=os.environ.get("OPA_URL", "http://opa:8181"),
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),
