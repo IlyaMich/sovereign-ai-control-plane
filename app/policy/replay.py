@@ -86,7 +86,8 @@ def replay_database(
             # An OPA outage or detector-unknown request may never invoke OPA.
             # Such a decision can be integrity-checked but cannot be Rego-replayed.
             if decision.get("effect") != "DENY" or decision.get("reason_codes") not in (
-                ["POLICY_UNAVAILABLE"], ["DETECTION_UNKNOWN"], ["POLICY_INTEGRITY_FAILURE"]
+                ["POLICY_UNAVAILABLE"], ["DETECTION_UNKNOWN"], ["POLICY_INTEGRITY_FAILURE"],
+                ["UNTRUSTED_RELEASE"]
             ):
                 raise ReplayError(f"Invalid local fallback at sequence {sequence}")
             local_fail_closed += 1
