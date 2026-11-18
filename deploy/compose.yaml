@@ -1,0 +1,60 @@
+name: sovereign-ai-control-plane
+services:
+  control-plane:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+    environment:
+      CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY:?Set a long random key in .env}
+      OPA_URL: http://opa:8181
+      MODEL_URL: http://sovereign-model:9000
+      AUDIT_DB_PATH: /var/lib/sovereign/audit.sqlite
+      AUDIT_SIGNING_KEY_PATH: /var/lib/sovereign/audit-key.pem
+    ports:
+      - "127.0.0.1:8000:8000"
+    volumes:
+      - audit-data:/var/lib/sovereign
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    depends_on:
+      - opa
+      - sovereign-model
+    networks:
+      - sovereign-internal
+
+  opa:
+    image: docker.io/openpolicyagent/opa:1.8.0
+    command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
+    volumes:
+      - ../policies:/policies:ro
+      - ../tests/rego:/policy-tests:ro
+    read_only: true
+    cap_drop:
+      - ALL
+    networks:
+      - sovereign-internal
+
+  sovereign-model:
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+    command: ["uvicorn", "simulator.main:app", "--host", "0.0.0.0", "--port", "9000", "--no-access-log", "--no-proxy-headers"]
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    networks:
+      - sovereign-internal
+
+networks:
+  sovereign-internal:
+    internal: true
+
+volumes:
+  audit-data:
