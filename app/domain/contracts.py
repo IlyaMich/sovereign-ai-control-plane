@@ -121,11 +121,14 @@ class PolicyContext:
 class Obligation:
     type: str
     destination_id: str | None = None
+    categories: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         result: dict[str, Any] = {"type": self.type}
         if self.destination_id is not None:
             result["destination_id"] = self.destination_id
+        if self.categories:
+            result["categories"] = list(self.categories)
         return result
 
 

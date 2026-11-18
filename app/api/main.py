@@ -17,7 +17,7 @@ from app.application.orchestrator import RequestOrchestrator
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
 from app.detection.presidio_detector import PresidioDetector
 from app.domain.contracts import Principal, PromptCommand, RequestStatus
-from app.enforcement.gateway import EnforcementPlanner, HTTPModelGateway
+from app.enforcement.gateway import Destination, DestinationRegistry, EnforcementPlanner, HTTPModelGateway
 from app.infrastructure.config import Settings
 from app.policy.opa import OPAPolicyEvaluator
 
@@ -34,12 +34,16 @@ def make_components() -> Components:
     settings = Settings.from_env()
     client = httpx.AsyncClient(trust_env=False)
     audit = SQLiteAuditStore(settings.db_path, settings.signing_key_path)
+    destinations = [Destination("sovereign-model", settings.model_url, "INTERNAL")]
+    if settings.enable_external_simulator:
+        destinations.append(Destination("external-simulator", settings.egress_gateway_url, "EXTERNAL_SIMULATED"))
+    registry = DestinationRegistry(tuple(destinations))
     orchestrator = RequestOrchestrator(
         detector=PresidioDetector.create(),
         policy=OPAPolicyEvaluator(client, settings.opa_url),
         audit=audit,
-        model=HTTPModelGateway(client, settings.model_url),
-        planner=EnforcementPlanner(),
+        model=HTTPModelGateway(client, settings.model_url, registry),
+        planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
     )
     return Components(settings, orchestrator, audit, client)
 
@@ -55,8 +59,8 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
-        version="0.2.0",
-        description="Milestone 2: local Presidio classification, OPA policy, and durable audit pre-commit.",
+        version="0.3.0",
+        description="Milestone 3: verified redaction, OPA obligations, and simulated egress.",
         lifespan=lifespan,
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16384)
@@ -94,8 +98,10 @@ def create_app(components: Components | None = None) -> FastAPI:
                 json={"input": {}}, timeout=1.0,
             )
             response.raise_for_status()
-            if "result" not in response.json():
-                raise ValueError("OPA policy not loaded")
+            result = response.json().get("result")
+            if (not isinstance(result, dict) or
+                result.get("policy_revision") != deps.settings.expected_policy_revision):
+                raise ValueError("Expected OPA policy revision not loaded")
             deps.audit.check_writable()
             model = await deps.client.get(deps.settings.model_url.rstrip("/") + "/health", timeout=1.0)
             model.raise_for_status()

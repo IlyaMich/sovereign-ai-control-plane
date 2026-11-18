@@ -69,6 +69,10 @@ class PresidioDetector:
         # Lazy imports keep domain tests and alternate adapters independent of
         # an installed heavyweight NLP runtime.
         import spacy
+        # Presidio's email recognizer calls tldextract. Disable its first-use
+        # network lookup and filesystem cache; use the packaged suffix snapshot.
+        import tldextract
+        tldextract.extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)
         from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
         from presidio_analyzer.nlp_engine import NlpEngineProvider
 
