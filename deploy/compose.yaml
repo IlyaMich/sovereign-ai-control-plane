@@ -10,13 +10,17 @@ services:
       MODEL_URL: http://sovereign-model:9000
       ENABLE_EXTERNAL_SIMULATOR: ${ENABLE_EXTERNAL_SIMULATOR:-false}
       EGRESS_GATEWAY_URL: http://egress-gateway:9010
-      EXPECTED_POLICY_REVISION: redaction-baseline-v3
+      EXPECTED_POLICY_REVISION: ${EXPECTED_POLICY_REVISION:-redaction-baseline-v3}
+      ACTIVE_POLICY_PATH: /policy-active
+      POLICY_ARCHIVE_PATH: /policy-archive
       AUDIT_DB_PATH: /var/lib/sovereign/audit.sqlite
       AUDIT_SIGNING_KEY_PATH: /var/lib/sovereign/audit-key.pem
     ports:
       - "127.0.0.1:8000:8000"
     volumes:
       - audit-data:/var/lib/sovereign
+      - ../policy-active:/policy-active:ro
+      - ../policy-archive:/policy-archive:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -34,13 +38,27 @@ services:
     image: docker.io/openpolicyagent/opa:1.8.0
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
     volumes:
-      - ../policies:/policies:ro
+      - ../policy-active:/policies:ro
       - ../tests/rego:/policy-tests:ro
     read_only: true
     cap_drop:
       - ALL
     networks:
       - sovereign-internal
+
+  audit-reviewer:
+    profiles: ["audit-review"]
+    build:
+      context: ..
+      dockerfile: deploy/ReviewerContainerfile
+    volumes:
+      - audit-data:/var/lib/sovereign:ro
+      - ../policy-archive:/policy-archive:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    network_mode: none
 
   # Explicit opt-in: podman compose --profile egress-test up -d
   # A separate network makes the external simulator unreachable from the control plane.

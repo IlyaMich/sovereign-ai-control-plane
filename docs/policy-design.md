@@ -1,3 +1,6 @@
+> **Current M4 policy release/replay steps:** See [milestone-4.md](milestone-4.md).
+> The M2 guidance below is historical and does not activate snapshots.
+
 > This document describes the M2 policy baseline. For the current M3 policy and obligations, see [milestone-3.md](milestone-3.md).
 
 # Direct OPA/Rego policy model (M2)

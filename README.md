@@ -1,4 +1,4 @@
-# Sovereign AI Control Plane — Milestone 3
+# Sovereign AI Control Plane — Milestone 4
 
 A locally runnable, **fail-closed AI security gateway**, with Presidio + local spaCy
 classification, directly authored OPA/Rego rules, and cryptographically
@@ -21,6 +21,63 @@ English ASCII. The default runtime has **no external route enabled**. An
 optional test-only `external-simulator` route requires an explicit Compose
 profile and environment flag, with verified redaction for supported PII.
 This is not a production external-provider integration.
+
+
+## Milestone 4 — Policy integrity and replay
+
+A signed decision is now bound to the **exact archived Rego source bytes**, not
+only to a human-assigned revision name. The policy author still edits
+`policies/decision.rego`, but OPA serves only a generated, verified
+`policy-active/` snapshot. The archive at `policy-archive/<digest>/` is retained
+for forensic replay. The application fails closed if the active snapshot and
+the digest returned by OPA do not match.
+
+The existing SQLite schema, audit-signing key, request API, and redaction logic
+are preserved. New decision events include a `policy_digest` and the original
+OPA evaluation; offline verification re-runs the policy using a pinned OPA CLI.
+Older signed audit events remain integrity-verifiable, but they cannot be
+cryptographically tied to a historical Rego source file retroactively.
+
+Read [Milestone 4 architecture and limitations](docs/milestone-4.md) for details.
+
+### Upgrade from Milestone 3 (PowerShell)
+
+Preserve `.env`, the existing audit volume, and signing keys. **Never use
+`podman compose down -v`.** The ZIP includes the generated initial
+`policy-active` snapshot and its matching content-addressed archive.
+
+```powershell
+python -m tools.verify_policy_snapshot
+podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+.\Verify-Milestone4.ps1
+```
+
+The reviewer is built only when running the verification script. It executes
+OPA in a network-disabled container with read-only mounts. The test takes a
+consistent SQLite backup in your existing audit volume; it does not modify
+previous audit records. Use synthetic test prompts only.
+
+### Editing policy in Milestone 4
+
+```powershell
+# Edit policies/decision.rego first. Generate and archive the new policy bytes:
+python -m tools.build_policy_snapshot
+python -m tools.verify_policy_snapshot
+
+# Recreate OPA so the new active snapshot directory is mounted:
+podman compose -f deploy/compose.yaml --env-file .env up -d --force-recreate opa
+
+# If policy revision changes, update EXPECTED_POLICY_REVISION in .env,
+# then recreate the control-plane service as well.
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+```
+
+Rego tests now run against `/policies` (the generated active snapshot), not the
+editable source directory. **Retain every archived policy snapshot** used by a
+decision; deleting it prevents future historical replay.
+
+---
 
 ## Milestone 3 changes
 
@@ -129,7 +186,12 @@ Invoke-SovereignPrompt 'שלום'
 The API is available at <http://127.0.0.1:8000/docs>. `/health/live` is a
 process check; `/health/ready` checks OPA, model service and writable audit.
 
-## Policy configuration
+## Policy configuration (Milestone 3 background)
+
+**For the current Milestone 4 activation workflow, follow the steps above:**
+edit source, generate a policy snapshot, verify it, then recreate OPA.
+A simple OPA restart is no longer sufficient after replacing the active mount
+directory.
 
 Rego is authored directly at `policies/decision.rego`, with the entry point:
 
