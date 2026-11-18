@@ -73,6 +73,7 @@ class DetectionResult:
     detector_version: str
     reason_codes: tuple[str, ...] = ()
     config_digest: str = ""
+    artifact_digest: str = ""
 
     @classmethod
     def unknown(cls, reason_code: str = "DETECTION_UNAVAILABLE") -> DetectionResult:
@@ -94,6 +95,7 @@ class DetectionResult:
             "detector_version": self.detector_version,
             "reason_codes": list(self.reason_codes),
             "config_digest": self.config_digest,
+            **({"artifact_digest": self.artifact_digest} if self.artifact_digest else {}),
         }
 
 

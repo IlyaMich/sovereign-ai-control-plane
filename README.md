@@ -353,3 +353,49 @@ real external model egress, streaming, or model-response classification yet.
 identifier, not yet an archive of the complete signed Rego bundle. Exact
 historical policy replay is an additional work item. Never describe the audit
 integrity verifier as a full historical policy replay engine.
+
+---
+
+## Milestone 5 — Detector provenance and evidence packages
+
+Milestone 5 adds an **image-build detector manifest** that inventories exact
+spaCy model file hashes, classifier source hashes, and installed NLP dependency
+versions. The control plane verifies this manifest at startup/readiness and
+archives it in its persistent audit volume. Each new classification carries an
+`artifact_digest`, bound to the signed decision event. M4 content-addressed
+Rego policy replay remains unchanged.
+
+**Run on Windows + Podman after upgrading files and preserving `.env` and audit volume:**
+
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+.\Verify-Milestone5.ps1
+```
+
+The script verifies installed detector bytes, runs the full Rego tests, checks
+the new signed detector evidence, exports a self-contained evidence ZIP to the
+existing audit volume, and verifies it in the **network-disabled**
+`audit-reviewer` service. An optional external simulator may still be started
+with `--profile egress-test`; it is not needed for this test.
+
+The ZIP includes audit metadata, policy sources and detector *manifests*, but
+**no private signing key, model weights or raw prompt text**. It must still be
+handled as sensitive. A ZIP carrying its own public key and checkpoint proves
+only self-consistency; supply a separately pinned public key and witnessed
+checkpoint to authenticate it against external trust anchors.
+
+See [docs/milestone-5.md](docs/milestone-5.md) for data layout, trust boundaries,
+CLI commands, and known limits. Do not run `podman compose down -v` while
+upgrading: this would delete your audit history and keys.
+
+## Optional local NLP test setup
+
+Run `make setup-nlp` from the repository root to create `.venv`, install the
+project with development dependencies, and download the same pinned spaCy English
+model (`en_core_web_sm` 3.8.0) used in the container. This requires internet access.
+Then run `make test` to include the real Presidio integration test, which otherwise
+skips when Presidio or the English model is missing. Virtual-environment activation
+is unnecessary; Make selects the Windows or Unix Python path automatically.
+
+`make setup` remains the default development setup without the model download.

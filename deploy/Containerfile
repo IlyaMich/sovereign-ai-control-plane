@@ -10,5 +10,8 @@ RUN pip install --no-cache-dir .
 # GitHub access is needed only during image build.
 RUN pip install --no-cache-dir "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
 RUN python -c "import spacy; n=spacy.load('en_core_web_sm'); assert n.meta['version'] == '3.8.0'"
+# Capture installed *bytes* after installing all detector dependencies.
+RUN python -m tools.build_detector_manifest
+RUN python -m tools.verify_detector_manifest
 EXPOSE 8000
 CMD ["uvicorn", "app.api.main:create_app", "--factory", "--host", "0.0.0.0", "--port", "8000", "--no-access-log", "--no-proxy-headers"]
