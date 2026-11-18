@@ -19,22 +19,43 @@ A **local security reference implementation** for governing requests to AI model
 
 ## System overview
 
-~~~text
-Untrusted caller -> FastAPI (X-API-Key) -> Presidio / spaCy
-                                        -> OPA / Rego
-                                        -> enforcement-plan validation
-                                        -> optional REDACT + second detection
-                                        -> SIGNED DECISION (durable precommit)
-                                        -> approved model gateway
-                                               |-> local sovereign simulator (default)
-                                               \-> test-only egress gateway -> external simulator
-                                        -> SIGNED OUTCOME
+```mermaid
+flowchart TD
+    Caller["Untrusted caller"] --> API["FastAPI ingress (X-API-Key)"]
 
-Offline release signer -> signed policy + detector approval -> runtime enforcement
-Signed audit + policy snapshots + detector manifests + release approvals
-                                        -> portable evidence ZIP
-                                        -> network-disabled independent reviewer
-~~~
+    subgraph Control["Local sovereign control plane"]
+        API --> Detector["Presidio / spaCy detection"]
+        Detector --> Policy["OPA / Rego policy evaluation"]
+        Policy --> Planner["Enforcement-plan validation"]
+        Planner --> Redact{"REDACT required?"}
+        Redact -- Yes --> Verify["Redact and run second detection"]
+        Redact -- No --> Decision["Durable signed DECISION"]
+        Verify --> Decision
+        Decision --> Effect{"Authorized decision"}
+        Effect -- DENY --> Blocked["Blocked: no model invocation"]
+        Effect -- PERMIT --> Router["Approved model gateway"]
+        Router --> Local["Local sovereign simulator"]
+        Router --> Egress["Test-only egress gateway"]
+        Local --> Outcome["Signed OUTCOME"]
+        Blocked --> Outcome
+        Outcome --> Audit[("SQLite signed audit chain")]
+        Decision -. "Precommit" .-> Audit
+    end
+
+    subgraph TestNetwork["Optional simulated external network"]
+        External["External simulator"]
+    end
+    Egress --> External
+    External --> Outcome
+
+    Signer["Offline release signer"] --> Approval["Signed policy + detector release approval"]
+    Approval -. "Verified by runtime" .-> Policy
+    Approval -. "Verified by runtime" .-> Detector
+
+    Audit --> Bundle["Portable evidence ZIP"]
+    Artifacts["Archived policy snapshots + detector manifests + release approvals"] --> Bundle
+    Bundle --> Reviewer["Network-disabled independent reviewer"]
+```
 
 The default Compose network is private. The API binds to `127.0.0.1:8000`; OPA and model ports are not published. The optional `egress-test` profile creates a separate simulated network. **Neither a Compose network nor a policy label establishes real-world data residency.**
 
