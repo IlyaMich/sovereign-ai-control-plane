@@ -135,8 +135,6 @@ editing them, rebuild the image and approve a new release using the existing
 Milestone 6 workflow before deploying it.
 
 ## Regression tests
-
-```bash
 ~~~powershell
 python -m pip install -e '.[dev]'
 python -m pytest -q
