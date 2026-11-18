@@ -1,4 +1,5 @@
 """Independently verify a signed audit snapshot and replay recorded OPA results."""
+
 from __future__ import annotations
 
 import argparse
@@ -6,8 +7,8 @@ import json
 import sys
 
 from app.audit.verify import VerificationError
-from app.policy.replay import ReplayError, replay_database
 from app.detection.evidence import DetectorEvidenceError
+from app.policy.replay import ReplayError, replay_database
 
 
 def main() -> int:
@@ -20,9 +21,14 @@ def main() -> int:
     parser.add_argument("--opa-bin", default="opa")
     args = parser.parse_args()
     try:
-        result = replay_database(args.db, args.public_key, args.archive,
-                                 args.checkpoint, args.opa_bin,
-                                 detector_archive_root=args.detector_archive)
+        result = replay_database(
+            args.db,
+            args.public_key,
+            args.archive,
+            args.checkpoint,
+            args.opa_bin,
+            detector_archive_root=args.detector_archive,
+        )
     except (VerificationError, ReplayError, DetectorEvidenceError, OSError, ValueError) as exc:
         # Tool is offline, but avoid echoing external evaluator error strings
         # which can conceivably contain sensitive inputs.

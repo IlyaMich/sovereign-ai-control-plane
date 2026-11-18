@@ -3,12 +3,13 @@
 This module deliberately does not depend on Presidio: different detection backends
 can produce the same domain contract. All offsets refer to the original Python string.
 """
+
 from __future__ import annotations
 
-from collections.abc import Iterable
-from dataclasses import dataclass
 import hashlib
 import json
+from collections.abc import Iterable
+from dataclasses import dataclass
 
 from app.domain.contracts import DetectionResult, DetectionStatus, Finding, Sensitivity
 
@@ -24,10 +25,17 @@ SENSITIVITY_BY_CATEGORY: dict[str, Sensitivity] = {
     "API_CREDENTIAL": Sensitivity.HIGH,
     "PRIVATE_KEY": Sensitivity.HIGH,
 }
-REQUIRED_COVERAGE: frozenset[str] = frozenset({
-    "EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD",
-    "US_SSN", "API_CREDENTIAL", "PRIVATE_KEY",
-})
+REQUIRED_COVERAGE: frozenset[str] = frozenset(
+    {
+        "EMAIL_ADDRESS",
+        "PHONE_NUMBER",
+        "PERSON",
+        "CREDIT_CARD",
+        "US_SSN",
+        "API_CREDENTIAL",
+        "PRIVATE_KEY",
+    }
+)
 SEVERITY = {Sensitivity.NONE: 0, Sensitivity.MEDIUM: 1, Sensitivity.HIGH: 2}
 
 
@@ -61,7 +69,11 @@ class FindingAggregator:
         self.threshold = threshold
 
     def aggregate(
-        self, *, prompt: str, raw: Iterable[RawFinding], coverage: Iterable[str],
+        self,
+        *,
+        prompt: str,
+        raw: Iterable[RawFinding],
+        coverage: Iterable[str],
     ) -> DetectionResult:
         supported = frozenset(coverage)
         if not self.required.issubset(supported):
@@ -71,11 +83,15 @@ class FindingAggregator:
         # A backend emitting invalid spans, NaN scores, or unknown entity categories is
         # not a trustworthy negative detection result. Fail closed instead of dropping it.
         for item in observations:
-            if (item.category not in SENSITIVITY_BY_CATEGORY or
-                not isinstance(item.start, int) or not isinstance(item.end, int) or
-                not (0 <= item.start < item.end <= len(prompt)) or
-                not (0.0 <= item.score <= 1.0) or
-                not item.recognizer or not isinstance(item.recognizer, str)):
+            if (
+                item.category not in SENSITIVITY_BY_CATEGORY
+                or not isinstance(item.start, int)
+                or not isinstance(item.end, int)
+                or not (0 <= item.start < item.end <= len(prompt))
+                or not (0.0 <= item.score <= 1.0)
+                or not item.recognizer
+                or not isinstance(item.recognizer, str)
+            ):
                 return DetectionResult.unknown("DETECTION_RESULT_INVALID")
 
         # Low-scoring candidates are uncertainty, not proof that the text is
@@ -85,21 +101,39 @@ class FindingAggregator:
         # Severity first ensures an email or person recognizer cannot mask a
         # higher-risk credential over the same span. Then confidence, length and
         # stable lexical tie-breakers remove order dependence from recognizer calls.
-        observations.sort(key=lambda x: (
-            -SEVERITY[SENSITIVITY_BY_CATEGORY[x.category]], -x.score,
-            -(x.end - x.start), x.start, x.end, x.category, x.recognizer,
-        ))
+        observations.sort(
+            key=lambda x: (
+                -SEVERITY[SENSITIVITY_BY_CATEGORY[x.category]],
+                -x.score,
+                -(x.end - x.start),
+                x.start,
+                x.end,
+                x.category,
+                x.recognizer,
+            )
+        )
         kept: list[RawFinding] = []
         for item in observations:
             if not any(item.start < old.end and old.start < item.end for old in kept):
                 kept.append(item)
         kept.sort(key=lambda x: (x.start, x.end, x.category, x.recognizer))
         findings = tuple(Finding(x.category, x.start, x.end, x.recognizer, x.score) for x in kept)
-        sensitivity = (Sensitivity.HIGH if any(SENSITIVITY_BY_CATEGORY[f.category] == Sensitivity.HIGH for f in findings)
-                       else Sensitivity.MEDIUM if findings else Sensitivity.NONE)
-        reason_codes = tuple(sorted({"DETECTION_COMPLETE"} | {"DETECTED_" + f.category for f in findings}))
+        sensitivity = (
+            Sensitivity.HIGH
+            if any(SENSITIVITY_BY_CATEGORY[f.category] == Sensitivity.HIGH for f in findings)
+            else Sensitivity.MEDIUM
+            if findings
+            else Sensitivity.NONE
+        )
+        reason_codes = tuple(
+            sorted({"DETECTION_COMPLETE"} | {"DETECTED_" + f.category for f in findings})
+        )
         return DetectionResult(
             DetectionStatus.PRIVATE if findings else DetectionStatus.NO_PRIVATE_DETECTED,
-            sensitivity, findings, tuple(sorted(supported)), self.version, reason_codes,
+            sensitivity,
+            findings,
+            tuple(sorted(supported)),
+            self.version,
+            reason_codes,
             self.config_digest,
         )

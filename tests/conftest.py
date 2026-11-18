@@ -16,8 +16,10 @@ class StaticPolicy:
         if self.effect == Effect.DENY:
             return PolicyDecision.deny("TEST_DENY", "test-v1")
         return PolicyDecision(
-            Effect.PERMIT, (Obligation("ROUTE", self.destination_id),),
-            ("TEST_PERMIT",), "test-v1",
+            Effect.PERMIT,
+            (Obligation("ROUTE", self.destination_id),),
+            ("TEST_PERMIT",),
+            "test-v1",
         )
 
 
@@ -29,7 +31,10 @@ class RecordingModel:
 
     async def invoke(self, request_id, prompt, destination_id):
         if self.audit is not None:
-            assert self.audit.get_events(request_id, "local-tenant")[0]["event"]["event_type"] == "DECISION"
+            assert (
+                self.audit.get_events(request_id, "local-tenant")[0]["event"]["event_type"]
+                == "DECISION"
+            )
         self.calls.append((request_id, prompt, destination_id))
         if self.fail:
             raise TimeoutError("Model timeout")

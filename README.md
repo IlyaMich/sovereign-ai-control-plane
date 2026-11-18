@@ -255,6 +255,45 @@ We are intentionally **not** claiming cryptographic policy-bundle pinning in
 M3. Evidence records the revision reported by OPA and the exact structured
 policy inputs; attesting the actual policy bytes is later work.
 
+## Python code quality
+
+Install the development tools into your virtual environment:
+
+```powershell
+.venv\Scripts\python.exe -m pip install -e ".[dev]"
+```
+
+Run the checks from the repository root (no virtual-environment activation needed):
+
+```powershell
+make lint          # Ruff: Python errors, unused imports, and import ordering
+make format-check  # Verify Ruff formatting without editing files
+make typecheck     # mypy: app, simulator, tools, and tests
+make check         # All of the above plus pytest
+```
+
+Use `make lint-fix` to apply safe lint fixes and `make format` to format code.
+Ruff targets Python 3.12 with a 100-character line length. Mypy checks annotated
+code and the bodies of unannotated functions; full annotations are not required.
+Tool versions are pinned in the `dev` extra so formatting stays consistent.
+
+Without Make, run the equivalent commands directly in PowerShell:
+
+```powershell
+.venv\Scripts\python.exe -m ruff check .
+.venv\Scripts\python.exe -m ruff format --check .
+.venv\Scripts\python.exe -m mypy
+.venv\Scripts\python.exe -m pytest -q
+```
+
+On Linux/macOS, use `.venv/bin/python` instead. For direct fixes, use
+`python -m ruff check --fix .` and `python -m ruff format .` with your
+virtual environment active.
+
+Classifier source bytes are part of the detector manifest. After formatting or
+editing them, rebuild the image and approve a new release using the existing
+Milestone 6 workflow before deploying it.
+
 ## Regression tests
 
 ```bash

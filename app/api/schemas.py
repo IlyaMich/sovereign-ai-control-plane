@@ -1,4 +1,5 @@
 """HTTP contracts only; domain types intentionally remain Pydantic-independent."""
+
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 

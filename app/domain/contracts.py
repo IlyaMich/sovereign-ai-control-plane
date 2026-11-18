@@ -1,4 +1,5 @@
 """Technology-neutral domain contracts. Only primitive data and Python stdlib types."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -188,6 +189,12 @@ class ProcessedRequest:
     model_id: str | None = None
 
 
+class ReleaseVerifier(Protocol):
+    def verify_active(
+        self, *, detector_digest: str | None = None, policy_digest: str | None = None
+    ) -> dict[str, Any]: ...
+
+
 class Detector(Protocol):
     def detect(self, prompt: str) -> DetectionResult: ...
 
@@ -199,7 +206,9 @@ class PolicyEvaluator(Protocol):
 class AuditWriter(Protocol):
     def fingerprint(self, prompt: str) -> str: ...
 
-    def commit(self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]) -> AuditReceipt: ...
+    def commit(
+        self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]
+    ) -> AuditReceipt: ...
 
 
 class ModelGateway(Protocol):

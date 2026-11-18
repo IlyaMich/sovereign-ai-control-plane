@@ -4,17 +4,18 @@ Replays *OPA policy evaluation* from the recorded structured policy input.
 This does not re-run private-data detection or prove an external model's
 actual behavior. Legacy M1-M3 events have no content-bound policy identity.
 """
+
 from __future__ import annotations
 
 import json
-from pathlib import Path
 import sqlite3
 import subprocess
 import tempfile
-from typing import Callable, Any
+from pathlib import Path
+from typing import Any, Callable
 
 from app.audit.verify import verify_database
-from app.detection.evidence import verify_detector_references, DetectorEvidenceError
+from app.detection.evidence import verify_detector_references
 from app.policy.opa import parse_decision
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 
@@ -32,9 +33,20 @@ def run_opa(opa_binary: str, snapshot_path: Path, policy_input: dict) -> dict:
         )
         try:
             result = subprocess.run(
-                [opa_binary, "eval", "--format=json", "--data", str(snapshot_path),
-                 "--input", str(input_path), "data.sovereign.authz.decision"],
-                capture_output=True, text=True, timeout=15, check=False,
+                [
+                    opa_binary,
+                    "eval",
+                    "--format=json",
+                    "--data",
+                    str(snapshot_path),
+                    "--input",
+                    str(input_path),
+                    "data.sovereign.authz.decision",
+                ],
+                capture_output=True,
+                text=True,
+                timeout=15,
+                check=False,
             )
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise ReplayError("OPA executable unavailable or evaluation timed out") from exc
@@ -50,8 +62,11 @@ def run_opa(opa_binary: str, snapshot_path: Path, policy_input: dict) -> dict:
 
 
 def replay_database(
-    db_path: str, public_key_path: str, archive_root: str,
-    checkpoint_path: str | None = None, opa_binary: str = "opa",
+    db_path: str,
+    public_key_path: str,
+    archive_root: str,
+    checkpoint_path: str | None = None,
+    opa_binary: str = "opa",
     evaluator: Callable[[Path, dict], dict] | None = None,
     detector_archive_root: str | None = None,
 ) -> dict[str, Any]:
@@ -86,8 +101,10 @@ def replay_database(
             # An OPA outage or detector-unknown request may never invoke OPA.
             # Such a decision can be integrity-checked but cannot be Rego-replayed.
             if decision.get("effect") != "DENY" or decision.get("reason_codes") not in (
-                ["POLICY_UNAVAILABLE"], ["DETECTION_UNKNOWN"], ["POLICY_INTEGRITY_FAILURE"],
-                ["UNTRUSTED_RELEASE"]
+                ["POLICY_UNAVAILABLE"],
+                ["DETECTION_UNKNOWN"],
+                ["POLICY_INTEGRITY_FAILURE"],
+                ["UNTRUSTED_RELEASE"],
             ):
                 raise ReplayError(f"Invalid local fallback at sequence {sequence}")
             local_fail_closed += 1
@@ -104,8 +121,11 @@ def replay_database(
             if not isinstance(policy_input, dict):
                 raise ReplayError("Recorded policy input must be a document")
             location = archive.find(digest)
-            replay = (evaluator(location, policy_input) if evaluator is not None else
-                      run_opa(opa_binary, location, policy_input))
+            replay = (
+                evaluator(location, policy_input)
+                if evaluator is not None
+                else run_opa(opa_binary, location, policy_input)
+            )
             if replay != expected.to_dict():
                 raise ReplayError("Archived policy produced a different decision")
             final = parse_decision(decision)
@@ -115,11 +135,16 @@ def replay_database(
                 # The local enforcer may tighten a PERMIT into a DENY, never
                 # turn a DENY into a PERMIT. The reason must be explicit.
                 reasons = {
-                    "INVALID_POLICY_PLAN", "REDACTION_FAILED",
+                    "INVALID_POLICY_PLAN",
+                    "REDACTION_FAILED",
                     "TRANSFORMATION_VERIFICATION_UNAVAILABLE",
                 }
-                if (final.effect != "DENY" or expected.effect != "PERMIT" or
-                    len(final.reason_codes) != 1 or final.reason_codes[0] not in reasons):
+                if (
+                    final.effect != "DENY"
+                    or expected.effect != "PERMIT"
+                    or len(final.reason_codes) != 1
+                    or final.reason_codes[0] not in reasons
+                ):
                     raise ReplayError("Unexpected enforcement override of OPA result")
             seen.add(digest)
             replayed += 1

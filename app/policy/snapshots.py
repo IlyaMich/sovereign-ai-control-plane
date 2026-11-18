@@ -4,15 +4,16 @@ A snapshot identifies exact source bytes. Generated OPA metadata is explicitly
 excluded from its digest to avoid a recursive hash; it is checked separately.
 This is an integrity mechanism, NOT a signature or a trusted release pipeline.
 """
+
 from __future__ import annotations
 
 import hashlib
 import json
-from pathlib import Path
 import re
 import shutil
 import tempfile
 from dataclasses import dataclass
+from pathlib import Path
 
 DOMAIN = b"sovereign-policy-snapshot-v1\x00"
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -36,8 +37,7 @@ class SnapshotInfo:
             "policy_digest": self.policy_digest,
             "policy_revision": self.policy_revision,
             "files": [
-                {"path": name, "sha256": digest, "size": size}
-                for name, digest, size in self.files
+                {"path": name, "sha256": digest, "size": size} for name, digest, size in self.files
             ],
         }
 
@@ -92,7 +92,8 @@ def calculate_snapshot(source: str | Path) -> SnapshotInfo:
     if "data.sovereign.policy_meta.digest" not in source_text:
         raise SnapshotError("Decision policy must bind snapshot digest in every decision")
     return SnapshotInfo(
-        _digest(files), matched[0],
+        _digest(files),
+        matched[0],
         tuple((name, hashlib.sha256(content).hexdigest(), len(content)) for name, content in files),
     )
 

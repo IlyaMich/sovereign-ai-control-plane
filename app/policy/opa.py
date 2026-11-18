@@ -1,4 +1,5 @@
 """OPA HTTP adapter. Undefined responses and schema deviations fail closed."""
+
 from __future__ import annotations
 
 import re
@@ -6,9 +7,9 @@ from typing import Any
 
 import httpx
 
-from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision
-from app.policy.snapshots import PolicySnapshotStore, SnapshotError, DIGEST_RE
-from app.release.approvals import ReleaseStore, ReleaseIntegrityError
+from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision, ReleaseVerifier
+from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
+from app.release.approvals import ReleaseIntegrityError
 
 
 class PolicyEvaluationError(Exception):
@@ -23,8 +24,13 @@ _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,79}$")
 
 
 class OPAPolicyEvaluator:
-    def __init__(self, client: httpx.AsyncClient, base_url: str, snapshots: PolicySnapshotStore | None = None,
-                 releases: ReleaseStore | None = None):
+    def __init__(
+        self,
+        client: httpx.AsyncClient,
+        base_url: str,
+        snapshots: PolicySnapshotStore | None = None,
+        releases: ReleaseVerifier | None = None,
+    ):
         self._client = client
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
         self.snapshots = snapshots
@@ -36,40 +42,51 @@ class OPAPolicyEvaluator:
                 pinned = self.snapshots.verify_active() if self.snapshots else None
             except SnapshotError as exc:
                 raise PolicyIntegrityError("Policy snapshot unavailable or invalid") from exc
-            pinned_release = (self.releases.verify_active(
-                policy_digest=pinned.policy_digest if pinned else None,
-                detector_digest=context.classification.artifact_digest,
-            ) if self.releases else None)
-            response = await self._client.post(self._url, json={"input": context.to_dict()}, timeout=2.0)
+            pinned_release = (
+                self.releases.verify_active(
+                    policy_digest=pinned.policy_digest if pinned else None,
+                    detector_digest=context.classification.artifact_digest,
+                )
+                if self.releases
+                else None
+            )
+            response = await self._client.post(
+                self._url, json={"input": context.to_dict()}, timeout=2.0
+            )
             response.raise_for_status()
             data = response.json()
             raw = data["result"]
             decision = parse_decision(raw)
-            if pinned and (decision.policy_digest != pinned.policy_digest or
-                           decision.policy_revision != pinned.policy_revision):
+            if pinned and (
+                decision.policy_digest != pinned.policy_digest
+                or decision.policy_revision != pinned.policy_revision
+            ):
                 raise PolicyIntegrityError("OPA policy differs from verified active snapshot")
-            if pinned_release is not None:
+            if pinned_release is not None and self.releases is not None:
                 verified_after = self.releases.verify_active(
                     policy_digest=decision.policy_digest,
                     detector_digest=context.classification.artifact_digest,
                 )
-                if verified_after['release_id'] != pinned_release['release_id']:
-                    raise ReleaseIntegrityError('Approved release changed during evaluation')
+                if verified_after["release_id"] != pinned_release["release_id"]:
+                    raise ReleaseIntegrityError("Approved release changed during evaluation")
             return decision
         except ReleaseIntegrityError as exc:
-            raise PolicyIntegrityError('Release signature or artifact identity invalid') from exc
+            raise PolicyIntegrityError("Release signature or artifact identity invalid") from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError, SnapshotError) as exc:
             raise PolicyEvaluationError("OPA unavailable or returned an invalid decision") from exc
 
 
 def parse_decision(raw: Any) -> PolicyDecision:
     required = {"effect", "obligations", "reason_codes", "policy_revision"}
-    if not isinstance(raw, dict) or not (set(raw) == required or set(raw) == required | {"policy_digest"}):
+    if not isinstance(raw, dict) or not (
+        set(raw) == required or set(raw) == required | {"policy_digest"}
+    ):
         raise ValueError("Invalid decision fields")
     if raw["effect"] not in ("PERMIT", "DENY"):
         raise ValueError("Unknown effect")
-    if "policy_digest" in raw and (not isinstance(raw["policy_digest"], str) or
-                                   not DIGEST_RE.fullmatch(raw["policy_digest"])):
+    if "policy_digest" in raw and (
+        not isinstance(raw["policy_digest"], str) or not DIGEST_RE.fullmatch(raw["policy_digest"])
+    ):
         raise ValueError("Invalid policy digest")
     if not isinstance(raw["policy_revision"], str) or not (1 <= len(raw["policy_revision"]) <= 80):
         raise ValueError("Invalid policy revision")
@@ -89,15 +106,23 @@ def parse_decision(raw: Any) -> PolicyDecision:
             obligations.append(Obligation("ROUTE", item["destination_id"]))
         elif item.get("type") == "REDACT" and set(item) == {"type", "categories"}:
             cats = item["categories"]
-            if (not isinstance(cats, list) or not cats or
-                any(not isinstance(c, str) or not _SAFE_CODE.fullmatch(c) for c in cats) or
-                len(set(cats)) != len(cats)):
+            if (
+                not isinstance(cats, list)
+                or not cats
+                or any(not isinstance(c, str) or not _SAFE_CODE.fullmatch(c) for c in cats)
+                or len(set(cats)) != len(cats)
+            ):
                 raise ValueError("Invalid redaction categories")
             obligations.append(Obligation("REDACT", categories=tuple(cats)))
         else:
             raise ValueError("Unsupported obligation")
-    result = PolicyDecision(Effect(raw["effect"]), tuple(obligations), tuple(raw["reason_codes"]),
-                            raw["policy_revision"], raw.get("policy_digest", ""))
+    result = PolicyDecision(
+        Effect(raw["effect"]),
+        tuple(obligations),
+        tuple(raw["reason_codes"]),
+        raw["policy_revision"],
+        raw.get("policy_digest", ""),
+    )
     if result.effect == Effect.DENY and result.obligations:
         raise ValueError("Deny cannot carry route obligations")
     return result

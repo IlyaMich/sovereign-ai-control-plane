@@ -3,6 +3,7 @@
 IMPORTANT: exporting a checkpoint from a database that is already compromised
 cannot establish past integrity. Export it at a known-good point and protect it.
 """
+
 import argparse
 import json
 from pathlib import Path

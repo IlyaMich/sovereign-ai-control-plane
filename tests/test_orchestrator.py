@@ -9,14 +9,23 @@ from tests.conftest import RecordingModel, StaticPolicy
 
 
 def command(prompt="hello", destination="sovereign-model"):
-    return PromptCommand("req-abc", prompt, destination, "GENERAL", Principal("local-tester", "local-tenant", ("tester",)))
+    return PromptCommand(
+        "req-abc",
+        prompt,
+        destination,
+        "GENERAL",
+        Principal("local-tester", "local-tenant", ("tester",)),
+    )
 
 
 def service(audit, policy=None, model=None, detector=None):
     model = model or RecordingModel(audit)
     return RequestOrchestrator(
-        detector or DemoPatternDetector(), policy or StaticPolicy(),
-        audit, model, EnforcementPlanner(),
+        detector or DemoPatternDetector(),
+        policy or StaticPolicy(),
+        audit,
+        model,
+        EnforcementPlanner(),
     ), model
 
 
@@ -28,7 +37,10 @@ async def test_durable_decision_precedes_model_invocation(audit):
     assert len(model.calls) == 1
     assert result.decision_receipt.sequence == 1
     assert result.outcome_receipt.sequence == 2
-    assert [x["event"]["event_type"] for x in audit.get_events("req-abc", "local-tenant")] == ["DECISION", "OUTCOME"]
+    assert [x["event"]["event_type"] for x in audit.get_events("req-abc", "local-tenant")] == [
+        "DECISION",
+        "OUTCOME",
+    ]
 
 
 @pytest.mark.asyncio
@@ -54,6 +66,7 @@ async def test_detector_error_is_unknown_and_never_forwarded(audit):
     class BrokenDetector:
         def detect(self, prompt):
             raise RuntimeError("Contains very sensitive input: " + prompt)
+
     orchestrator, model = service(audit, detector=BrokenDetector())
     result = await orchestrator.process(command("secret"))
     assert result.status == RequestStatus.BLOCKED
@@ -67,10 +80,14 @@ async def test_audit_precommit_failure_prevents_model_invocation(audit):
     class FailAudit:
         def fingerprint(self, prompt):
             return "f" * 64
+
         def commit(self, *args):
             raise AuditUnavailable("disk unavailable")
+
     model = RecordingModel()
-    orchestrator = RequestOrchestrator(DemoPatternDetector(), StaticPolicy(), FailAudit(), model, EnforcementPlanner())
+    orchestrator = RequestOrchestrator(
+        DemoPatternDetector(), StaticPolicy(), FailAudit(), model, EnforcementPlanner()
+    )
     with pytest.raises(AuditUnavailable):
         await orchestrator.process(command())
     assert model.calls == []
@@ -82,7 +99,10 @@ async def test_ambiguous_model_failure_audited_as_unknown(audit):
     orchestrator, _ = service(audit, model=model)
     result = await orchestrator.process(command())
     assert result.status == RequestStatus.ERROR
-    assert audit.get_events("req-abc", "local-tenant")[1]["event"]["payload"]["execution_status"] == "UNKNOWN"
+    assert (
+        audit.get_events("req-abc", "local-tenant")[1]["event"]["payload"]["execution_status"]
+        == "UNKNOWN"
+    )
 
 
 @pytest.mark.asyncio

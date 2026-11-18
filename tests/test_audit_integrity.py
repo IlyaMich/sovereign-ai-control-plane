@@ -1,6 +1,7 @@
 import json
 import sqlite3
 from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 
 from app.audit.verify import VerificationError, verify_database
@@ -42,6 +43,7 @@ def test_truncation_detected_by_independent_checkpoint(audit, tmp_path):
 def test_concurrent_audit_writes_form_one_valid_chain(audit):
     def record(i):
         return audit.commit(f"req-{i}", "t", "DECISION", {"n": i}).sequence
+
     with ThreadPoolExecutor(max_workers=8) as executor:
         sequences = list(executor.map(record, range(30)))
     assert sorted(sequences) == list(range(1, 31))

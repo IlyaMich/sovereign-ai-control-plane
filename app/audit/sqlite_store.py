@@ -3,20 +3,21 @@
 Canonical encoding here is tightly scoped deterministic Python JSON, NOT RFC 8785.
 The verifier intentionally lives in a separate module and does not trust DB hashes.
 """
+
 from __future__ import annotations
 
 import base64
-from datetime import datetime, timezone
 import hashlib
 import hmac
 import json
 import os
-from pathlib import Path
 import sqlite3
 import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
-from cryptography.hazmat.primitives import serialization, hashes
+from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
@@ -39,7 +40,9 @@ def canonical_bytes(event: dict[str, Any]) -> bytes:
 
 def calculate_hash(previous_hash: str, sequence: int, event: dict[str, Any]) -> str:
     return hashlib.sha256(
-        DOMAIN_PREFIX + bytes.fromhex(previous_hash) + sequence.to_bytes(8, "big")
+        DOMAIN_PREFIX
+        + bytes.fromhex(previous_hash)
+        + sequence.to_bytes(8, "big")
         + canonical_bytes(event)
     ).hexdigest()
 
@@ -53,7 +56,9 @@ class SQLiteAuditStore:
         self._initialize_db()
         self._key = self._load_or_create_key()
         self._hmac_key = HKDF(
-            algorithm=hashes.SHA256(), length=32, salt=None,
+            algorithm=hashes.SHA256(),
+            length=32,
+            salt=None,
             info=b"sovereign-input-fingerprint-v1",
         ).derive(
             self._key.private_bytes(
@@ -64,9 +69,11 @@ class SQLiteAuditStore:
         )
         public_path = self.key_path.with_suffix(".pub.pem")
         if not public_path.exists():
-            public_path.write_bytes(self._key.public_key().public_bytes(
-                serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-            ))
+            public_path.write_bytes(
+                self._key.public_key().public_bytes(
+                    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+                )
+            )
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path, timeout=5.0, isolation_level=None)
@@ -91,7 +98,9 @@ class SQLiteAuditStore:
                     signature TEXT NOT NULL
                 )
             """)
-            conn.execute("CREATE INDEX IF NOT EXISTS ix_events_request ON events(request_id, tenant_id)")
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS ix_events_request ON events(request_id, tenant_id)"
+            )
 
     def _load_or_create_key(self) -> Ed25519PrivateKey:
         if self.key_path.exists():
@@ -131,7 +140,9 @@ class SQLiteAuditStore:
     def fingerprint(self, prompt: str) -> str:
         return hmac.new(self._hmac_key, prompt.encode("utf-8"), hashlib.sha256).hexdigest()
 
-    def commit(self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]) -> AuditReceipt:
+    def commit(
+        self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]
+    ) -> AuditReceipt:
         event = {
             "schema_version": "1",
             "event_id": str(uuid.uuid4()),
@@ -156,8 +167,17 @@ class SQLiteAuditStore:
                     (sequence, event_id, request_id, tenant_id, event_type,
                      event_json, previous_hash, event_hash, signature)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                    (sequence, event["event_id"], request_id, tenant_id, event_type,
-                     canonical_bytes(event).decode("utf-8"), previous_hash, digest, signature),
+                    (
+                        sequence,
+                        event["event_id"],
+                        request_id,
+                        tenant_id,
+                        event_type,
+                        canonical_bytes(event).decode("utf-8"),
+                        previous_hash,
+                        digest,
+                        signature,
+                    ),
                 )
                 conn.commit()
             return AuditReceipt(sequence, digest, signature)
@@ -175,7 +195,11 @@ class SQLiteAuditStore:
             {
                 "sequence": row["sequence"],
                 "event": json.loads(row["event_json"]),
-                "receipt": {"sequence": row["sequence"], "event_hash": row["event_hash"], "signature": row["signature"]},
+                "receipt": {
+                    "sequence": row["sequence"],
+                    "event_hash": row["event_hash"],
+                    "signature": row["signature"],
+                },
             }
             for row in rows
         ]
