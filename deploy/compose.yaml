@@ -8,6 +8,9 @@ services:
       CONTROL_PLANE_API_KEY: ${CONTROL_PLANE_API_KEY:?Set a long random key in .env}
       OPA_URL: http://opa:8181
       MODEL_URL: http://sovereign-model:9000
+      ENABLE_EXTERNAL_SIMULATOR: ${ENABLE_EXTERNAL_SIMULATOR:-false}
+      EGRESS_GATEWAY_URL: http://egress-gateway:9010
+      EXPECTED_POLICY_REVISION: redaction-baseline-v3
       AUDIT_DB_PATH: /var/lib/sovereign/audit.sqlite
       AUDIT_SIGNING_KEY_PATH: /var/lib/sovereign/audit-key.pem
     ports:
@@ -39,6 +42,33 @@ services:
     networks:
       - sovereign-internal
 
+  # Explicit opt-in: podman compose --profile egress-test up -d
+  # A separate network makes the external simulator unreachable from the control plane.
+  egress-gateway:
+    profiles: ["egress-test"]
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+    command: ["uvicorn", "simulator.egress:app", "--host", "0.0.0.0", "--port", "9010", "--no-access-log", "--no-proxy-headers"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      - sovereign-internal
+      - simulated-external
+
+  external-simulator:
+    profiles: ["egress-test"]
+    build:
+      context: ..
+      dockerfile: deploy/Containerfile
+    command: ["uvicorn", "simulator.external:app", "--host", "0.0.0.0", "--port", "9000", "--no-access-log", "--no-proxy-headers"]
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    networks:
+      - simulated-external
+
   sovereign-model:
     build:
       context: ..
@@ -54,6 +84,8 @@ services:
 
 networks:
   sovereign-internal:
+    internal: true
+  simulated-external:
     internal: true
 
 volumes:

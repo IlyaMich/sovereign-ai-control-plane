@@ -12,6 +12,9 @@ class Settings:
     model_url: str = "http://sovereign-model:9000"
     db_path: str = "/var/lib/sovereign/audit.sqlite"
     signing_key_path: str = "/var/lib/sovereign/audit-key.pem"
+    enable_external_simulator: bool = False
+    egress_gateway_url: str = "http://egress-gateway:9010"
+    expected_policy_revision: str = "redaction-baseline-v3"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -24,4 +27,7 @@ class Settings:
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),
             signing_key_path=os.environ.get("AUDIT_SIGNING_KEY_PATH", "/var/lib/sovereign/audit-key.pem"),
+            enable_external_simulator=os.environ.get("ENABLE_EXTERNAL_SIMULATOR", "false").lower() == "true",
+            egress_gateway_url=os.environ.get("EGRESS_GATEWAY_URL", "http://egress-gateway:9010"),
+            expected_policy_revision=os.environ.get("EXPECTED_POLICY_REVISION", "redaction-baseline-v3"),
         )

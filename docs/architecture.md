@@ -1,3 +1,5 @@
+> This document records the M2 architecture. For M3 redaction and routing behavior, see [milestone-3.md](milestone-3.md).
+
 # Architecture and API / Domain Contracts (M2)
 
 ## Logical architecture
@@ -122,3 +124,6 @@ deterministic overlap-resolution and a policy-independent classification schema.
 Incomplete required recognizer coverage, unsupported non-ASCII input, or malformed
 recognizer output returns `UNKNOWN`. The orchestrator denies before model access.
 See [detection-design.md](detection-design.md) for exact category and scoring rules.
+
+
+> Milestone 3 update: See [Milestone 3 design](milestone-3.md) for the new redaction, destination registry, egress-test profile, and active policy revision contract.

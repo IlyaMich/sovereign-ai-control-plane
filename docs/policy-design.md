@@ -1,3 +1,5 @@
+> This document describes the M2 policy baseline. For the current M3 policy and obligations, see [milestone-3.md](milestone-3.md).
+
 # Direct OPA/Rego policy model (M2)
 
 The policy is `policies/decision.rego`. The app calls the OPA decision endpoint
@@ -53,3 +55,6 @@ podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policie
 Regulation-oriented packs are feasible with new Rego modules and trusted
 attribute definitions, but implementing controls is not equivalent to legal
 compliance or regulatory certification.
+
+
+> Milestone 3 update: See [Milestone 3 design](milestone-3.md) for the new redaction, destination registry, egress-test profile, and active policy revision contract.

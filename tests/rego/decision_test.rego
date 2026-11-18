@@ -25,9 +25,19 @@ test_allows_private_pii_internal if {
     }
 }
 
-test_denies_external_even_if_no_private_data if {
+test_permits_external_simulator_without_private_data if {
+    authz.decision.effect == "PERMIT" with input as {
+        "request": {"destination_id": "external-simulator", "purpose": "GENERAL"},
+        "classification": base_classification,
+    }
+}
+
+test_denies_unapproved_external_destination if {
     authz.decision.effect == "DENY" with input as {
-        "request": {"destination_id": "external-model", "purpose": "GENERAL"},
+        "request": {
+            "destination_id": "external-model",
+            "purpose": "GENERAL"
+        },
         "classification": base_classification,
     }
 }
@@ -64,5 +74,30 @@ test_demo_detector_no_longer_authorized if {
     authz.decision.effect == "DENY" with input as {
         "request": {"destination_id": "sovereign-model", "purpose": "GENERAL"},
         "classification": object.union(base_classification, {"detector_version": "demo-patterns-v1"}),
+    }
+}
+
+
+test_redacts_email_to_external_simulator if {
+    output := authz.decision with input as {
+        "request": {"destination_id": "external-simulator", "purpose": "GENERAL"},
+        "classification": object.union(base_classification, {"status": "PRIVATE", "findings": [{"category": "EMAIL_ADDRESS"}]}),
+    }
+    output.effect == "PERMIT"
+    output.obligations[0].type == "REDACT"
+    output.obligations[1].destination_id == "external-simulator"
+}
+
+test_refuses_regulated_data_to_external if {
+    authz.decision.effect == "DENY" with input as {
+        "request": {"destination_id": "external-simulator", "purpose": "GENERAL"},
+        "classification": object.union(base_classification, {"status": "PRIVATE", "findings": [{"category": "CREDIT_CARD"}]}),
+    }
+}
+
+test_refuses_credentials_to_external if {
+    authz.decision.reason_codes == ["CREDENTIAL_BLOCKED"] with input as {
+        "request": {"destination_id": "external-simulator", "purpose": "GENERAL"},
+        "classification": object.union(base_classification, {"status": "PRIVATE", "findings": [{"category": "API_CREDENTIAL"}]}),
     }
 }

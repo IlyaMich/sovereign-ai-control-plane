@@ -47,11 +47,21 @@ def parse_decision(raw: Any) -> PolicyDecision:
         raise ValueError("Invalid obligations")
     obligations: list[Obligation] = []
     for item in raw["obligations"]:
-        if not isinstance(item, dict) or set(item) != {"type", "destination_id"}:
+        if not isinstance(item, dict):
             raise ValueError("Invalid obligation")
-        if item["type"] != "ROUTE" or not isinstance(item["destination_id"], str):
+        if item.get("type") == "ROUTE" and set(item) == {"type", "destination_id"}:
+            if not isinstance(item["destination_id"], str) or not item["destination_id"]:
+                raise ValueError("Invalid route")
+            obligations.append(Obligation("ROUTE", item["destination_id"]))
+        elif item.get("type") == "REDACT" and set(item) == {"type", "categories"}:
+            cats = item["categories"]
+            if (not isinstance(cats, list) or not cats or
+                any(not isinstance(c, str) or not _SAFE_CODE.fullmatch(c) for c in cats) or
+                len(set(cats)) != len(cats)):
+                raise ValueError("Invalid redaction categories")
+            obligations.append(Obligation("REDACT", categories=tuple(cats)))
+        else:
             raise ValueError("Unsupported obligation")
-        obligations.append(Obligation(item["type"], item["destination_id"]))
     result = PolicyDecision(Effect(raw["effect"]), tuple(obligations), tuple(raw["reason_codes"]), raw["policy_revision"])
     if result.effect == Effect.DENY and result.obligations:
         raise ValueError("Deny cannot carry route obligations")

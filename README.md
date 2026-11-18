@@ -1,4 +1,4 @@
-# Sovereign AI Control Plane — Milestone 2
+# Sovereign AI Control Plane — Milestone 3
 
 A locally runnable, **fail-closed AI security gateway**, with Presidio + local spaCy
 classification, directly authored OPA/Rego rules, and cryptographically
@@ -12,30 +12,28 @@ Client (X-API-Key)
    -> OPA policy decision (structured input; never the plaintext prompt)
    -> independent enforcement-plan validation
    -> durable SHA-256-chain + Ed25519-signed DECISION event
-   -> permitted local model simulator (no external network)
+   -> permitted local model simulator (or optional separate simulated egress gateway)
    -> OUTCOME event and signed receipts
 ```
 
-**Safety scope:** M2 recognizes multiple classes of PII and some credential
-formats, but detection is **best effort**, not a data-leak prevention guarantee.
-The initial supported input is ASCII text evaluated with English recognizers.
-Unsupported characters fail closed. A prompt with no findings is *not*
-guaranteed free of confidential data. No external AI route or redaction is enabled.
+**Safety scope:** Detection is best effort, and the supported prompt language is
+English ASCII. The default runtime has **no external route enabled**. An
+optional test-only `external-simulator` route requires an explicit Compose
+profile and environment flag, with verified redaction for supported PII.
+This is not a production external-provider integration.
 
-## Milestone 2 changes
+## Milestone 3 changes
 
-- Runtime `PresidioDetector` with the local `en_core_web_sm` 3.8.0 spaCy model
-  and pinned `presidio-analyzer==2.2.366` dependency.
-- Custom pattern recognizers for email addresses, API-key-style credentials and
-  PEM private-key headers. Presidio supplies additional PII recognizers.
-- Our technology-neutral `FindingAggregator`: deterministic overlap merging,
-  sensitivity prioritization, minimum-score filtering, mandatory recognizer
-  coverage and `UNKNOWN` for invalid/unsupported results.
-- Additive `config_digest` field in the `DetectionResult` JSON/audit record.
-- Direct OPA baseline policy `presidio-baseline-v2`: permitted local processing
-  for approved purposes, explicit credential blocking, no external destination.
-- Regression tests plus live-in-image Presidio smoke test and eight Rego tests.
-- Existing M1 API shape, audit database, Ed25519 keys, and verifier retained.
+- Verified redaction using original detection offsets, with one second full
+  classification pass on the transformed prompt before any model invocation.
+- Rego decisions can contain ordered `REDACT` and `ROUTE` obligations.
+- Fixed destination registry, default-deny external egress, optional separate
+  simulated network and dedicated egress gateway.
+- Durable signed audit evidence now includes transformation hashes and
+  verification metadata, never plaintext prompt values.
+- Readiness requires the active OPA revision `redaction-baseline-v3`.
+- `tldextract` is configured for an offline packaged Public Suffix List snapshot.
+- Existing API JSON format, SQLite records and Ed25519 keys remain compatible.
 
 See [detection design](docs/detection-design.md), [OPA policy design](docs/policy-design.md),
 [architecture](docs/architecture.md), [audit](docs/audit-design.md), and
@@ -50,7 +48,7 @@ See [detection design](docs/detection-design.md), [OPA policy design](docs/polic
   NLP model. No GPU required.
 - For tests outside containers: Python 3.12+ and dev dependencies.
 
-## Upgrade from Milestone 1 (Windows PowerShell)
+## Upgrade from Milestone 2 (Windows PowerShell)
 
 1. Extract this ZIP as a separate directory, **or** back up your existing
    repository and copy/merge the source files into it.
@@ -69,7 +67,7 @@ if (-not (Test-Path .env)) {
       Set-Content -Encoding ascii .env
 }
 
-podman compose -f deploy/compose.yaml --env-file .env up --build -d
+podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
 podman compose -f deploy/compose.yaml --env-file .env ps
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 ```
@@ -137,9 +135,13 @@ Rego is authored directly at `policies/decision.rego`, with the entry point:
 
 `data.sovereign.authz.decision`
 
-The policy only permits a `sovereign-model` route for successful
-`presidio-spacy-v1` classifications with required coverage, a configuration
-digest, and purpose `GENERAL`, `SUMMARIZATION` or `INTERNAL_ANALYSIS`.
+The baseline policy permits `sovereign-model` processing and offers a separate
+`external-simulator` route for approved purposes and completed detection. The
+external route is disabled by default at the enforcement registry, and private
+PII may use it only after a verified `REDACT` obligation. All permissions
+require the `presidio-spacy-v1` detector with required coverage and a
+configuration digest. Approved purposes are `GENERAL`, `SUMMARIZATION` and
+`INTERNAL_ANALYSIS`.
 `API_CREDENTIAL` or `PRIVATE_KEY` findings are always blocked by baseline policy.
 
 Modify Rego as an authorized developer, increment `revision` and the default
@@ -150,7 +152,7 @@ podman compose -f deploy/compose.yaml --env-file .env restart opa
 ```
 
 We are intentionally **not** claiming cryptographic policy-bundle pinning in
-M2. Evidence records the revision reported by OPA and the exact structured
+M3. Evidence records the revision reported by OPA and the exact structured
 policy inputs; attesting the actual policy bytes is later work.
 
 ## Regression tests
@@ -196,3 +198,96 @@ podman compose -f deploy/compose.yaml --env-file .env down
 
 **Never add `-v` unless you deliberately want to destroy your persistent audit
 volume and signing keys.**
+
+
+## Milestone 3 — Redaction, obligations, and simulated egress
+
+This release adds a strict `REDACT` + `ROUTE` plan, a fixed destination registry,
+post-redaction rescanning, and signed transformation evidence. It also sets
+`tldextract` to use its packaged Public Suffix List, without runtime HTTP
+requests, and verifies the active OPA policy revision in `/health/ready`.
+
+### Upgrade safely from M2 (PowerShell, repo root)
+
+Keep your existing `.env` file and your **audit volume**. Do not use `down -v`.
+
+```powershell
+# Make sure your existing key is still in .env.
+podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
+```
+
+The expected live policy revision is `redaction-baseline-v3`.
+A stale OPA policy causes readiness to return `503` rather than reporting false health.
+The SQLite audit schema, signing key, and audit volume are unchanged.
+
+### Default local-only mode
+
+By default, `ENABLE_EXTERNAL_SIMULATOR=false`. Only `sovereign-model` can be
+invoked. The new Rego policy may propose an external route, but the Python
+planner rejects it with `INVALID_POLICY_PLAN` and records a denial.
+No external-simulator or egress-gateway is started by default.
+
+### Explicitly enable the simulated external boundary
+
+Add `ENABLE_EXTERNAL_SIMULATOR=true` to `.env`, then recreate the containers
+with the **test profile** (never use real sensitive data for this exercise):
+
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env --profile egress-test up --build --force-recreate -d
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+$key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
+$body = @{ prompt='Please contact demo@example.com about the project'; destination_id='external-simulator'; purpose='GENERAL' } | ConvertTo-Json
+Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST -ContentType 'application/json' -Headers @{'X-API-Key'=$key} -Body ([Text.Encoding]::UTF8.GetBytes($body)) | ConvertTo-Json -Depth 10
+```
+
+Expected: `COMPLETED`, `PERMIT`, `REDACT` followed by `ROUTE`, model ID
+`external-simulator`, and audited transformation metadata. Only the **redacted**
+prompt is sent to the simulated external model. No raw prompt is written to
+ordinary logs or audit records. The response returns only a SHA-256 prefix,
+not the redacted text itself.
+
+For stronger validation, use the in-repository unit test asserting exactly what
+reaches the mock model. Failure, unknown classification, unsupported categories,
+incomplete obligations, or failed post-redaction detection all block.
+
+In this profile `egress-gateway` is the sole bridge between two private networks.
+The external simulator is intentionally local; this is **not a real internet
+provider integration or proof of production-grade network isolation**.
+
+Disable after testing:
+
+```powershell
+# Edit .env back to ENABLE_EXTERNAL_SIMULATOR=false
+podman compose -f deploy/compose.yaml --env-file .env --profile egress-test down
+podman compose -f deploy/compose.yaml --env-file .env up -d --force-recreate
+```
+
+### Test matrix
+
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
+# If running Python tests locally with dev dependencies:
+python -m pytest -q
+```
+
+- Internal ordinary and PII prompts: allowed unless blocked by a specific rule.
+- Credential and private key: always blocked.
+- External simulator, ordinary prompt: allowed only when explicitly enabled.
+- External simulator, recognized email/phone/person: redacted, rescanned, then routed when enabled.
+- External simulator, credit card, SSN, credentials or unsupported input: blocked.
+- Missing or duplicate obligations, wrong destination or post-redaction private findings: blocked.
+- Audit decision is committed before any route. Model error results in an auditable unknown execution outcome.
+- Signed evidence logs both the original classification and the outcome of transformation verification without storing plaintext.
+
+**Scope:** Redaction is best-effort on correctly detected findings, not a
+mathematical guarantee that every private entity has been found. The supported
+language remains English ASCII. The experimental out-of-boundary simulator has
+no direct network exposure to the host or control-plane service. There is no
+real external model egress, streaming, or model-response classification yet.
+
+**Policy versioning limitation:** `policy_revision` is an operator-supplied
+identifier, not yet an archive of the complete signed Rego bundle. Exact
+historical policy replay is an additional work item. Never describe the audit
+integrity verifier as a full historical policy replay engine.
