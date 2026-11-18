@@ -1,57 +1,56 @@
-# Threat model and sovereignty (M1)
+# Threat model and sovereignty — current Milestone 6
 
-## Assets
+**System under review:** A single-host, local AI policy gateway running FastAPI, Presidio/spaCy, OPA, a local model simulator and SQLite audit chain on Podman Compose. Optional `egress-test` services are **simulated**. This is a reference implementation, not evidence of certification, production isolation, or regional residency.
 
-- Confidential prompts and recognizer findings; the model is trusted only within
-  the local boundary.
-- Policy integrity, approved destinations, signed audit history, and signing key.
-- Audit history and independently retained trust anchors/checkpoints.
+## Assets and boundaries
 
-## Trusted components
+- Sensitive prompt text and recognizer findings; integrity of classification and transformed payload.
+- Approved policy/detector bytes, release trust root and permitted model destinations.
+- Signed audit events, signing keys, archived policy/detector/release artifacts and external witness checkpoints.
+- Authenticated request identities and eventually tenant/role boundaries.
 
-Local host/operator, Podman runtime, FastAPI image, OPA image and mounted Rego,
-model simulator, SQLite named volume, and Ed25519 signing key. The API client and
-its prompt are **not** trusted. The external internet is outside the boundary.
+The client and request body are untrusted. OPA inputs derive from trusted application-side classification, not the client's claims. The local host, Podman/Compose runtime, base images, installed dependencies and OPA engine are **within the current trusted computing base**; malicious compromise of those components exceeds the prototype's effective enforcement boundary.
 
-## Security controls implemented
+The **release signer private key** is kept outside runtime containers/repository. The **audit signing private key** is still locally managed with its SQLite audit volume. The release and audit key roles are not interchangeable.
 
-- Authenticated ingress, strictly validated bodies, no user-supplied destination URLs.
-- One private Compose network, no published OPA/model ports, API published on loopback.
-- In-process plan validation, internal-only allowlist, zero external adapters.
-- On any unexpected detector/OPA/plan failure, deny before invocation.
-- Signed decision precommit before model invoke; no plaintext prompt in audit.
-- Sanitized HTTP errors and disabled uvicorn access logging.
+## Controls implemented and exercised
 
-## Attacks considered
+| Threat / failure | Current defensive behavior | Limit |
+| --- | --- | --- |
+| Client attempts URL injection or changes tenant claims | Request accepts only fixed destination ID; principal comes from API-key authentication | Single static tenant, not real enterprise IAM |
+| Prompt injection attempts to alter the policy | Prompt is data; Rego receives structured classification, not instructions | Downstream model may still be vulnerable to prompt injection |
+| Detector crashes, unsupported input, incomplete coverage | `UNKNOWN` or exception becomes local deny; no model call | False-negative entities can still be missed |
+| Secret markers detected | Current Rego `CREDENTIAL_BLOCKED` for configured formats | Not exhaustive secret recognition |
+| OPA unavailable or malformed decision | Local fail-closed denial and audited reason | Audit writer must still be writable |
+| Rego source replaced or old policy loaded | Active snapshot digest checked against OPA answer and signed release | Compromised runtime binary/host can evade local checks |
+| Release signer untrusted or wrong detector artifact | Startup, readiness and request validation fail closed | Local monotonic generation isn't hardware-backed |
+| External simulated route with PII | Mandatory redaction plan, second scan, fixed gateway and no direct model connection | Second scan is best-effort; no real external egress attestation |
+| Audit unavailable before model | Precommit fails; no invocation | Rejected request may not be durably recorded |
+| Audit row edited / chain gap | Hash/Ed25519 verification rejects tampering | Tail truncation needs independent prior checkpoint |
+| Archive or release manifest tampered | Content digests and signed release verification reject mismatch | Does not attest entire image or host |
+| Model call timeout | Outcome `UNKNOWN` rather than falsely claiming block | No idempotency/reconciliation yet |
 
-| Attack / failure | Current handling |
-|---|---|
-| Prompt injects instructions to bypass the guard | Prompt never interpreted as policy; OPA sees structured findings only |
-| Caller supplies external URL or tenant claims | API rejects unknown fields; model gateway has fixed destination |
-| OPA timeout or undefined result | Local fail-closed decision, audit, deny |
-| Detector crashes | `UNKNOWN`, local fail-closed decision, audit, deny |
-| Credentials present | Pattern detects selected formats, Rego blocks |
-| Audit disk full | Request aborted before forwarding when precommit fails |
-| Database event altered | Hash and signature verification fails |
-| End of database deleted | Detectable only against external trusted checkpoint |
-| Host administrator compromises signer and DB | Out of M1 threat model; independent trust anchor required |
+Default `sovereign-internal` network is private; API published only on loopback. The optional test profile routes through an explicit gateway into a second **private** simulator network. Podman networking differs across Windows VM/rootless environments and does not replace tested host firewall rules, mTLS or workload identity.
 
-## Known limitations / open threats
+## Residual risks and unimplemented security controls
 
-- Demo detector has serious false-negative risks: it is not a substitute for
-  Presidio, model detection, or enterprise DLP. A `NO_PRIVATE_DETECTED` response
-  only certifies that the **configured demo recognizers** completed.
-- Only internal simulator model output is permitted. Output DLP and real model
-  responses are not yet protected against leakage.
-- API key authenticates one local identity. No per-user RBAC, rate limits, JWT,
-  or tenant-specific policy management.
-- Kubernetes egress controls, DNS pinning, host proxy bypass checks, SELinux
-  labeling, rootless user mappings, and strict secret management remain future work.
-- Host/VM networking differs among Windows Podman Machine, rootless Linux, and
-  other backends; Compose `internal: true` is not a substitute for verification.
-- Python dependencies and OPA image tags are version-ranged/tagged rather than
-  reproducibly locked by hashes. A release should pin digests and build an SBOM.
-- Key stored unencrypted in a local persistent volume for simplicity. Restrict
-  volume permissions; do not use this as a production key-management design.
-- Some pre-validation / unauthorized requests cannot produce decision records:
-  the guarantee applies to **admitted policy decisions**, not all TCP/HTTP events.
+1. **Audit trust:** The standard evidence ZIP supplies its own audit public key and checkpoint; this proves internal consistency but not independent authenticity or completeness. Periodic checkpoint witnessing to external storage is not implemented. Local audit key compromise threatens reconstructed history.
+2. **Real model sovereignty:** No real inference server, provider residency attestation, authenticated real external egress, output DLP or RAG/attachment scanning. Model output is returned without a post-generation leakage policy.
+3. **Identity/governance:** One API key maps to `local-tester` / `local-tenant`. No OIDC/JWT, tenant-aware admin policies, authorization workflows, RBAC or tenant isolation at scale.
+4. **Detection limits:** English ASCII, best-effort recognizers and limited patterns; entity overlap/threshold handling does not guarantee complete sensitivity detection.
+5. **Supply chain and releases:** Selected model/source bytes are hashed and independently approved, but not the full image, OS and dependency closure. Python versions are not fully hash-locked; release key is an unencrypted development PEM; local generation checks can be subverted by host administrators.
+6. **Operational resilience:** Single local SQLite sequencer, no multi-writer distributed guarantee, streaming or async job recovery, rate limits, robust retry/idempotency, production-grade monitoring or disaster recovery.
+
+## Evidence interpretation
+
+- Signed audit events prove internal append-chain integrity **relative to a trusted key**; a self-contained ZIP is not an independent proof of origin.
+- Archived Rego and signed policy-input metadata enable deterministic replay of **eligible** decisions (M4+), not original model inference or classifier correctness.
+- Detector artifact digests (M5+) identify enumerated classifier bytes; they do not reproduce classification without prompt/model artifacts.
+- Release signatures (M6+) prove approval by an externally trusted signer for an artifact tuple; they do not prove policy correctness, legal compliance, live host integrity or destination residency.
+- A checkpoint witnessed outside the writer's trust domain is necessary to resist plausible tail rewrite/truncation by a compromised local signer.
+
+## Priority improvements
+
+Independent audit trust and periodic checkpoint witnessing; protected audit/release keys; real local inference and authenticated egress; output data-loss prevention; OIDC/multi-tenant policy governance; then deployment hardening and performance benchmarks.
+
+See [audit design](audit-design.md), [architecture](architecture.md), [Milestone 6](milestone-6.md) and the [release workflow](policy-design.md).

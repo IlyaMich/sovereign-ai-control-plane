@@ -1,12 +1,14 @@
 # Milestone 4 — Content-bound policy evidence and offline OPA replay
 
+> **Historical M4 design:** Content-addressed policy snapshots and offline replay remain implemented. M6 additionally requires an independently signed policy+detector release. **Do not use the M4-only activation steps below on a current M6 deployment.** Follow [current policy design](policy-design.md) and [Milestone 6](milestone-6.md).
+
 ## Guarantee
 
 A policy evaluation's `policy_digest` binds its answer to an archived snapshot
 of the exact policy **source bytes** and normalized relative filenames. The
 control plane verifies that the active snapshot matches an archived copy, and
 that the digest and revision returned by OPA are those of the same snapshot.
-A mismatch results in a `POLICY_UNAVAILABLE` fail-closed decision. The signed
+A mismatch results in a fail-closed denial; the current M6 runtime distinguishes integrity errors with `POLICY_INTEGRITY_FAILURE` (older versions used `POLICY_UNAVAILABLE`). The signed
 audit decision contains both the original OPA decision and any stricter local
 enforcement override.
 
@@ -32,11 +34,14 @@ excluded from the digest to avoid recursion; their exact contents are verified
 separately. Additional `.rego` and `.json` source files can be added to
 `policies/` and are included in the digest.
 
-The source manifest is **not a signed release artifact**. The independent audit
+In M4 the source manifest was **not a signed release artifact**; in M6 a separate Ed25519 release approval authorizes its digest. The independent audit
 signature binds the digest reported at decision time. Host administrators and
 the policy build pipeline are within the trust boundary for this local demo.
 
-## Deployment
+## Deployment (historical M4-only procedure)
+
+> Under M6, **snapshot verification and a new signed release generation are required before activation**; restarting OPA alone is insufficient. The following numbered sequence documents M4 behavior and must not be treated as the current operator runbook. See [Milestone 6](milestone-6.md).
+
 
 OPA reads `policy-active` read-only, never editable source. The API sees both
 active and archived source read-only. Updating source files alone is not a
@@ -113,5 +118,5 @@ and the recorded policy results were reproduced.
 - A malicious host with the signing key and trusted checkpoints can rewrite
   the database and its supporting proof material. Independent witness storage
   remains required for meaningful tamper-evidence against a hostile host.
-- The application validates policy source digests, not an independently
-  signed attestation of the OPA binary or an uncompromised OPA process.
+- The application validates policy source digests, and M6 adds independent release
+  approval for policy/detector identities; neither attests the OPA binary or an uncompromised OPA process.

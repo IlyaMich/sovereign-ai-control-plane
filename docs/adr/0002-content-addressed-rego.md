@@ -1,6 +1,8 @@
 # ADR-0002: Content-addressed Rego snapshots and offline decision replay
 
-**Status:** Accepted for Milestone 4
+**Status:** Accepted for Milestone 4; extended by separately signed release approval in Milestone 6.
+
+> **Current implementation:** The snapshot and offline replay design remains active, but M6 requires a separately signed release authorizing the policy and detector identities before activation. The older alternatives and consequences below record the M4 decision context. See [current policy design](../policy-design.md) and [Milestone 6](../milestone-6.md).
 
 ## Context
 
@@ -32,5 +34,5 @@ recompute the original decision from the recorded policy inputs.
 - Policy activation is an explicit build/archive/verify/recreate sequence.
 - Old M1–M3 events remain integrity-verified but not replayable as Rego.
 - Archives are required evidence: deleting them breaks replay.
-- Local developer/host admin is trusted; the demo does not have independent
-  signed release attestations or atomic multi-region rollout.
+- Local developer/host admin is trusted; at M4 there was no independent signed release attestation; M6 subsequently
+  added it. Atomic multi-region rollout is still not implemented.

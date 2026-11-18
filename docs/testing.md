@@ -1,59 +1,71 @@
-# Milestone 2 test plan
+# Testing and verification — current Milestone 6
 
-## Automated Python tests
+The project has unit/integration tests for detection, policy parsing, enforcement, audit integrity, policy replay, detector provenance and signed release approval. The **runtime** verification path is Windows PowerShell + Podman Compose.
 
-Run locally (requires development dependencies, not the NLP model):
+## Prerequisites
 
-```bash
+From the repository root: `.env` with a strong `CONTROL_PLANE_API_KEY`; Podman + Compose provider; Python 3.12+; for M6 a properly provisioned **separate release signing key** and activated signed release. Preserve audit volumes and signing material; never use `compose down -v` on existing evidence.
+
+The local runtime is intentionally English ASCII-only and simulated models are used for inference. External model integration is not tested by the simulated egress profile.
+
+## Python tests
+
+~~~powershell
 python -m pip install -e '.[dev]'
 python -m pytest -q
-```
+~~~
 
-Run all tests **inside the built control-plane image**, where Presidio and the
-pinned spaCy model are actually installed:
+`tests/test_presidio_real_integration.py` is skipped if the NLP installation is absent; install the pinned spaCy English model in a dedicated environment to run it. The production image intentionally omits pytest. `make test` is available when Make is installed and the virtual environment has been set up.
 
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
-```
+Key areas:
 
-To run the full pytest suite against real NLP, set up a local Python environment
-with Presidio, spaCy, the English model, and dev dependencies. The production
-container deliberately does not include pytest or the test sources.
+| Test area | Files / checks |
+| --- | --- |
+| Detection normalization, unknown/overlap behavior | `tests/test_detection_aggregation.py`, `test_presidio_adapter.py`, `test_presidio_real_integration.py` |
+| API, authorization and sanitized errors | `tests/test_api.py` |
+| Audit sequencing, tamper/truncation | `tests/test_audit_integrity.py` |
+| Decision-before-forwarding and fail-closed orchestration | `tests/test_orchestrator.py`, `test_m3_enforcement.py` |
+| OPA parsing and Rego | `tests/test_policy_adapter.py`, `tests/rego/decision_test.rego` |
+| Policy integrity, archive replay | `tests/test_m4_policy_snapshots.py`, `test_m4_replay.py`, `test_m4_failclosed.py` |
+| Detector provenance and portable evidence | `tests/test_m5_provenance.py` |
+| Signed releases, anti-rollback workflow | `tests/test_m6_release_approvals.py` |
 
-| Guarantee | Tests |
-|---|---|
-| Stable overlapping-entity aggregation, severity precedence | `test_detection_aggregation.py` |
-| Unknown categories, missing coverage, invalid spans | `test_detection_aggregation.py` |
-| Presidio adapter translation, no raw matched values | `test_presidio_adapter.py` |
-| Real installed model pattern checks | `test_presidio_real_integration.py` (when model installed) |
-| Fail-closed detector/OPA failures; durable decision before model | `test_orchestrator.py` |
-| Strict OPA output schema and error handling | `test_policy_adapter.py` |
-| Audit tampering, truncation, concurrent writes | `test_audit_integrity.py` |
-| Authorization, input sanitization, request size limits | `test_api.py` |
+## Runtime and Rego checks
 
-## Podman smoke checks
+Run after installing/activating the **approved** release image; do not rebuild it after signing.
 
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env up --build -d
+~~~powershell
+podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
 podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
-```
+python -m tools.verify_policy_snapshot
+python -m tools.verify_release
+.\Verify-Milestone6.ps1
+~~~
 
-Use the PowerShell example in README to check a public prompt, an email and
-a synthetic private-key marker. The old M1 tests for OPA outages, unauthorized
-destinations, and independently verified audit corruption remain relevant.
+The documented M6 validation on Windows produced `RELEASE_VERIFIED`, Rego `PASS: 14/14`, `READY`, an approved signed request, and an offline evidence report with `REPLAY_VERIFIED`. Test counts reflect that run and are not a hard-coded guarantee for future test additions.
 
-**Not executable here:** this authoring environment has neither Podman/OPA
-nor the installed Presidio package or spaCy English model, so I cannot claim
-a real-container/NLP/OPA integration pass until those commands are run locally.
+The additional historical `Verify-Milestone3.ps1`, `Verify-Milestone4.ps1` and `Verify-Milestone5.ps1` scripts cover redaction/network isolation, policy snapshot replay and detector provenance; they are useful regression checks, but **the current signed-release startup and activation procedure supersedes their older `up --build` commands**.
 
-## Known limitations
+### Optional simulated external egress
 
-- Best-effort detection, English/ASCII-only input scope, no guarantee of
-  finding all PII, secrets, confidential business facts or regulated data.
-- No redaction or external egress yet.
-- M1 manually versioned Rego; no signed policy-bundle attestation.
-- No cryptographically authenticated archive of full NLP model bytes.
-- Full offline replay can verify OPA *inputs and reported output* from evidence,
-  but reproducing old policy execution requires the correct archived Rego.
+Set `ENABLE_EXTERNAL_SIMULATOR=true` and start the `egress-test` profile using an approved prebuilt image. `Verify-Milestone3.ps1` exercises redaction digest equivalence, blocked destinations, network separation, gateway outage and cryptographic audit verification. Use synthetic PII only. The gateway is not a real external cloud or proof of geographic residency.
+
+## Offline evidence interpretation
+
+A valid verification may report:
+
+- `RELEASE_VERIFIED`: active policy/detector tuple matches signed release approval.
+- `EVIDENCE_PACKAGE_SELF_CONSISTENT` and `audit.status=REPLAY_VERIFIED`: package hashes, event chain and eligible Rego decisions reproduce using keys/checkpoints from the package.
+- `release_signer_trusted_externally=true`: independent release public key was used for approval authentication.
+- `public_key_trusted_externally=false` / `checkpoint_trusted_externally=false`: **audit history itself is not independently anchored**.
+- `classification_replayed=0`: expected; plaintext input/model weights are not exported.
+
+For stronger audit authentication, supply independent `--trusted-public-key` and `--trusted-checkpoint` to `tools.verify_evidence_package`. Current scripts do **not** automate periodic external checkpoint witnessing.
+
+## Gaps not covered by current automated tests
+
+Real enterprise identity/tenant isolation, real local-model inference quality, external provider identity/residency, mTLS and authenticated egress, output DLP, distributed audit durability, load/performance testing, full supply-chain attestation, audit signer compromise recovery, and periodic external checkpoint witnessing.
+
+See [current architecture](architecture.md), [threat model](threat-model.md) and [Milestone 6](milestone-6.md).

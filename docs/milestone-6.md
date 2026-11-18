@@ -1,5 +1,7 @@
 # ADR / Milestone 6: Signed releases, controlled activation and verification
 
+**Implementation status:** M6 is implemented and the Windows Podman operator verification passed (signature-backed policy and detector identities, 14/14 Rego tests, signed decision evidence, portable export, and disconnected replay with an out-of-bundle release public key). This validates the tested workflow; it does **not** establish independent audit-key/checkpoint trust, live host attestation or real-world residency. See [current architecture](architecture.md) and [threat model](threat-model.md).
+
 ## Why this milestone exists
 
 M4 identified exactly which Rego source was evaluated, and M5 which Presidio/spaCy
@@ -50,6 +52,8 @@ Preserve `.env`, audit volume, and existing `policy-archive` and `policy-active`
 4. Start containers with `podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d`.
 5. Run `./Verify-Milestone6.ps1` to check actual runtime approval, signed
    evidence, export and network-disabled offline release verification.
+
+**Caution:** The root `Makefile` has a `make up` target using `up --build`. Do not use that target after signing a release: it can rebuild detector artifacts and invalidate what was approved. Use the explicit `--no-build` Compose startup shown above.
 
 ### Subsequent policy rollouts / rollback
 

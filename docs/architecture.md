@@ -1,129 +1,101 @@
-> This document records the M2 architecture. For M3 redaction and routing behavior, see [milestone-3.md](milestone-3.md).
+# Architecture — current Milestone 6 implementation
 
-# Architecture and API / Domain Contracts (M2)
+**Status:** Current as of API version `0.6.0`. The original M1 modular-monolith decision remains in [ADR-0001](adr/0001-modular-monolith.md); M4 policy snapshot decision in [ADR-0002](adr/0002-content-addressed-rego.md).
 
-## Logical architecture
+## Intent and deployment
 
-```mermaid
+A local, fail-closed AI request security gateway intended to demonstrate policy-based routing, sensitive-data handling, and verifiable decisions. It is **not** a production multi-tenant control plane or proof of geographic sovereignty.
+
+| Trust domain | Current components |
+| --- | --- |
+| Untrusted | API client and supplied prompt, purpose, requested destination ID |
+| Local application | FastAPI ingress, `RequestOrchestrator`, Presidio/spaCy, deterministic redactor, plan validation |
+| Local policy | OPA 1.8.0 serving the read-only `policy-active/` snapshot |
+| Local execution | `sovereign-model` simulator |
+| Optional simulated egress | `egress-gateway` and `external-simulator` on a second private Podman network |
+| Durable evidence | SQLite `audit-data` volume, append chain and Ed25519 audit receipts |
+| Offline operator | Separate Ed25519 release signer approves policy+detector digests and release generation |
+| Offline reviewer | Network-disabled container, archived Rego, portable evidence ZIP, separately provisioned trust anchors |
+
+~~~mermaid
 flowchart TD
-    U[API caller] --> API[FastAPI /v1/prompts]
-    subgraph Boundary[Local sovereign boundary]
-      API --> O[RequestOrchestrator]
-      O --> D[Detector port: PresidioDetector + FindingAggregator]
-      O --> P[PolicyEvaluator port: OPA]
-      O --> A[AuditWriter port: SQLite + signed hash chain]
-      O --> E[EnforcementPlanner]
-      E --> M[ModelGateway: local HTTP simulator]
-      A --> S[(SQLite volume)]
+    Client[Untrusted client] --> API[FastAPI /v1/prompts]
+    subgraph Local[Local trust boundary]
+        API --> O[RequestOrchestrator]
+        O --> D[Presidio / spaCy]
+        D --> P[OPA Rego policy]
+        P --> V[Validate ordered obligations]
+        V --> R[REDACT + second scan when required]
+        R --> A[Signed DECISION precommit]
+        A --> E{Authorized route}
+        E --> M[Local model simulator]
+        E --> G[Optional egress gateway]
+        M --> OUT[Signed OUTCOME]
+        G --> OUT
+        OUT --> DB[(SQLite audit chain)]
+        A --> DB
     end
-    V[Offline verifier + pinned key/checkpoint] -.-> S
-```
+    G --> X[External simulator on test network]
+    Signer[Offline release signer] --> Approval[Signed artifact approval]
+    Approval -. validates .-> P
+    Approval -. validates .-> D
+    DB --> Export[Portable evidence export]
+    Export --> Reviewer[Network-disabled reviewer]
+~~~
 
-## Responsibilities and boundaries
+The diagram is logical. The Docker/Podman simulation is not an internet egress implementation; the gateway and external simulator do not prove cloud residency or provider identity.
 
-- **Domain** (`app/domain/contracts.py`): frozen dataclasses and `Protocol` ports;
-  no FastAPI, SQLite, or HTTP imports.
-- **Ingress** (`app/api/`): HTTP request validation, key authentication, sanitized
-  errors, and trusted principal injection. Caller can request a *destination ID*,
-  not arbitrary URLs or an asserted geographic compliance status.
-- **Application** (`app/application/orchestrator.py`): lifecycle ordering, safe
-  fallback, and orchestration. No policy rules hardcoded except invariant fail-closed
-  guardrails.
-- **Detection** (`app/detection`): Presidio built-ins and custom patterns, local pinned spaCy NLP,
-  and a stable adapter/aggregator; `UNKNOWN` on missing coverage or invalid output.
-- **Policy** (`app/policy`): OPA's decision endpoint. Strict parse rejects absent
-  `result`, unknown actions, or unrecognized fields.
-- **Enforcement** (`app/enforcement`): validates the plan before any model call;
-  does not evaluate policy itself. Initial registry permits only `sovereign-model`.
-- **Audit** (`app/audit`): HMAC fingerprint, append chain, signed event receipts,
-  and read-only verifier.
+## Runtime responsibilities
 
-## Request state machine
+- `app/domain/contracts.py`: frozen technology-neutral `PromptCommand`, `DetectionResult`, `PolicyDecision`, `ProcessedRequest` and port interfaces.
+- `app/api/main.py`: request-body validation, API-key authentication, one fixed test `Principal("local-tester","local-tenant",...)`, sanitized errors, readiness and evidence lookup.
+- `app/detection/*`: in-boundary Presidio/spaCy detection and validated, normalized finding spans. Unsupported non-ASCII text gives `UNKNOWN`; low coverage or invalid results fail closed.
+- `app/policy/*`: strict OPA response parser, archive/active policy digest verification, offline policy replay.
+- `app/enforcement/*`: validates approved destination IDs and `REDACT`/`ROUTE` order, performs deterministic replacement and second pass. Unregistered URLs cannot be selected from request data.
+- `app/release/*`: independently signed release approval and activation; runtime receives trusted public keys, not private release-signing keys.
+- `app/audit/*`: one local SQLite audit sequencer, HMAC input fingerprint, Ed25519 signed event chain, exporter and disconnected verifier.
 
-```mermaid
+## Request lifecycle and invariants
+
+~~~mermaid
 stateDiagram-v2
-    [*] --> VALIDATION
-    VALIDATION --> DETECT
-    DETECT --> POLICY: valid detection
-    DETECT --> LOCAL_DENY: detector failed / UNKNOWN
-    POLICY --> PLAN_VALIDATION: valid OPA result
-    POLICY --> LOCAL_DENY: timeout / malformed result
-    PLAN_VALIDATION --> LOCAL_DENY: invalid route/obligation
-    PLAN_VALIDATION --> DECISION_COMMIT: valid plan
-    LOCAL_DENY --> DECISION_COMMIT
-    DECISION_COMMIT --> ABORT: commit failure
-    DECISION_COMMIT --> OUTCOME_COMMIT: DENY
-    DECISION_COMMIT --> MODEL_CALL: PERMIT
-    MODEL_CALL --> OUTCOME_COMMIT: success / ambiguous failure
-    OUTCOME_COMMIT --> RETURN: committed
-    OUTCOME_COMMIT --> UNRESOLVED: commit failure
-```
+    [*] --> Authenticate
+    Authenticate --> Detect: admitted request
+    Detect --> Decide: supported classification
+    Detect --> Deny: UNKNOWN / detector failure
+    Decide --> Validate: verified OPA response and release
+    Decide --> Deny: OPA unavailable / invalid approval
+    Validate --> Transform: approved redaction obligation
+    Validate --> Precommit: approved route without redaction
+    Validate --> Deny: invalid plan
+    Transform --> Precommit: second detection NO_PRIVATE_DETECTED
+    Transform --> Deny: redaction failure / uncertain scan
+    Deny --> Precommit
+    Precommit --> Abort: audit commit fails
+    Precommit --> Model: permitted decision durably signed
+    Precommit --> Blocked: denial durably signed
+    Model --> Outcome: success / ambiguous failure
+    Blocked --> Outcome
+    Outcome --> Complete: durable outcome commit
+    Outcome --> Unresolved: commit failure / crash
+~~~
 
-No model call is made on `ABORT`. On `UNRESOLVED`, the decision event remains;
-this may follow an actual model call, so the outcome cannot be called blocked.
+**Non-negotiable rules:**
 
-## API contract
+1. Invalid credentials, unsupported input, missing detector coverage, unknown classifications, malformed OPA results, untrusted releases, invalid obligations and unapproved destinations do not invoke a model.
+2. Every **admitted policy decision** commits a signed `DECISION` event before model execution. An audit precommit failure aborts forwarding.
+3. A permitted external simulated route with detected PII must redact all detected categories and pass a second scan before forwarding.
+4. `OUTCOME` is a separate event. A timeout or crash can leave an unknown/pending outcome; it must not be reported as definitively blocked.
+5. Release identity, Rego source digest and detector artifact digest are checked against the active signed approval; version labels alone are insufficient.
+6. No matched PII values, plaintext prompt or model response are stored in normal audit metadata. Metadata, offsets and principal IDs may still be sensitive.
 
-### `POST /v1/prompts`
+## API and readiness
 
-Body (`application/json`):
+- `POST /v1/prompts`: `{"prompt":"...","destination_id":"sovereign-model","purpose":"GENERAL"}` with `X-API-Key`. JSON fields are strictly validated; prompt max 8,192 UTF-8 bytes, request body max 16,384 bytes.
+- `GET /v1/requests/{request_id}`: query signed decision/outcome evidence using authenticated local-tenant scope.
+- `GET /health/live`: process status only.
+- `GET /health/ready`: checks OPA digest/revision, detector integrity, active signed release, audit writability and local model health; failures return 503.
 
-```json
-{"prompt":"Hello world", "destination_id":"sovereign-model", "purpose":"GENERAL"}
-```
+HTTP permit returns `COMPLETED` with output; policy denies return 403 `BLOCKED`; model failures return 502 `ERROR` with potentially unknown invocation status. An unavailable audit writer returns 503.
 
-Authentication: `X-API-Key`. Principal is a fixed local-test identity for M2;
-no tenant or role claims accepted from the request body. Prompts are limited to
-8192 UTF-8 bytes and HTTP bodies to 16384 bytes.
-
-Success response has `request_id`, `status`, `classification`, `decision`,
-`decision_receipt`, `outcome_receipt`, `model_id`, and `output`.
-
-A denial returns HTTP 403 with the same decision/evidence fields and no output.
-Internal errors are sanitized. Raw prompt and matched entity values are not
-returned in audit metadata.
-
-### `GET /v1/requests/{request_id}`
-
-Requires the API key and scopes the search to the authenticated tenant. Returns
-recorded decision/outcome evidence; an absent outcome means the operation may
-have been interrupted or the outcome persistence failed.
-
-### `GET /health/live` and `/health/ready`
-
-Liveness is process-only; readiness probes OPA's decision endpoint and model
-health. For local test fixture mode, readiness reports `TEST_MODE`.
-
-## Domain contracts
-
-- `PromptCommand`: id, prompt, requested destination, purpose, trusted principal.
-- `DetectionResult`: `PRIVATE | NO_PRIVATE_DETECTED | UNKNOWN`, sensitivity,
-  findings, coverage, detector version, reason codes, additive configuration digest.
-- `PolicyContext`: classification plus trusted caller/destination/purpose input;
-  explicitly contains no raw prompt.
-- `PolicyDecision`: `PERMIT | DENY`, ordered obligations, reason codes, revision.
-- `ProcessedRequest`: status, classification, decision, receipts, optional model output.
-- `AuditReceipt`: sequence, event hash, Ed25519 signature.
-
-M2 obligations support only a single `ROUTE` on a permitted decision. A future
-milestone adds REDACT (including reclassification), external destination registry,
-and additional transformation obligations.
-
-## Migration path
-
-Replace in-process detector with a separately scaled recognition service,
-SQLite audit with a sequenced multi-writer service, local OPA with policy-bundle
-sidecars, and Compose with Kubernetes. None of those replacements should change
-the domain schemas. They **will** need new fault/latency and consistency designs.
-
-## M2 detection details
-
-The `PresidioDetector` performs inference entirely within the local trust boundary,
-never forwarding raw input to a remote NLP service. `FindingAggregator` provides
-deterministic overlap-resolution and a policy-independent classification schema.
-Incomplete required recognizer coverage, unsupported non-ASCII input, or malformed
-recognizer output returns `UNKNOWN`. The orchestrator denies before model access.
-See [detection-design.md](detection-design.md) for exact category and scoring rules.
-
-
-> Milestone 3 update: See [Milestone 3 design](milestone-3.md) for the new redaction, destination registry, egress-test profile, and active policy revision contract.
+**Not implemented:** arbitrary model providers, streaming, attachments/RAG, output DLP, tenant OIDC/JWT, admin policy API, independent egress attestation, multi-host audit consensus. See [threat model](threat-model.md) and [Milestone 6](milestone-6.md).
