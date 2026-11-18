@@ -19,7 +19,8 @@ from app.detection.presidio_detector import PresidioDetector
 from app.domain.contracts import Principal, PromptCommand, RequestStatus
 from app.enforcement.gateway import Destination, DestinationRegistry, EnforcementPlanner, HTTPModelGateway
 from app.infrastructure.config import Settings
-from app.policy.opa import OPAPolicyEvaluator
+from app.policy.opa import OPAPolicyEvaluator, parse_decision
+from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 
 
 @dataclass
@@ -38,9 +39,12 @@ def make_components() -> Components:
     if settings.enable_external_simulator:
         destinations.append(Destination("external-simulator", settings.egress_gateway_url, "EXTERNAL_SIMULATED"))
     registry = DestinationRegistry(tuple(destinations))
+    snapshot_store = PolicySnapshotStore(settings.active_policy_path, settings.policy_archive_path)
+    # Reject an invalid or missing policy snapshot at startup.
+    snapshot_store.verify_active()
     orchestrator = RequestOrchestrator(
         detector=PresidioDetector.create(),
-        policy=OPAPolicyEvaluator(client, settings.opa_url),
+        policy=OPAPolicyEvaluator(client, settings.opa_url, snapshot_store),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
@@ -59,8 +63,8 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
-        version="0.3.0",
-        description="Milestone 3: verified redaction, OPA obligations, and simulated egress.",
+        version="0.4.0",
+        description="Milestone 4: content-bound OPA decisions and offline audit replay.",
         lifespan=lifespan,
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16384)
@@ -99,13 +103,19 @@ def create_app(components: Components | None = None) -> FastAPI:
             )
             response.raise_for_status()
             result = response.json().get("result")
-            if (not isinstance(result, dict) or
-                result.get("policy_revision") != deps.settings.expected_policy_revision):
+            if not isinstance(result, dict):
+                raise ValueError("OPA policy result missing")
+            if deps.orchestrator.policy.snapshots is not None:
+                info = deps.orchestrator.policy.snapshots.verify_active()
+                if (result.get("policy_digest") != info.policy_digest or
+                    result.get("policy_revision") != info.policy_revision):
+                    raise ValueError("OPA policy does not match active archived snapshot")
+            if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
             deps.audit.check_writable()
             model = await deps.client.get(deps.settings.model_url.rstrip("/") + "/health", timeout=1.0)
             model.raise_for_status()
-        except (httpx.HTTPError, ValueError, AuditUnavailable):
+        except (httpx.HTTPError, ValueError, AuditUnavailable, SnapshotError):
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         return {"status": "READY"}
 

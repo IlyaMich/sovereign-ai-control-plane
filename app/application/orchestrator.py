@@ -8,6 +8,7 @@ from app.domain.contracts import (
 )
 from app.enforcement.gateway import EnforcementPlanner, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
+from app.policy.opa import PolicyIntegrityError
 
 
 class RequestOrchestrator:
@@ -33,9 +34,12 @@ class RequestOrchestrator:
         else:
             try:
                 decision = await self.policy.evaluate(policy_input)
+            except PolicyIntegrityError:
+                decision = PolicyDecision.deny("POLICY_INTEGRITY_FAILURE")
             except Exception:
                 decision = PolicyDecision.deny("POLICY_UNAVAILABLE")
 
+        opa_decision = decision if decision.policy_digest else None
         forwarded_prompt = command.prompt
         transformed = False
         verification = None
@@ -64,10 +68,16 @@ class RequestOrchestrator:
             forwarded_prompt = command.prompt
 
         evidence = {
+            "policy_evidence_version": "2",
             "principal_id": command.principal.principal_id,
             "input_hmac_sha256": self.audit.fingerprint(command.prompt),
             "policy_input": policy_input.to_dict(),
             "decision": decision.to_dict(),
+            # Preserve OPA's original answer even when local safety checks override it.
+            "policy_evaluation": opa_decision.to_dict() if opa_decision else None,
+            "policy_snapshot": ({"sha256": opa_decision.policy_digest,
+                                 "revision": opa_decision.policy_revision}
+                                if opa_decision else None),
             "transformation": {
                 "applied": transformed,
                 "output_hmac_sha256": self.audit.fingerprint(forwarded_prompt) if transformed else None,

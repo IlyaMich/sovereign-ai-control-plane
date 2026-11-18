@@ -101,3 +101,13 @@ are intentionally deferred.
   checks are later milestones.
 - PostgreSQL/Kafka migration requires new sequencer/transaction semantics;
   Kafka publication alone is not an audit durability guarantee.
+
+
+## Milestone 4 extension
+
+New signed `DECISION` payloads preserve the original OPA response, its source
+bundle digest and the resolved final enforcement decision. See
+[milestone-4.md](milestone-4.md) for policy archive verification and replay.
+The on-disk chain encoding and signature scheme are intentionally unchanged,
+so older signed events remain verifiable. Legacy events lack policy digests
+and are counted as integrity-only by the offline reviewer.

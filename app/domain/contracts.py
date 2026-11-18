@@ -138,6 +138,7 @@ class PolicyDecision:
     obligations: tuple[Obligation, ...]
     reason_codes: tuple[str, ...]
     policy_revision: str
+    policy_digest: str = ""
 
     @classmethod
     def deny(cls, reason: str, revision: str = "local-fail-closed-v1") -> PolicyDecision:
@@ -149,6 +150,7 @@ class PolicyDecision:
             "obligations": [o.to_dict() for o in self.obligations],
             "reason_codes": list(self.reason_codes),
             "policy_revision": self.policy_revision,
+            **({"policy_digest": self.policy_digest} if self.policy_digest else {}),
         }
 
 

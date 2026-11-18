@@ -101,3 +101,22 @@ test_refuses_credentials_to_external if {
         "classification": object.union(base_classification, {"status": "PRIVATE", "findings": [{"category": "API_CREDENTIAL"}]}),
     }
 }
+
+# All OPA outcomes, including default denies, must bind the same source snapshot.
+test_default_denial_reports_policy_digest if {
+    answer := authz.decision with input as {
+        "request": {"destination_id": "unapproved", "purpose": "GENERAL"},
+        "classification": base_classification,
+    }
+    answer.effect == "DENY"
+    answer.policy_digest == data.sovereign.policy_meta.digest
+}
+
+test_permit_reports_policy_digest if {
+    answer := authz.decision with input as {
+        "request": {"destination_id": "sovereign-model", "purpose": "GENERAL"},
+        "classification": base_classification,
+    }
+    answer.effect == "PERMIT"
+    answer.policy_digest == data.sovereign.policy_meta.digest
+}
