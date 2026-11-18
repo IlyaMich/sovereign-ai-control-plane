@@ -426,3 +426,44 @@ checkpoint to authenticate it against external trust anchors.
 See [docs/milestone-5.md](docs/milestone-5.md) for data layout, trust boundaries,
 CLI commands, and known limits. Do not run `podman compose down -v` while
 upgrading: this would delete your audit history and keys.
+
+## Make commands
+
+Run `make` or `make help` from the repository root to list available commands.
+GNU Make and Python 3.12+ are required for local development. On Windows, run
+these commands in PowerShell; Make selects the virtual-environment path for you.
+
+```powershell
+make setup            # Create .venv and install development dependencies
+make setup-nlp        # Set up development dependencies and the pinned spaCy model
+make test             # Run Python tests
+make policy-verify    # Verify active and archived policy snapshots
+make up               # Build and start the default Podman Compose stack
+make status           # Show service status
+make logs             # Follow control-plane logs
+make check-containers # Run NLP smoke checks and Rego tests in the running stack
+make down             # Stop containers, preserving the audit-data volume
+```
+
+Virtual-environment activation is unnecessary. `make setup` does not install the
+English NLP model; use `make setup-nlp` to enable the real Presidio integration
+test locally. See the optional NLP setup below for details.
+
+Create `.env` using the setup instructions above before running Compose targets.
+Make does not create or overwrite your API key. Podman Compose is the default;
+Docker users can run `make up COMPOSE="docker compose"`. This override works for
+all Compose targets. Use `ENV_FILE=.env.local` to select a different environment
+file, or `PYTHON=python3` with setup on systems where Python is named `python3`.
+
+To run a subset of tests or display skip reasons:
+
+```powershell
+make test TEST_ARGS="-q tests/test_api.py"
+make test TEST_ARGS="-q -rs"
+```
+
+After editing `policies/decision.rego`, run `make policy-build`,
+`make policy-verify`, then `make restart` to recreate the default services and
+remount the active snapshot in OPA. If the policy revision changes, update
+`EXPECTED_POLICY_REVISION` in `.env` before restarting. These commands preserve
+policy archives and audit volumes.
