@@ -67,8 +67,12 @@ class RequestOrchestrator:
             transformed = False
             forwarded_prompt = command.prompt
 
+        detector_digest = classification.artifact_digest
         evidence = {
             "policy_evidence_version": "2",
+            **({"detector_evidence_version": "1",
+                "detector_snapshot": {"sha256": detector_digest, "schema_version": 1}}
+               if detector_digest else {}),
             "principal_id": command.principal.principal_id,
             "input_hmac_sha256": self.audit.fingerprint(command.prompt),
             "policy_input": policy_input.to_dict(),

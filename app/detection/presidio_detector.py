@@ -6,6 +6,9 @@ Model artifacts must be installed into the image ahead of time.
 from __future__ import annotations
 
 from typing import Any
+from dataclasses import replace
+
+from app.detection.provenance import archive_manifest, load_verified, DetectorIntegrityError
 
 from app.detection.aggregation import (
     FindingAggregator, RawFinding, REQUIRED_COVERAGE, SENSITIVITY_BY_CATEGORY, configuration_digest,
@@ -43,8 +46,11 @@ CUSTOM_PATTERNS = {
 class PresidioDetector:
     """Adapter implements app.domain.contracts.Detector (synchronous)."""
 
-    def __init__(self, analyzer: Any, *, model_name: str = MODEL_NAME) -> None:
+    def __init__(self, analyzer: Any, *, model_name: str = MODEL_NAME,
+                 artifact_digest: str = "", provenance_path: str = "") -> None:
         self._analyzer = analyzer
+        self._artifact_digest = artifact_digest
+        self._provenance_path = provenance_path
         self._aggregator = FindingAggregator(
             version=VERSION,
             config_digest=configuration_digest({
@@ -65,7 +71,8 @@ class PresidioDetector:
             raise RuntimeError("Required Presidio recognizers missing: " + ", ".join(sorted(missing)))
 
     @classmethod
-    def create(cls) -> "PresidioDetector":
+    def create(cls, *, manifest_path: str | None = None,
+               archive_root: str | None = None) -> "PresidioDetector":
         # Lazy imports keep domain tests and alternate adapters independent of
         # an installed heavyweight NLP runtime.
         import spacy
@@ -98,13 +105,34 @@ class PresidioDetector:
                 supported_language="en",
             )
             analyzer.registry.add_recognizer(recognizer)
+        if manifest_path is not None:
+            # Start-up fails closed if code, model, or dependency bytes differ.
+            manifest = load_verified(manifest_path, verify_live=True)
+            if archive_root is None:
+                raise DetectorIntegrityError("Detector archive is required in managed mode")
+            archive_manifest(manifest, archive_root)
+            return cls(analyzer, artifact_digest=manifest["digest"],
+                       provenance_path=manifest_path)
+        # Standalone developer/test mode; not authoritative for audit provenance.
         return cls(analyzer)
 
+    def check_integrity(self) -> None:
+        if self._provenance_path:
+            actual = load_verified(self._provenance_path, verify_live=True)
+            if actual["digest"] != self._artifact_digest:
+                raise DetectorIntegrityError("Detector artifact identity has changed")
+
     def detect(self, prompt: str) -> DetectionResult:
+        # Cheap per-request manifest check, plus full installed-byte integrity
+        # checking at startup and readiness. Never continue with a changed ID.
+        if self._provenance_path:
+            if load_verified(self._provenance_path)["digest"] != self._artifact_digest:
+                raise DetectorIntegrityError("Detector identity changed after initialization")
         # The initial scope is English/ASCII text. Unsupported scripts must not
         # be silently classified as nonprivate by an English-only NER model.
         if not prompt.isascii():
-            return DetectionResult.unknown("UNSUPPORTED_CHARACTER_SET")
+            return replace(DetectionResult.unknown("UNSUPPORTED_CHARACTER_SET"),
+                           artifact_digest=self._artifact_digest)
         # Analyzer defaults to requesting all supported entities; limit the
         # result to the audited taxonomy and request decision metadata.
         raw = self._analyzer.analyze(
@@ -124,4 +152,5 @@ class PresidioDetector:
                 category=r.entity_type, start=r.start, end=r.end,
                 recognizer=str(recognizer), score=float(r.score),
             ))
-        return self._aggregator.aggregate(prompt=prompt, raw=observations, coverage=self._coverage)
+        result = self._aggregator.aggregate(prompt=prompt, raw=observations, coverage=self._coverage)
+        return replace(result, artifact_digest=self._artifact_digest)

@@ -17,6 +17,8 @@ class Settings:
     expected_policy_revision: str = "redaction-baseline-v3"
     active_policy_path: str = "/policy-active"
     policy_archive_path: str = "/policy-archive"
+    detector_manifest_path: str = "/service/detector-active/manifest.json"
+    detector_archive_path: str = "/var/lib/sovereign/detector-archive"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -34,4 +36,6 @@ class Settings:
             expected_policy_revision=os.environ.get("EXPECTED_POLICY_REVISION", "redaction-baseline-v3"),
             active_policy_path=os.environ.get("ACTIVE_POLICY_PATH", "/policy-active"),
             policy_archive_path=os.environ.get("POLICY_ARCHIVE_PATH", "/policy-archive"),
+            detector_manifest_path=os.environ.get("DETECTOR_MANIFEST_PATH", "/service/detector-active/manifest.json"),
+            detector_archive_path=os.environ.get("DETECTOR_ARCHIVE_PATH", "/var/lib/sovereign/detector-archive"),
         )

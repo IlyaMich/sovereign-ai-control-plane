@@ -43,7 +43,8 @@ def make_components() -> Components:
     # Reject an invalid or missing policy snapshot at startup.
     snapshot_store.verify_active()
     orchestrator = RequestOrchestrator(
-        detector=PresidioDetector.create(),
+        detector=PresidioDetector.create(manifest_path=settings.detector_manifest_path,
+                                        archive_root=settings.detector_archive_path),
         policy=OPAPolicyEvaluator(client, settings.opa_url, snapshot_store),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry),
@@ -63,8 +64,8 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
-        version="0.4.0",
-        description="Milestone 4: content-bound OPA decisions and offline audit replay.",
+        version="0.5.0",
+        description="Milestone 5: detector artifact provenance and replayable policy decisions.",
         lifespan=lifespan,
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16384)
@@ -112,10 +113,13 @@ def create_app(components: Components | None = None) -> FastAPI:
                     raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
+            detector = deps.orchestrator.detector
+            if hasattr(detector, "check_integrity"):
+                detector.check_integrity()
             deps.audit.check_writable()
             model = await deps.client.get(deps.settings.model_url.rstrip("/") + "/health", timeout=1.0)
             model.raise_for_status()
-        except (httpx.HTTPError, ValueError, AuditUnavailable, SnapshotError):
+        except (httpx.HTTPError, ValueError, RuntimeError, OSError, AuditUnavailable, SnapshotError):
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         return {"status": "READY"}
 

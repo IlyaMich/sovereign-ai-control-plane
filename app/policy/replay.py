@@ -14,6 +14,7 @@ import tempfile
 from typing import Callable, Any
 
 from app.audit.verify import verify_database
+from app.detection.evidence import verify_detector_references, DetectorEvidenceError
 from app.policy.opa import parse_decision
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 
@@ -52,9 +53,11 @@ def replay_database(
     db_path: str, public_key_path: str, archive_root: str,
     checkpoint_path: str | None = None, opa_binary: str = "opa",
     evaluator: Callable[[Path, dict], dict] | None = None,
+    detector_archive_root: str | None = None,
 ) -> dict[str, Any]:
     """Verify signed events first, then evaluate all content-bound decisions."""
     chain = verify_database(db_path, public_key_path, checkpoint_path)
+    provenance = verify_detector_references(db_path, detector_archive_root)
     archive = PolicySnapshotStore("/unused-active", archive_root)
     replayed = 0
     legacy = 0
@@ -123,6 +126,7 @@ def replay_database(
             raise ReplayError(f"Cannot replay decision at sequence {sequence}") from exc
     return {
         "status": "REPLAY_VERIFIED",
+        **provenance,
         "verified_events": chain["verified_events"],
         "policy_decisions_replayed": replayed,
         "legacy_decisions_integrity_only": legacy,
