@@ -8,6 +8,7 @@ import httpx
 
 from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError, DIGEST_RE
+from app.release.approvals import ReleaseStore, ReleaseIntegrityError
 
 
 class PolicyEvaluationError(Exception):
@@ -22,10 +23,12 @@ _SAFE_CODE = re.compile(r"^[A-Z][A-Z0-9_]{0,79}$")
 
 
 class OPAPolicyEvaluator:
-    def __init__(self, client: httpx.AsyncClient, base_url: str, snapshots: PolicySnapshotStore | None = None):
+    def __init__(self, client: httpx.AsyncClient, base_url: str, snapshots: PolicySnapshotStore | None = None,
+                 releases: ReleaseStore | None = None):
         self._client = client
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
         self.snapshots = snapshots
+        self.releases = releases
 
     async def evaluate(self, context: PolicyContext) -> PolicyDecision:
         try:
@@ -33,6 +36,10 @@ class OPAPolicyEvaluator:
                 pinned = self.snapshots.verify_active() if self.snapshots else None
             except SnapshotError as exc:
                 raise PolicyIntegrityError("Policy snapshot unavailable or invalid") from exc
+            pinned_release = (self.releases.verify_active(
+                policy_digest=pinned.policy_digest if pinned else None,
+                detector_digest=context.classification.artifact_digest,
+            ) if self.releases else None)
             response = await self._client.post(self._url, json={"input": context.to_dict()}, timeout=2.0)
             response.raise_for_status()
             data = response.json()
@@ -41,7 +48,16 @@ class OPAPolicyEvaluator:
             if pinned and (decision.policy_digest != pinned.policy_digest or
                            decision.policy_revision != pinned.policy_revision):
                 raise PolicyIntegrityError("OPA policy differs from verified active snapshot")
+            if pinned_release is not None:
+                verified_after = self.releases.verify_active(
+                    policy_digest=decision.policy_digest,
+                    detector_digest=context.classification.artifact_digest,
+                )
+                if verified_after['release_id'] != pinned_release['release_id']:
+                    raise ReleaseIntegrityError('Approved release changed during evaluation')
             return decision
+        except ReleaseIntegrityError as exc:
+            raise PolicyIntegrityError('Release signature or artifact identity invalid') from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError, SnapshotError) as exc:
             raise PolicyEvaluationError("OPA unavailable or returned an invalid decision") from exc
 

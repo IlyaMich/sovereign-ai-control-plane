@@ -1,3 +1,41 @@
+# Sovereign AI Control Plane — Milestone 6
+
+**Milestone 6: independently signed policy/detector releases and portable approval verification.**
+
+M5's content-addressed Rego and detector manifests establish *which bytes* were
+used. M6 adds an offline Ed25519 release authority to approve those exact bytes
+before deployment. The release signing key is **not** the runtime audit key and
+must remain outside the repository and all containers. This improves provenance
+without retaining raw prompts or model weights.
+
+## Milestone 6 quick start (Windows PowerShell)
+
+Preserve your existing `.env` and audit volume. Install `cryptography` on your
+operator PC (`python -m pip install "cryptography>=43,<47"`). Then, from the
+repository root:
+
+```powershell
+# Generates a local development release key OUTSIDE the checkout,
+# builds the image, signs the exact detector/policy identities and activates.
+.\Initialize-Milestone6.ps1
+
+# Reuse the exact preapproved image; no rebuild on startup.
+podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+.\Verify-Milestone6.ps1
+```
+
+If you use the optional egress simulator, add `--profile egress-test` before `up`.
+**Never run `podman compose down -v`.** New release approvals are mandatory by
+default (`REQUIRE_SIGNED_RELEASE=true`); this is deliberately a gated migration.
+For subsequent rollouts use `.\Initialize-Milestone6.ps1 -UseExistingKey` after
+building an updated policy snapshot. Never regenerate existing private keys.
+
+See [Milestone 6 release architecture and limits](docs/milestone-6.md) for
+rollback, independent public-key pinning, evidence verification and threats.
+
+---
+
 # Sovereign AI Control Plane — Milestone 4
 
 A locally runnable, **fail-closed AI security gateway**, with Presidio + local spaCy
@@ -388,14 +426,3 @@ checkpoint to authenticate it against external trust anchors.
 See [docs/milestone-5.md](docs/milestone-5.md) for data layout, trust boundaries,
 CLI commands, and known limits. Do not run `podman compose down -v` while
 upgrading: this would delete your audit history and keys.
-
-## Optional local NLP test setup
-
-Run `make setup-nlp` from the repository root to create `.venv`, install the
-project with development dependencies, and download the same pinned spaCy English
-model (`en_core_web_sm` 3.8.0) used in the container. This requires internet access.
-Then run `make test` to include the real Presidio integration test, which otherwise
-skips when Presidio or the English model is missing. Virtual-environment activation
-is unnecessary; Make selects the Windows or Unix Python path automatically.
-
-`make setup` remains the default development setup without the model download.

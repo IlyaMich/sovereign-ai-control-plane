@@ -9,18 +9,21 @@ from app.domain.contracts import (
 from app.enforcement.gateway import EnforcementPlanner, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
 from app.policy.opa import PolicyIntegrityError
+from app.release.approvals import ReleaseStore, ReleaseIntegrityError, summary
 
 
 class RequestOrchestrator:
     def __init__(
         self, detector: Detector, policy: PolicyEvaluator, audit: AuditWriter,
         model: ModelGateway, planner: EnforcementPlanner,
+        release_store: ReleaseStore | None = None,
     ):
         self.detector = detector
         self.policy = policy
         self.audit = audit
         self.model = model
         self.planner = planner
+        self.release_store = release_store
 
     async def process(self, command: PromptCommand) -> ProcessedRequest:
         try:
@@ -29,7 +32,18 @@ class RequestOrchestrator:
             classification = DetectionResult.unknown()
 
         policy_input = PolicyContext(command, classification)
-        if classification.status == DetectionStatus.UNKNOWN:
+        approved_release = None
+        release_untrusted = False
+        if self.release_store is not None:
+            try:
+                approved_release = self.release_store.verify_active(
+                    detector_digest=classification.artifact_digest if classification.artifact_digest else None
+                )
+            except ReleaseIntegrityError:
+                release_untrusted = True
+        if release_untrusted:
+            decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
+        elif classification.status == DetectionStatus.UNKNOWN:
             decision = PolicyDecision.deny("DETECTION_UNKNOWN")
         else:
             try:
@@ -52,7 +66,9 @@ class RequestOrchestrator:
                     transformed = True
                     # Fail closed for incomplete or broken verification; no prompt forwarded.
                     verification = self.detector.detect(forwarded_prompt)
-                    if verification.status != DetectionStatus.NO_PRIVATE_DETECTED:
+                    if (verification.status != DetectionStatus.NO_PRIVATE_DETECTED or
+                        (approved_release is not None and verification.artifact_digest !=
+                         approved_release["payload"]["detector_digest"])):
                         raise RedactionError("Transformed prompt did not pass classification")
         except InvalidPlan:
             decision = PolicyDecision.deny("INVALID_POLICY_PLAN")
@@ -67,8 +83,25 @@ class RequestOrchestrator:
             transformed = False
             forwarded_prompt = command.prompt
 
+        if approved_release is not None and self.release_store is not None:
+            try:
+                rechecked = self.release_store.verify_active(
+                    detector_digest=classification.artifact_digest if classification.artifact_digest else None,
+                    policy_digest=opa_decision.policy_digest if opa_decision else None,
+                )
+                if rechecked["release_id"] != approved_release["release_id"]:
+                    raise ReleaseIntegrityError("Active release changed during request")
+            except ReleaseIntegrityError:
+                decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
+                opa_decision = None  # An untrusted evaluation must not be used for replay.
+                forwarded_prompt = command.prompt
+                transformed = False
+                verification = None
+                approved_release = None
         detector_digest = classification.artifact_digest
         evidence = {
+            **({"release_evidence_version": "1",
+                "release_snapshot": summary(approved_release)} if approved_release else {}),
             "policy_evidence_version": "2",
             **({"detector_evidence_version": "1",
                 "detector_snapshot": {"sha256": detector_digest, "schema_version": 1}}

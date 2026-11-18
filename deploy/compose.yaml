@@ -15,6 +15,10 @@ services:
       POLICY_ARCHIVE_PATH: /policy-archive
       DETECTOR_MANIFEST_PATH: /service/detector-active/manifest.json
       DETECTOR_ARCHIVE_PATH: /var/lib/sovereign/detector-archive
+      REQUIRE_SIGNED_RELEASE: ${REQUIRE_SIGNED_RELEASE:-true}
+      RELEASE_ACTIVE_PATH: /release-active/release.json
+      RELEASE_ARCHIVE_PATH: /release-archive
+      RELEASE_TRUST_PATH: /release-trust
       AUDIT_DB_PATH: /var/lib/sovereign/audit.sqlite
       AUDIT_SIGNING_KEY_PATH: /var/lib/sovereign/audit-key.pem
     ports:
@@ -23,6 +27,9 @@ services:
       - audit-data:/var/lib/sovereign
       - ../policy-active:/policy-active:ro
       - ../policy-archive:/policy-archive:ro
+      - ../release-active:/release-active:ro
+      - ../release-archive:/release-archive:ro
+      - ../release-trust:/release-trust:ro
     read_only: true
     tmpfs:
       - /tmp
@@ -56,6 +63,7 @@ services:
     volumes:
       - audit-data:/var/lib/sovereign:ro
       - ../policy-archive:/policy-archive:ro
+      - ../release-trust:/release-trust:ro
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]

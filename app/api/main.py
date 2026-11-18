@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from pathlib import Path
 import hmac
 import uuid
 
@@ -21,6 +22,7 @@ from app.enforcement.gateway import Destination, DestinationRegistry, Enforcemen
 from app.infrastructure.config import Settings
 from app.policy.opa import OPAPolicyEvaluator, parse_decision
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
+from app.release.approvals import ReleaseStore, ReleaseIntegrityError
 
 
 @dataclass
@@ -42,13 +44,23 @@ def make_components() -> Components:
     snapshot_store = PolicySnapshotStore(settings.active_policy_path, settings.policy_archive_path)
     # Reject an invalid or missing policy snapshot at startup.
     snapshot_store.verify_active()
+    release_store = (ReleaseStore(
+        active=Path(settings.release_active_path),
+        archive=Path(settings.release_archive_path),
+        trust=Path(settings.release_trust_path),
+        policy_store=snapshot_store,
+        detector_manifest=Path(settings.detector_manifest_path),
+    ) if settings.require_signed_release else None)
+    if release_store is not None:
+        release_store.verify_active()
     orchestrator = RequestOrchestrator(
         detector=PresidioDetector.create(manifest_path=settings.detector_manifest_path,
                                         archive_root=settings.detector_archive_path),
-        policy=OPAPolicyEvaluator(client, settings.opa_url, snapshot_store),
+        policy=OPAPolicyEvaluator(client, settings.opa_url, snapshot_store, release_store),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
+        release_store=release_store,
     )
     return Components(settings, orchestrator, audit, client)
 
@@ -64,8 +76,8 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
-        version="0.5.0",
-        description="Milestone 5: detector artifact provenance and replayable policy decisions.",
+        version="0.6.0",
+        description="Milestone 6: independently signed release approvals and evidence.",
         lifespan=lifespan,
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16384)
@@ -116,10 +128,12 @@ def create_app(components: Components | None = None) -> FastAPI:
             detector = deps.orchestrator.detector
             if hasattr(detector, "check_integrity"):
                 detector.check_integrity()
+            if deps.orchestrator.release_store is not None:
+                deps.orchestrator.release_store.verify_active()
             deps.audit.check_writable()
             model = await deps.client.get(deps.settings.model_url.rstrip("/") + "/health", timeout=1.0)
             model.raise_for_status()
-        except (httpx.HTTPError, ValueError, RuntimeError, OSError, AuditUnavailable, SnapshotError):
+        except (httpx.HTTPError, ValueError, RuntimeError, OSError, AuditUnavailable, SnapshotError, ReleaseIntegrityError):
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         return {"status": "READY"}
 

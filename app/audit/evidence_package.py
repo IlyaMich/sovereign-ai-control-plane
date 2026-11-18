@@ -19,6 +19,8 @@ from app.audit.verify import verify_database
 from app.detection.provenance import canonical, find_archived
 from app.policy.replay import replay_database
 from app.policy.snapshots import PolicySnapshotStore
+from app.release.evidence import verify_release_references
+from app.release.approvals import load_approval
 
 MAX_FILES = 2000
 MAX_UNCOMPRESSED = 128 * 1024 * 1024
@@ -39,9 +41,10 @@ def _snapshot(source_path: str, target_path: Path) -> None:
                 raise EvidencePackageError("Cannot finalize read-only SQLite snapshot")
 
 
-def _decision_refs(path: Path) -> tuple[set[str], set[str]]:
+def _decision_refs(path: Path) -> tuple[set[str], set[str], set[str]]:
     policies: set[str] = set()
     detectors: set[str] = set()
+    releases: set[str] = set()
     with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as conn:
         entries = conn.execute("SELECT event_json FROM events WHERE event_type='DECISION'").fetchall()
     for (raw,) in entries:
@@ -50,7 +53,9 @@ def _decision_refs(path: Path) -> tuple[set[str], set[str]]:
             policies.add(payload["policy_snapshot"]["sha256"])
         if payload.get("detector_evidence_version") == "1":
             detectors.add(payload["detector_snapshot"]["sha256"])
-    return policies, detectors
+        if payload.get("release_evidence_version") == "1":
+            releases.add(payload["release_snapshot"]["release_id"])
+    return policies, detectors, releases
 
 
 def _safe_path(name: str) -> bool:
@@ -81,14 +86,15 @@ def _manifest_of(folder: Path) -> dict:
 
 def export_package(db_path: str, public_key: str, policy_archive: str,
                    detector_archive: str, output_path: str,
-                   witnessed_checkpoint: str | None = None) -> dict:
+                   witnessed_checkpoint: str | None = None,
+                   release_archive: str | None = None) -> dict:
     """Create a self-contained bundle; input database is read-only throughout."""
     with tempfile.TemporaryDirectory(prefix="sovereign-export-") as tmp:
         root = Path(tmp)
         snapshot = root / "audit.sqlite"
         _snapshot(db_path, snapshot)
         head = verify_database(str(snapshot), public_key, witnessed_checkpoint)
-        policies, detectors = _decision_refs(snapshot)
+        policies, detectors, releases = _decision_refs(snapshot)
         archive = PolicySnapshotStore("/unused-active", policy_archive)
         for digest in sorted(policies):
             folder = archive.find(digest)
@@ -99,6 +105,16 @@ def export_package(db_path: str, public_key: str, policy_archive: str,
             dest = root / "detector-archive" / (digest + ".json")
             dest.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(Path(detector_archive) / (digest + ".json"), dest)
+        if releases and release_archive is None:
+            raise EvidencePackageError("Release archive required for signed-release decisions")
+        for identity in sorted(releases):
+            source = Path(release_archive) / (identity + ".json")
+            doc = load_approval(source)  # Verifies identity; authentication uses external trust anchor.
+            if doc["release_id"] != identity:
+                raise EvidencePackageError("Archived release identity mismatch")
+            dest = root / "release-archive" / (identity + ".json")
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, dest)
         shutil.copyfile(public_key, root / "audit-key.pub.pem")
         (root / "checkpoint.json").write_bytes(canonical(head) + b"\n")
         if witnessed_checkpoint:
@@ -113,13 +129,14 @@ def export_package(db_path: str, public_key: str, policy_archive: str,
                     bundle.write(path, arcname=path.relative_to(root).as_posix())
     return {"status": "EXPORTED", "path": output_path,
             "events": head["verified_events"], "policy_snapshots": len(policies),
-            "detector_manifests": len(detectors)}
+            "detector_manifests": len(detectors), "release_approvals": len(releases)}
 
 
 def verify_package(package_path: str, *, opa_binary: str = "opa",
                    evaluator: Callable | None = None,
                    trusted_public_key: str | None = None,
-                   trusted_checkpoint: str | None = None) -> dict:
+                   trusted_checkpoint: str | None = None,
+                   trusted_release_public_key: str | None = None) -> dict:
     """Verify files, signed audit chain, detector manifests, and Rego decisions."""
     with tempfile.TemporaryDirectory(prefix="sovereign-verify-") as tmp:
         root = Path(tmp)
@@ -148,15 +165,28 @@ def verify_package(package_path: str, *, opa_binary: str = "opa",
         if trusted_public_key and Path(trusted_public_key).read_bytes() != (root / "audit-key.pub.pem").read_bytes():
             raise EvidencePackageError("Bundle signing key differs from independently pinned key")
         checkpoint = (Path(trusted_checkpoint) if trusted_checkpoint else root / "checkpoint.json")
+        # The archive references are derived only after signed-audit verification.
+        release_trust = None
+        if trusted_release_public_key is not None:
+            source_key = Path(trusted_release_public_key)
+            if not source_key.is_file() or source_key.is_symlink():
+                raise EvidencePackageError("External release public key unavailable")
+            release_trust = root / "external-release-trust"
+            release_trust.mkdir()
+            shutil.copyfile(source_key, release_trust / "trusted.pem")
         result = replay_database(
             str(root / "audit.sqlite"), str(root / "audit-key.pub.pem"),
             str(root / "policy-archive"), str(checkpoint), opa_binary,
             evaluator=evaluator, detector_archive_root=str(root / "detector-archive"),
         )
+        release_info = verify_release_references(
+            str(root / "audit.sqlite"), str(root / "release-archive"),
+            str(release_trust) if release_trust is not None else None)
         return {
             "status": ("EVIDENCE_PACKAGE_VERIFIED" if trusted_public_key
                        else "EVIDENCE_PACKAGE_SELF_CONSISTENT"),
-            "audit": result,
+            "audit": {**result, **release_info},
+            "release_signer_trusted_externally": bool(trusted_release_public_key),
             "public_key_trusted_externally": bool(trusted_public_key),
             "checkpoint_trusted_externally": bool(trusted_checkpoint),
         }

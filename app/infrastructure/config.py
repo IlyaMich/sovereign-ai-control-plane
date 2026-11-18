@@ -19,6 +19,10 @@ class Settings:
     policy_archive_path: str = "/policy-archive"
     detector_manifest_path: str = "/service/detector-active/manifest.json"
     detector_archive_path: str = "/var/lib/sovereign/detector-archive"
+    require_signed_release: bool = True
+    release_active_path: str = "/release-active/release.json"
+    release_archive_path: str = "/release-archive"
+    release_trust_path: str = "/release-trust"
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -38,4 +42,8 @@ class Settings:
             policy_archive_path=os.environ.get("POLICY_ARCHIVE_PATH", "/policy-archive"),
             detector_manifest_path=os.environ.get("DETECTOR_MANIFEST_PATH", "/service/detector-active/manifest.json"),
             detector_archive_path=os.environ.get("DETECTOR_ARCHIVE_PATH", "/var/lib/sovereign/detector-archive"),
+            require_signed_release=os.environ.get("REQUIRE_SIGNED_RELEASE", "true").lower() == "true",
+            release_active_path=os.environ.get("RELEASE_ACTIVE_PATH", "/release-active/release.json"),
+            release_archive_path=os.environ.get("RELEASE_ARCHIVE_PATH", "/release-archive"),
+            release_trust_path=os.environ.get("RELEASE_TRUST_PATH", "/release-trust"),
         )
