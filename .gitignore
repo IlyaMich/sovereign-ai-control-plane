@@ -9,3 +9,32 @@ __pycache__/
 *.pem
 *.key
 artifacts/
+
+# Local environment variants (keep shareable examples)
+.env.*
+!.env.example
+!.env.*.example
+
+# Python packaging output
+*.egg-info/
+build/
+dist/
+.eggs/
+
+# Additional local environments and tool caches
+venv/
+.tox/
+.nox/
+.mypy_cache/
+.ruff_cache/
+
+# Coverage output
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml
+
+# Operating-system metadata
+.DS_Store
+Thumbs.db
+Desktop.ini
