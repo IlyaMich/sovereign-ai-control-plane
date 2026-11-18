@@ -11,6 +11,7 @@ import json
 import sqlite3
 import subprocess
 import tempfile
+from contextlib import closing
 from pathlib import Path
 from typing import Any, Callable
 
@@ -81,7 +82,10 @@ def replay_database(
 
     # This is read-only and must be a consistent SQLite snapshot, not a live
     # WAL database copied without its companion files.
-    with sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True) as connection:
+    with (
+        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as connection,
+        connection,
+    ):
         rows = connection.execute(
             "SELECT sequence,event_json FROM events WHERE event_type='DECISION' ORDER BY sequence"
         ).fetchall()

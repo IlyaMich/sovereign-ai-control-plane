@@ -3,7 +3,12 @@
 import hashlib
 
 from fastapi import FastAPI
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.api.schemas import validate_prompt_bytes
+from app.infrastructure.config import RequestLimits
+
+limits = RequestLimits.from_env()
 
 app = FastAPI(title="Sovereign Model Simulator")
 
@@ -11,7 +16,12 @@ app = FastAPI(title="Sovereign Model Simulator")
 class GenerateRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     request_id: str
-    prompt: str = Field(min_length=1, max_length=8192)
+    prompt: str = Field(min_length=1, max_length=limits.max_forwarded_prompt_bytes)
+
+    @field_validator("prompt")
+    @classmethod
+    def check_prompt_bytes(cls, value: str) -> str:
+        return validate_prompt_bytes(value, limits.max_forwarded_prompt_bytes)
 
 
 @app.get("/health")

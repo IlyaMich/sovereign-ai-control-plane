@@ -14,7 +14,7 @@ endif
 
 COMPOSE_CMD = $(COMPOSE) -f deploy/compose.yaml --env-file "$(ENV_FILE)"
 
-.PHONY: help venv setup setup-nlp install test lint lint-fix format format-check typecheck check policy-build policy-verify build up down restart status logs smoke test-policy check-containers
+.PHONY: help venv setup setup-nlp install test lint lint-fix format format-check typecheck check policy-build policy-verify build release-check up down restart status logs smoke test-policy check-containers
 
 help:
 	@echo "  make setup-nlp        Set up development dependencies and pinned spaCy model"
@@ -30,10 +30,11 @@ help:
 	@echo "  make check            Run lint, formatting, type checks, and tests"
 	@echo "  make policy-build     Generate and archive an active policy snapshot"
 	@echo "  make policy-verify    Verify active and archived policy snapshots"
-	@echo "  make build            Build default Compose images"
-	@echo "  make up               Build and start the default stack"
+	@echo "  make build            Build images; approve a new release before starting"
+	@echo "  make release-check    Verify the installed image against its signed release"
+	@echo "  make up               Verify release and start approved images without rebuilding"
 	@echo "  make down             Stop the stack, preserving the audit volume"
-	@echo "  make restart          Recreate default services without rebuilding"
+	@echo "  make restart          Verify release and recreate services without rebuilding"
 	@echo "  make status           Show Compose service status"
 	@echo "  make logs             Follow control-plane logs"
 	@echo "  make smoke            Run real NLP smoke checks in the running stack"
@@ -82,14 +83,16 @@ policy-verify:
 build:
 	$(COMPOSE_CMD) build
 
-up:
-	$(COMPOSE_CMD) up --build --force-recreate -d
+release-check:
+	$(COMPOSE_CMD) run --rm --no-deps --pull never --entrypoint python control-plane -m tools.verify_runtime_release
+
+up: release-check
+	$(COMPOSE_CMD) up --no-build --force-recreate -d
 
 down:
 	$(COMPOSE_CMD) down
 
-restart:
-	$(COMPOSE_CMD) up --force-recreate -d
+restart: up
 
 status:
 	$(COMPOSE_CMD) ps

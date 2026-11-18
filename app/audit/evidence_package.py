@@ -13,6 +13,7 @@ import sqlite3
 import stat
 import tempfile
 import zipfile
+from contextlib import closing
 from pathlib import Path, PurePosixPath
 from typing import Callable, TypedDict
 
@@ -40,8 +41,11 @@ class EvidencePackageError(Exception):
 def _snapshot(source_path: str, target_path: Path) -> None:
     # SQLite backup preserves WAL mode. Normalize the *copy* for a read-only
     # reviewer; never modify the journal mode of the live audit database.
-    with sqlite3.connect(f"file:{Path(source_path).resolve()}?mode=ro", uri=True) as source:
-        with sqlite3.connect(str(target_path)) as target:
+    with (
+        closing(sqlite3.connect(f"file:{Path(source_path).resolve()}?mode=ro", uri=True)) as source,
+        source,
+    ):
+        with closing(sqlite3.connect(str(target_path))) as target, target:
             source.backup(target)
             mode = target.execute("PRAGMA journal_mode=DELETE").fetchone()[0]
             if mode.lower() != "delete":
@@ -52,7 +56,7 @@ def _decision_refs(path: Path) -> tuple[set[str], set[str], set[str]]:
     policies: set[str] = set()
     detectors: set[str] = set()
     releases: set[str] = set()
-    with sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True) as conn:
+    with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as conn, conn:
         entries = conn.execute(
             "SELECT event_json FROM events WHERE event_type='DECISION'"
         ).fetchall()

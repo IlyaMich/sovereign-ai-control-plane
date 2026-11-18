@@ -14,7 +14,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
 from app.api.body_limit import RequestBodyLimitMiddleware
-from app.api.schemas import PromptInput
+from app.api.schemas import PromptInput, prompt_input_model
 from app.application.orchestrator import RequestOrchestrator
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
 from app.detection.presidio_detector import PresidioDetector
@@ -70,9 +70,11 @@ def make_components() -> Components:
             manifest_path=settings.detector_manifest_path,
             archive_root=settings.detector_archive_path,
         ),
-        policy=OPAPolicyEvaluator(client, settings.opa_url, snapshot_store, release_store),
+        policy=OPAPolicyEvaluator(
+            client, settings.opa_url, snapshot_store, release_store, timeout=settings.http.opa
+        ),
         audit=audit,
-        model=HTTPModelGateway(client, settings.model_url, registry),
+        model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
         release_store=release_store,
     )
@@ -94,7 +96,9 @@ def create_app(components: Components | None = None) -> FastAPI:
         description="Milestone 6: independently signed release approvals and evidence.",
         lifespan=lifespan,
     )
-    app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16384)
+    app.add_middleware(
+        RequestBodyLimitMiddleware, max_bytes=deps.settings.limits.max_request_body_bytes
+    )
     app.state.components = deps
 
     @app.exception_handler(RequestValidationError)
@@ -127,7 +131,7 @@ def create_app(components: Components | None = None) -> FastAPI:
             response = await deps.client.post(
                 deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/decision",
                 json={"input": {}},
-                timeout=1.0,
+                timeout=deps.settings.http.readiness,
             )
             response.raise_for_status()
             result = response.json().get("result")
@@ -150,7 +154,8 @@ def create_app(components: Components | None = None) -> FastAPI:
                 deps.orchestrator.release_store.verify_active()
             deps.audit.check_writable()
             model = await deps.client.get(
-                deps.settings.model_url.rstrip("/") + "/health", timeout=1.0
+                deps.settings.model_url.rstrip("/") + "/health",
+                timeout=deps.settings.http.readiness,
             )
             model.raise_for_status()
         except (
@@ -165,7 +170,6 @@ def create_app(components: Components | None = None) -> FastAPI:
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         return {"status": "READY"}
 
-    @app.post("/v1/prompts")
     async def submit(
         payload: PromptInput, x_api_key: str | None = Header(default=None, alias="X-API-Key")
     ):
@@ -191,6 +195,10 @@ def create_app(components: Components | None = None) -> FastAPI:
             RequestStatus.ERROR: 502,
         }[result.status]
         return JSONResponse(status_code=http_code, content=body)
+
+    # Bind the configured schema before FastAPI inspects the endpoint annotations.
+    submit.__annotations__["payload"] = prompt_input_model(deps.settings.limits.max_prompt_bytes)
+    app.post("/v1/prompts")(submit)
 
     @app.get("/v1/requests/{request_id}")
     async def get_request(

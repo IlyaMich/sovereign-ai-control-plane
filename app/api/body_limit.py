@@ -2,13 +2,11 @@
 
 from starlette.responses import JSONResponse
 
-
-class BodyTooLarge(Exception):
-    pass
+from app.infrastructure.config import RequestLimits
 
 
 class RequestBodyLimitMiddleware:
-    def __init__(self, app, max_bytes: int = 16384):
+    def __init__(self, app, max_bytes: int = RequestLimits.max_request_body_bytes):
         self.app = app
         self.max_bytes = max_bytes
 
@@ -28,20 +26,29 @@ class RequestBodyLimitMiddleware:
                     scope, receive, send
                 )
 
-        total = 0
-
-        async def limited_receive():
-            nonlocal total
+        # Read at most the configured limit before invoking FastAPI. FastAPI can
+        # otherwise turn receive-time limiter exceptions into a generic HTTP 400.
+        body = bytearray()
+        while True:
             message = await receive()
-            if message["type"] == "http.request":
-                total += len(message.get("body", b""))
-                if total > self.max_bytes:
-                    raise BodyTooLarge()
-            return message
+            if message["type"] == "http.disconnect":
+                return
+            chunk = message.get("body", b"")
+            if len(body) + len(chunk) > self.max_bytes:
+                return await JSONResponse({"detail": "Request too large"}, status_code=413)(
+                    scope, receive, send
+                )
+            body.extend(chunk)
+            if not message.get("more_body", False):
+                break
 
-        try:
-            await self.app(scope, limited_receive, send)
-        except BodyTooLarge:
-            return await JSONResponse({"detail": "Request too large"}, status_code=413)(
-                scope, receive, send
-            )
+        delivered = False
+
+        async def buffered_receive():
+            nonlocal delivered
+            if delivered:
+                return await receive()
+            delivered = True
+            return {"type": "http.request", "body": bytes(body), "more_body": False}
+
+        await self.app(scope, buffered_receive, send)

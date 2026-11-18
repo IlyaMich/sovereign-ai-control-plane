@@ -10,12 +10,11 @@ from dataclasses import replace
 from typing import Any
 
 from app.detection.aggregation import (
-    REQUIRED_COVERAGE,
-    SENSITIVITY_BY_CATEGORY,
     FindingAggregator,
     RawFinding,
     configuration_digest,
 )
+from app.detection.config import DEFAULT_CONFIG, DetectorConfig
 from app.detection.provenance import DetectorIntegrityError, archive_manifest, load_verified
 from app.domain.contracts import DetectionResult
 
@@ -23,35 +22,8 @@ VERSION = "presidio-spacy-v1"
 MODEL_NAME = "en_core_web_sm"
 MODEL_VERSION = "3.8.0"
 
-# Restrict the Presidio output to our explicit taxonomy. Other categories may be
-# added deliberately, including their sensitivity mapping and policy tests.
-ENTITY_CATEGORIES = (
-    "EMAIL_ADDRESS",
-    "PHONE_NUMBER",
-    "PERSON",
-    "LOCATION",
-    "CREDIT_CARD",
-    "US_SSN",
-    "IBAN_CODE",
-    "API_CREDENTIAL",
-    "PRIVATE_KEY",
-)
-
-# These patterns deliberately detect *markers* and key formats rather than claim
-# exhaustive secrets scanning. They use synthetic-safe patterns in tests.
-CUSTOM_PATTERNS = {
-    "API_CREDENTIAL": (
-        ("aws-access-key", r"\bAKIA[0-9A-Z]{16}\b", 0.99),
-        ("openai-style-key", r"\bsk-[A-Za-z0-9_-]{16,}\b", 0.98),
-        ("github-pat", r"\bgh[pousr]_[A-Za-z0-9]{20,}\b", 0.98),
-    ),
-    "PRIVATE_KEY": (
-        ("pem-private-key-header", r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", 0.99),
-    ),
-    "EMAIL_ADDRESS": (
-        ("standard-email", r"\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}\b", 0.97),
-    ),
-}
+ENTITY_CATEGORIES = DEFAULT_CONFIG.entity_categories
+CUSTOM_PATTERNS = dict(DEFAULT_CONFIG.patterns)
 
 
 class PresidioDetector:
@@ -64,29 +36,32 @@ class PresidioDetector:
         model_name: str = MODEL_NAME,
         artifact_digest: str = "",
         provenance_path: str = "",
+        config: DetectorConfig | None = None,
     ) -> None:
+        self._config = config or DetectorConfig.load()
         self._analyzer = analyzer
         self._artifact_digest = artifact_digest
         self._provenance_path = provenance_path
         self._aggregator = FindingAggregator(
             version=VERSION,
+            required=self._config.required_coverage,
+            threshold=self._config.threshold,
+            sensitivity_mapping=dict(self._config.sensitivity_mapping),
             config_digest=configuration_digest(
                 {
                     "version": VERSION,
                     "nlp_model": model_name,
                     "model_version": MODEL_VERSION,
-                    "entity_categories": ENTITY_CATEGORIES,
-                    "patterns": CUSTOM_PATTERNS,
-                    "required_coverage": sorted(REQUIRED_COVERAGE),
-                    "sensitivity_mapping": {k: v.value for k, v in SENSITIVITY_BY_CATEGORY.items()},
-                    "min_score": 0.50,
+                    **self._config.to_dict(),
                 }
             ),
         )
         # Validate coverage at initialization (rather than treating missing
         # recognizers as evidence that a prompt is public).
-        self._coverage = frozenset(analyzer.get_supported_entities(language="en"))
-        missing = REQUIRED_COVERAGE - self._coverage
+        self._coverage = frozenset(analyzer.get_supported_entities(language="en")) & frozenset(
+            self._config.entity_categories
+        )
+        missing = self._config.required_coverage - self._coverage
         if missing:
             raise RuntimeError(
                 "Required Presidio recognizers missing: " + ", ".join(sorted(missing))
@@ -98,6 +73,7 @@ class PresidioDetector:
     ) -> "PresidioDetector":
         # Lazy imports keep domain tests and alternate adapters independent of
         # an installed heavyweight NLP runtime.
+        config = DetectorConfig.load()
         import spacy
 
         # Presidio's email recognizer calls tldextract. Disable its first-use
@@ -127,7 +103,7 @@ class PresidioDetector:
         )
         nlp_engine = provider.create_engine()
         analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
-        for category, patterns in CUSTOM_PATTERNS.items():
+        for category, patterns in dict(config.patterns).items():
             recognizer = PatternRecognizer(
                 supported_entity=category,
                 name="Sovereign" + category.replace("_", "").title() + "Recognizer",
@@ -143,12 +119,19 @@ class PresidioDetector:
             if archive_root is None:
                 raise DetectorIntegrityError("Detector archive is required in managed mode")
             archive_manifest(manifest, archive_root)
-            return cls(analyzer, artifact_digest=manifest["digest"], provenance_path=manifest_path)
+            return cls(
+                analyzer,
+                artifact_digest=manifest["digest"],
+                provenance_path=manifest_path,
+                config=config,
+            )
         # Standalone developer/test mode; not authoritative for audit provenance.
-        return cls(analyzer)
+        return cls(analyzer, config=config)
 
     def check_integrity(self) -> None:
         if self._provenance_path:
+            if DetectorConfig.load() != self._config:
+                raise DetectorIntegrityError("Detector rules changed after initialization")
             actual = load_verified(self._provenance_path, verify_live=True)
             if actual["digest"] != self._artifact_digest:
                 raise DetectorIntegrityError("Detector artifact identity has changed")
@@ -157,6 +140,8 @@ class PresidioDetector:
         # Cheap per-request manifest check, plus full installed-byte integrity
         # checking at startup and readiness. Never continue with a changed ID.
         if self._provenance_path:
+            if DetectorConfig.load() != self._config:
+                raise DetectorIntegrityError("Detector rules changed after initialization")
             if load_verified(self._provenance_path)["digest"] != self._artifact_digest:
                 raise DetectorIntegrityError("Detector identity changed after initialization")
         # The initial scope is English/ASCII text. Unsupported scripts must not
@@ -171,7 +156,8 @@ class PresidioDetector:
         raw = self._analyzer.analyze(
             text=prompt,
             language="en",
-            entities=list(ENTITY_CATEGORIES),
+            entities=list(self._config.entity_categories),
+            score_threshold=0.0,  # Preserve low-confidence findings for fail-closed aggregation.
             return_decision_process=True,
         )
         observations: list[RawFinding] = []

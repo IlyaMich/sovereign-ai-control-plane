@@ -3,18 +3,20 @@
 import httpx
 from fastapi import FastAPI, HTTPException
 
+from app.infrastructure.config import HTTPTimeouts, simulator_upstream_url
 from simulator.main import GenerateRequest
+
+upstream_url = simulator_upstream_url()
+timeouts = HTTPTimeouts.from_env()
 
 app = FastAPI(title="Simulated Egress Gateway")
 
 
 @app.post("/generate")
 async def generate(request: GenerateRequest):
-    async with httpx.AsyncClient(trust_env=False, timeout=5.0) as client:
+    async with httpx.AsyncClient(trust_env=False, timeout=timeouts.simulator_egress) as client:
         try:
-            response = await client.post(
-                "http://external-simulator:9000/generate", json=request.model_dump()
-            )
+            response = await client.post(upstream_url + "/generate", json=request.model_dump())
             response.raise_for_status()
             data = response.json()
             if data.get("model_id") != "external-simulator" or not isinstance(

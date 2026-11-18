@@ -8,6 +8,7 @@ from typing import Any
 import httpx
 
 from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision, ReleaseVerifier
+from app.infrastructure.config import HTTPTimeouts
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError
 
@@ -30,8 +31,11 @@ class OPAPolicyEvaluator:
         base_url: str,
         snapshots: PolicySnapshotStore | None = None,
         releases: ReleaseVerifier | None = None,
+        *,
+        timeout: float = HTTPTimeouts.opa,
     ):
         self._client = client
+        self._timeout = timeout
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
         self.snapshots = snapshots
         self.releases = releases
@@ -51,7 +55,7 @@ class OPAPolicyEvaluator:
                 else None
             )
             response = await self._client.post(
-                self._url, json={"input": context.to_dict()}, timeout=2.0
+                self._url, json={"input": context.to_dict()}, timeout=self._timeout
             )
             response.raise_for_status()
             data = response.json()
