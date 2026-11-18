@@ -1,5 +1,7 @@
 # Milestone 3: verified transformations and simulated model egress
 
+> **Historical milestone:** The redaction and simulated egress behavior below remains implemented. M4 added content-addressed policy replay, M5 added detector provenance, and M6 added signed release authorization. Use [current architecture](architecture.md), [policy design](policy-design.md) and [Milestone 6](milestone-6.md) for deployment and release instructions.
+
 ## Invariants
 
 1. Untrusted request data never determines a URL or a model hostname.
@@ -17,6 +19,6 @@
 - Re-scanning catches detectable remnants, not false negatives present in both passes.
 - Return values from models are not inspected for data leakage.
 - The simulated gateway does not independently attest the redaction; an actual boundary would need mTLS/workload identity and authorization tokens tied to the verified payload digest and decision receipt.
-- Policy revision pinning is enforced operationally by readiness, but in-flight atomic policy version pinning and signed policy bundle archival remain future work.
+- **At M3**, readiness checked a human policy revision. M4 later implemented content-addressed Rego archives and in-request digest validation, and M6 added signed release authorization. Fully atomic distributed rollout remains future work.
 - Real networks and destination residency require stronger validation than Podman profiles.
 - Operator-controlled keys/host remain trusted. Signed audit checkpoints should be copied to independent storage.

@@ -1,251 +1,91 @@
-# Sovereign AI Control Plane — Milestone 6
+# Sovereign AI Control Plane
 
-**Milestone 6: independently signed policy/detector releases and portable approval verification.**
+A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, and records independently checkable evidence.
 
-M5's content-addressed Rego and detector manifests establish *which bytes* were
-used. M6 adds an offline Ed25519 release authority to approve those exact bytes
-before deployment. The release signing key is **not** the runtime audit key and
-must remain outside the repository and all containers. This improves provenance
-without retaining raw prompts or model weights.
+**Current implementation: Milestone 6 · API version 0.6.0.** M1–M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
 
-## Milestone 6 quick start (Windows PowerShell)
+## Capabilities at a glance
 
-Preserve your existing `.env` and audit volume. Install `cryptography` on your
-operator PC (`python -m pip install "cryptography>=43,<47"`). Then, from the
-repository root:
+| Area | Implemented now | Important boundary |
+| --- | --- | --- |
+| Ingress | FastAPI `POST /v1/prompts`, API-key authentication, size limits, sanitized errors | One fixed local principal/tenant, not OIDC/RBAC |
+| Detection | Local Presidio/spaCy, custom recognizers, deterministic normalized findings, coverage and `UNKNOWN` | Best-effort English ASCII scope; false negatives remain possible |
+| Policy | Direct OPA/Rego with default deny; content-addressed archived policy snapshots | Rego inputs are structured detection metadata, not raw prompt text |
+| Enforcement | `PERMIT`/`DENY`, ordered `REDACT` then `ROUTE`, post-redaction rescan, destination registry | External route is **test-only simulator**, disabled by default |
+| Audit | SQLite WAL, signed SHA-256 event chain, decision committed before model invocation, separate outcome events | Keys live on the local host; a lost outcome can remain unresolved |
+| Provenance | Detector model/source manifest, exact policy digest and archived replay | Artifact identity does not prove classifier correctness |
+| Releases | Separate Ed25519 release approval for policy/detector identities, activation generation and predecessor | Local generation checks are not hardware-backed anti-rollback |
+| Evidence | Portable ZIP; offline audit verification and OPA replay; optional independent public-key/checkpoint anchors | Without external audit key/checkpoint, history is self-consistent but not independently complete |
 
-```powershell
-# Generates a local development release key OUTSIDE the checkout,
-# builds the image, signs the exact detector/policy identities and activates.
-.\Initialize-Milestone6.ps1
+## System overview
 
-# Reuse the exact preapproved image; no rebuild on startup.
+```mermaid
+flowchart TD
+    Caller["Untrusted caller"] --> API["FastAPI ingress (X-API-Key)"]
+
+    subgraph Control["Local sovereign control plane"]
+        API --> Detector["Presidio / spaCy detection"]
+        Detector --> Policy["OPA / Rego policy evaluation"]
+        Policy --> Planner["Enforcement-plan validation"]
+        Planner --> Redact{"REDACT required?"}
+        Redact -- Yes --> Verify["Redact and run second detection"]
+        Redact -- No --> Decision["Durable signed DECISION"]
+        Verify --> Decision
+        Decision --> Effect{"Authorized decision"}
+        Effect -- DENY --> Blocked["Blocked: no model invocation"]
+        Effect -- PERMIT --> Router["Approved model gateway"]
+        Router --> Local["Local sovereign simulator"]
+        Router --> Egress["Test-only egress gateway"]
+        Local --> Outcome["Signed OUTCOME"]
+        Blocked --> Outcome
+        Outcome --> Audit[("SQLite signed audit chain")]
+        Decision -. "Precommit" .-> Audit
+    end
+
+    subgraph TestNetwork["Optional simulated external network"]
+        External["External simulator"]
+    end
+    Egress --> External
+    External --> Outcome
+
+    Signer["Offline release signer"] --> Approval["Signed policy + detector release approval"]
+    Approval -. "Verified by runtime" .-> Policy
+    Approval -. "Verified by runtime" .-> Detector
+
+    Audit --> Bundle["Portable evidence ZIP"]
+    Artifacts["Archived policy snapshots + detector manifests + release approvals"] --> Bundle
+    Bundle --> Reviewer["Network-disabled independent reviewer"]
+```
+
+The default Compose network is private. The API binds to `127.0.0.1:8000`; OPA and model ports are not published. The optional `egress-test` profile creates a separate simulated network. **Neither a Compose network nor a policy label establishes real-world data residency.**
+
+## Start an existing Milestone 6 installation
+
+Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and enough resources for local spaCy. Building the detector image requires network access to install dependencies and the pinned `en_core_web_sm` model; request processing does not download the model.
+
+**Keep `.env`, the `audit-data` volume, policy archives, and the existing release signing key.** The example `release-active/` files in Git are not a substitute for possession of the corresponding trusted private key. For a brand-new independent installation, provision an appropriate release authority and initialize a clean deployment history instead of attempting to sign over another authority's previously active approval.
+
+~~~powershell
+# From the repository root, with .env and a trusted release key already provisioned:
+python -m pip install "cryptography>=43,<47"
+python -m tools.verify_policy_snapshot
+python -m tools.verify_release
+
+# If a new release is necessary, use the EXISTING signer and sign an N+1 approval.
+# This rebuilds the intended image before signing:
+.\Initialize-Milestone6.ps1 -UseExistingKey
+
+# Run the EXACT approved image. Do not rebuild after signing:
 podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 .\Verify-Milestone6.ps1
-```
+~~~
 
-If you use the optional egress simulator, add `--profile egress-test` before `up`.
-**Never run `podman compose down -v`.** New release approvals are mandatory by
-default (`REQUIRE_SIGNED_RELEASE=true`); this is deliberately a gated migration.
-For subsequent rollouts use `.\Initialize-Milestone6.ps1 -UseExistingKey` after
-building an updated policy snapshot. Never regenerate existing private keys.
+For the optional simulated egress test, add `ENABLE_EXTERNAL_SIMULATOR=true` to `.env` and place `--profile egress-test` before `up`. Use **synthetic** inputs only.
 
-See [Milestone 6 release architecture and limits](docs/milestone-6.md) for
-rollback, independent public-key pinning, evidence verification and threats.
+**Never run `podman compose down -v`** on a deployment whose audit history or signing keys you need to keep. `down` without `-v` preserves the named volume.
 
----
-
-# Sovereign AI Control Plane — Milestone 4
-
-A locally runnable, **fail-closed AI security gateway**, with Presidio + local spaCy
-classification, directly authored OPA/Rego rules, and cryptographically
-verifiable audit evidence. Based on the working Milestone 1 repository.
-
-```text
-Client (X-API-Key)
-   -> FastAPI ingress and trusted request context
-   -> Presidio built-ins + custom deterministic patterns + local spaCy NLP
-   -> our stable classification/coverage aggregator
-   -> OPA policy decision (structured input; never the plaintext prompt)
-   -> independent enforcement-plan validation
-   -> durable SHA-256-chain + Ed25519-signed DECISION event
-   -> permitted local model simulator (or optional separate simulated egress gateway)
-   -> OUTCOME event and signed receipts
-```
-
-**Safety scope:** Detection is best effort, and the supported prompt language is
-English ASCII. The default runtime has **no external route enabled**. An
-optional test-only `external-simulator` route requires an explicit Compose
-profile and environment flag, with verified redaction for supported PII.
-This is not a production external-provider integration.
-
-
-## Milestone 4 — Policy integrity and replay
-
-A signed decision is now bound to the **exact archived Rego source bytes**, not
-only to a human-assigned revision name. The policy author still edits
-`policies/decision.rego`, but OPA serves only a generated, verified
-`policy-active/` snapshot. The archive at `policy-archive/<digest>/` is retained
-for forensic replay. The application fails closed if the active snapshot and
-the digest returned by OPA do not match.
-
-The existing SQLite schema, audit-signing key, request API, and redaction logic
-are preserved. New decision events include a `policy_digest` and the original
-OPA evaluation; offline verification re-runs the policy using a pinned OPA CLI.
-Older signed audit events remain integrity-verifiable, but they cannot be
-cryptographically tied to a historical Rego source file retroactively.
-
-Read [Milestone 4 architecture and limitations](docs/milestone-4.md) for details.
-
-### Upgrade from Milestone 3 (PowerShell)
-
-Preserve `.env`, the existing audit volume, and signing keys. **Never use
-`podman compose down -v`.** The ZIP includes the generated initial
-`policy-active` snapshot and its matching content-addressed archive.
-
-```powershell
-python -m tools.verify_policy_snapshot
-podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
-.\Verify-Milestone4.ps1
-```
-
-The reviewer is built only when running the verification script. It executes
-OPA in a network-disabled container with read-only mounts. The test takes a
-consistent SQLite backup in your existing audit volume; it does not modify
-previous audit records. Use synthetic test prompts only.
-
-### Editing policy in Milestone 4
-
-```powershell
-# Edit policies/decision.rego first. Generate and archive the new policy bytes:
-python -m tools.build_policy_snapshot
-python -m tools.verify_policy_snapshot
-
-# Recreate OPA so the new active snapshot directory is mounted:
-podman compose -f deploy/compose.yaml --env-file .env up -d --force-recreate opa
-
-# If policy revision changes, update EXPECTED_POLICY_REVISION in .env,
-# then recreate the control-plane service as well.
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
-```
-
-Rego tests now run against `/policies` (the generated active snapshot), not the
-editable source directory. **Retain every archived policy snapshot** used by a
-decision; deleting it prevents future historical replay.
-
----
-
-## Milestone 3 changes
-
-- Verified redaction using original detection offsets, with one second full
-  classification pass on the transformed prompt before any model invocation.
-- Rego decisions can contain ordered `REDACT` and `ROUTE` obligations.
-- Fixed destination registry, default-deny external egress, optional separate
-  simulated network and dedicated egress gateway.
-- Durable signed audit evidence now includes transformation hashes and
-  verification metadata, never plaintext prompt values.
-- Readiness requires the active OPA revision `redaction-baseline-v3`.
-- `tldextract` is configured for an offline packaged Public Suffix List snapshot.
-- Existing API JSON format, SQLite records and Ed25519 keys remain compatible.
-
-See [detection design](docs/detection-design.md), [OPA policy design](docs/policy-design.md),
-[architecture](docs/architecture.md), [audit](docs/audit-design.md), and
-[testing](docs/testing.md).
-
-## Requirements
-
-- Podman and an installed Compose provider (Docker Compose or podman-compose).
-- An internet connection **during the first container build** to install
-  Python dependencies and download the pinned spaCy model wheel from GitHub.
-- Available `127.0.0.1:8000` port. Docker/Podman resources sufficient for the
-  NLP model. No GPU required.
-- For tests outside containers: Python 3.12+ and dev dependencies.
-
-## Upgrade from Milestone 2 (Windows PowerShell)
-
-1. Extract this ZIP as a separate directory, **or** back up your existing
-   repository and copy/merge the source files into it.
-2. Keep your existing `.env` file and `CONTROL_PLANE_API_KEY` secret; the ZIP
-   deliberately contains no `.env` or private keys.
-3. If upgrading your current deployment under the same Compose project name,
-   retain the existing `audit-data` volume. **Do not run `down -v`.**
-4. Use the new `--env-file .env` flag explicitly when running Compose.
-
-From the project root:
-
-```powershell
-# Only for a fresh setup; if upgrading, keep your existing .env instead.
-if (-not (Test-Path .env)) {
-    python -c "import secrets; print('CONTROL_PLANE_API_KEY='+secrets.token_urlsafe(36))" |
-      Set-Content -Encoding ascii .env
-}
-
-podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
-podman compose -f deploy/compose.yaml --env-file .env ps
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
-```
-
-> If you extracted to a **new directory**, Compose still uses the project name
-> `sovereign-ai-control-plane`. Existing containers may need to be stopped with
-> `podman compose -f deploy/compose.yaml --env-file .env down` from the original
-> directory first. `down` without `-v` preserves the named audit volume.
-> Keep a backup of audit evidence and keys before changing the environment.
-
-### Test the real detector and Rego policies
-
-```powershell
-# Executes the actual installed Presidio + spaCy pipeline in the application image
-podman compose -f deploy/compose.yaml --env-file .env exec control-plane `
-  python -m tools.smoke_detection
-
-# Execute Rego tests with the pinned OPA image
-podman compose -f deploy/compose.yaml --env-file .env run --rm opa `
-  test /policies /policy-tests
-```
-
-The real detector smoke test should report four PASS lines: ordinary text,
-email, private-key marker, and unsupported script. The OPA tests should pass.
-
-### Test through the API
-
-```powershell
-$key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
-
-function Invoke-SovereignPrompt([string]$Prompt, [string]$Destination = 'sovereign-model', [string]$Purpose = 'GENERAL') {
-    $body = @{prompt=$Prompt; destination_id=$Destination; purpose=$Purpose} | ConvertTo-Json
-    try {
-        Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts `
-          -Method POST -Headers @{'X-API-Key'=$key} `
-          -ContentType 'application/json' -Body $body -ErrorAction Stop | ConvertTo-Json -Depth 10
-    } catch {
-        Write-Host "HTTP status: $([int]$_.Exception.Response.StatusCode)"
-        if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message }
-    }
-}
-
-# Ordinary prompt: permitted to local model; response has signed receipts
-Invoke-SovereignPrompt 'Explain local policy evaluation'
-
-# Email: PRIVATE / MEDIUM, may be permitted for local routing
-Invoke-SovereignPrompt 'Contact jane@example.com about the report'
-
-# Secret: HIGH / CREDENTIAL_BLOCKED, HTTP 403
-Invoke-SovereignPrompt '-----BEGIN PRIVATE KEY-----'
-
-# Unapproved external destination: HTTP 403
-Invoke-SovereignPrompt 'Hello world' 'external-model'
-
-# Unsupported script: UNKNOWN / DETECTION_UNKNOWN, HTTP 403
-Invoke-SovereignPrompt 'שלום'
-```
-
-The API is available at <http://127.0.0.1:8000/docs>. `/health/live` is a
-process check; `/health/ready` checks OPA, model service and writable audit.
-
-## Policy configuration (Milestone 3 background)
-
-**For the current Milestone 4 activation workflow, follow the steps above:**
-edit source, generate a policy snapshot, verify it, then recreate OPA.
-A simple OPA restart is no longer sufficient after replacing the active mount
-directory.
-
-Rego is authored directly at `policies/decision.rego`, with the entry point:
-
-`data.sovereign.authz.decision`
-
-The baseline policy permits `sovereign-model` processing and offers a separate
-`external-simulator` route for approved purposes and completed detection. The
-external route is disabled by default at the enforcement registry, and private
-PII may use it only after a verified `REDACT` obligation. All permissions
-require the `presidio-spacy-v1` detector with required coverage and a
-configuration digest. Approved purposes are `GENERAL`, `SUMMARIZATION` and
-`INTERNAL_ANALYSIS`.
-`API_CREDENTIAL` or `PRIVATE_KEY` findings are always blocked by baseline policy.
-
-Modify Rego as an authorized developer, increment `revision` and the default
-revision string, run Rego tests, then restart OPA:
+### Developer workflows
 
 ```powershell
 podman compose -f deploy/compose.yaml --env-file .env restart opa
@@ -297,212 +137,61 @@ Milestone 6 workflow before deploying it.
 ## Regression tests
 
 ```bash
+~~~powershell
 python -m pip install -e '.[dev]'
 python -m pytest -q
-```
-
-Local Python tests without the English model run all lightweight tests and
-**skip** the real NLP integration test. In a fully provisioned environment the
-real NLP test runs. The container smoke command above validates the actual
-installed dependencies without adding pytest to the production image.
-
-## Audit evidence verification
-
-Audit format and on-disk paths are unchanged from M1:
-
-```text
-/var/lib/sovereign/audit.sqlite
-/var/lib/sovereign/audit-key.pem       # PRIVATE — do not export
-/var/lib/sovereign/audit-key.pub.pem   # public verification key
-```
-
-To verify the signed audit chain, use a consistent SQLite snapshot and an
-independently trusted verification key, then run:
-
-```bash
-python -m tools.verify_audit --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem
-python -m tools.export_checkpoint --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem --out ./checkpoint.json
-python -m tools.verify_audit --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem --checkpoint ./checkpoint.json
-```
-
-See [audit-design.md](docs/audit-design.md) for the threat model and limitations.
-Never copy only an actively written SQLite main file while WAL is enabled;
-use SQLite's online backup API for consistent snapshots.
-
-## Stop and clean up
-
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env down
-```
-
-**Never add `-v` unless you deliberately want to destroy your persistent audit
-volume and signing keys.**
-
-
-## Milestone 3 — Redaction, obligations, and simulated egress
-
-This release adds a strict `REDACT` + `ROUTE` plan, a fixed destination registry,
-post-redaction rescanning, and signed transformation evidence. It also sets
-`tldextract` to use its packaged Public Suffix List, without runtime HTTP
-requests, and verifies the active OPA policy revision in `/health/ready`.
-
-### Upgrade safely from M2 (PowerShell, repo root)
-
-Keep your existing `.env` file and your **audit volume**. Do not use `down -v`.
-
-```powershell
-# Make sure your existing key is still in .env.
-podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
+podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
-```
+~~~
 
-The expected live policy revision is `redaction-baseline-v3`.
-A stale OPA policy causes readiness to return `503` rather than reporting false health.
-The SQLite audit schema, signing key, and audit volume are unchanged.
+A `Makefile` also provides `make test`, `make smoke`, `make test-policy` and other conveniences (requires Make). **Do not use `make up` as a signed production-style deployment command:** it invokes `up --build` and can rebuild detector artifacts after release approval. Use explicit `--no-build` Compose commands for M6 deployment.
 
-### Default local-only mode
+### API smoke test (PowerShell)
 
-By default, `ENABLE_EXTERNAL_SIMULATOR=false`. Only `sovereign-model` can be
-invoked. The new Rego policy may propose an external route, but the Python
-planner rejects it with `INVALID_POLICY_PLAN` and records a denial.
-No external-simulator or egress-gateway is started by default.
-
-### Explicitly enable the simulated external boundary
-
-Add `ENABLE_EXTERNAL_SIMULATOR=true` to `.env`, then recreate the containers
-with the **test profile** (never use real sensitive data for this exercise):
-
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env --profile egress-test up --build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
+~~~powershell
 $key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
-$body = @{ prompt='Please contact demo@example.com about the project'; destination_id='external-simulator'; purpose='GENERAL' } | ConvertTo-Json
-Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST -ContentType 'application/json' -Headers @{'X-API-Key'=$key} -Body ([Text.Encoding]::UTF8.GetBytes($body)) | ConvertTo-Json -Depth 10
-```
+$body = @{prompt='Explain local policy evaluation';destination_id='sovereign-model';purpose='GENERAL'} | ConvertTo-Json
+Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST -Headers @{'X-API-Key'=$key} -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) | ConvertTo-Json -Depth 10
+~~~
 
-Expected: `COMPLETED`, `PERMIT`, `REDACT` followed by `ROUTE`, model ID
-`external-simulator`, and audited transformation metadata. Only the **redacted**
-prompt is sent to the simulated external model. No raw prompt is written to
-ordinary logs or audit records. The response returns only a SHA-256 prefix,
-not the redacted text itself.
+On an approved local request, expect `COMPLETED`, a `PERMIT` decision, and signed decision/outcome receipts. A private-key marker should be blocked; unsupported non-ASCII text is classified `UNKNOWN` and denied. `GET /v1/requests/{request_id}` returns tenant-scoped signed evidence metadata (not the raw prompt). API docs: `http://127.0.0.1:8000/docs`.
 
-For stronger validation, use the in-repository unit test asserting exactly what
-reaches the mock model. Failure, unknown classification, unsupported categories,
-incomplete obligations, or failed post-redaction detection all block.
+## Changing policy or detector code
 
-In this profile `egress-gateway` is the sole bridge between two private networks.
-The external simulator is intentionally local; this is **not a real internet
-provider integration or proof of production-grade network isolation**.
+Editing `policies/decision.rego` **does not activate** a new policy. The current M6 deployment requires a content-addressed policy snapshot and a **newly signed release** approving the exact policy and installed detector digests.
 
-Disable after testing:
+1. Review the proposed policy and run tests; build and verify the snapshot with `python -m tools.build_policy_snapshot` and `python -m tools.verify_policy_snapshot`.
+2. Build the intended detector image and obtain the installed artifact digest.
+3. Use the existing out-of-runtime private signing key to sign a new generation (predecessor must match the currently active release), then run `tools.activate_release` / `tools.verify_release`. The operator helper `Initialize-Milestone6.ps1 -UseExistingKey` covers the normal next-generation workflow.
+4. If the Rego revision changed, update `EXPECTED_POLICY_REVISION` in `.env`.
+5. Recreate **OPA and control-plane** with the approved image, without rebuilding; run `Verify-Milestone6.ps1`.
 
-```powershell
-# Edit .env back to ENABLE_EXTERNAL_SIMULATOR=false
-podman compose -f deploy/compose.yaml --env-file .env --profile egress-test down
-podman compose -f deploy/compose.yaml --env-file .env up -d --force-recreate
-```
+A rollback to older policy bytes is **a new signed generation**, not reactivation of an earlier approval. Retain every policy/release archive needed for replay. See [Milestone 6](docs/milestone-6.md).
 
-### Test matrix
+## Evidence and trust
 
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
-# If running Python tests locally with dev dependencies:
-python -m pytest -q
-```
+The exporter (`python -m tools.export_evidence_package --out /var/lib/sovereign/evidence.zip` inside the control plane) packages a consistent read-only SQLite snapshot, audit public key, relevant Rego snapshots, detector manifests and signed release approvals. `Verify-Milestone6.ps1` tests export and verification in a **network-disabled** reviewer.
 
-- Internal ordinary and PII prompts: allowed unless blocked by a specific rule.
-- Credential and private key: always blocked.
-- External simulator, ordinary prompt: allowed only when explicitly enabled.
-- External simulator, recognized email/phone/person: redacted, rescanned, then routed when enabled.
-- External simulator, credit card, SSN, credentials or unsupported input: blocked.
-- Missing or duplicate obligations, wrong destination or post-redaction private findings: blocked.
-- Audit decision is committed before any route. Model error results in an auditable unknown execution outcome.
-- Signed evidence logs both the original classification and the outcome of transformation verification without storing plaintext.
+A result of `EVIDENCE_PACKAGE_SELF_CONSISTENT` with `REPLAY_VERIFIED` confirms the package's internal signatures, chain, manifests and eligible policy replays. It does **not** by itself authenticate the audit signing key or establish complete history. A separately provisioned release verification key authenticates release approvals only. Use separately retained `--trusted-public-key` and `--trusted-checkpoint` for stronger audit authentication. A checkpoint generated inside the same ZIP is not an independent witness.
 
-**Scope:** Redaction is best-effort on correctly detected findings, not a
-mathematical guarantee that every private entity has been found. The supported
-language remains English ASCII. The experimental out-of-boundary simulator has
-no direct network exposure to the host or control-plane service. There is no
-real external model egress, streaming, or model-response classification yet.
+The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1–M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
 
-**Policy versioning limitation:** `policy_revision` is an operator-supplied
-identifier, not yet an archive of the complete signed Rego bundle. Exact
-historical policy replay is an additional work item. Never describe the audit
-integrity verifier as a full historical policy replay engine.
+## Documentation
 
----
+- [Current architecture and request lifecycle](docs/architecture.md)
+- [Current threat model and sovereignty limitations](docs/threat-model.md)
+- [Detection and provenance](docs/detection-design.md)
+- [Policy authoring, signing and activation](docs/policy-design.md)
+- [Audit integrity, replay and evidence trust](docs/audit-design.md)
+- [Testing and release verification](docs/testing.md)
+- [Milestone 3: redaction and simulated egress](docs/milestone-3.md)
+- [Milestone 4: content-bound Rego](docs/milestone-4.md)
+- [Milestone 5: detector provenance](docs/milestone-5.md)
+- [Milestone 6: release approvals](docs/milestone-6.md)
+- [Architecture decisions (ADRs)](docs/adr/)
 
-## Milestone 5 — Detector provenance and evidence packages
+## Deliberate limitations / next work
 
-Milestone 5 adds an **image-build detector manifest** that inventories exact
-spaCy model file hashes, classifier source hashes, and installed NLP dependency
-versions. The control plane verifies this manifest at startup/readiness and
-archives it in its persistent audit volume. Each new classification carries an
-`artifact_digest`, bound to the signed decision event. M4 content-addressed
-Rego policy replay remains unchanged.
+This prototype does **not** provide a real external inference provider, evidence of geographic model residency, output DLP, OIDC or multi-tenant RBAC, full detector replay, production key protection, hardware anti-rollback, independent audit witnessing, or distributed audit sequencing. It uses synchronous processing and SQLite as one local writer.
 
-**Run on Windows + Podman after upgrading files and preserving `.env` and audit volume:**
-
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env up --build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
-.\Verify-Milestone5.ps1
-```
-
-The script verifies installed detector bytes, runs the full Rego tests, checks
-the new signed detector evidence, exports a self-contained evidence ZIP to the
-existing audit volume, and verifies it in the **network-disabled**
-`audit-reviewer` service. An optional external simulator may still be started
-with `--profile egress-test`; it is not needed for this test.
-
-The ZIP includes audit metadata, policy sources and detector *manifests*, but
-**no private signing key, model weights or raw prompt text**. It must still be
-handled as sensitive. A ZIP carrying its own public key and checkpoint proves
-only self-consistency; supply a separately pinned public key and witnessed
-checkpoint to authenticate it against external trust anchors.
-
-See [docs/milestone-5.md](docs/milestone-5.md) for data layout, trust boundaries,
-CLI commands, and known limits. Do not run `podman compose down -v` while
-upgrading: this would delete your audit history and keys.
-
-## Make commands
-
-Run `make` or `make help` from the repository root to list available commands.
-GNU Make and Python 3.12+ are required for local development. On Windows, run
-these commands in PowerShell; Make selects the virtual-environment path for you.
-
-```powershell
-make setup            # Create .venv and install development dependencies
-make setup-nlp        # Set up development dependencies and the pinned spaCy model
-make test             # Run Python tests
-make policy-verify    # Verify active and archived policy snapshots
-make up               # Build and start the default Podman Compose stack
-make status           # Show service status
-make logs             # Follow control-plane logs
-make check-containers # Run NLP smoke checks and Rego tests in the running stack
-make down             # Stop containers, preserving the audit-data volume
-```
-
-Virtual-environment activation is unnecessary. `make setup` does not install the
-English NLP model; use `make setup-nlp` to enable the real Presidio integration
-test locally. See the optional NLP setup below for details.
-
-Create `.env` using the setup instructions above before running Compose targets.
-Make does not create or overwrite your API key. Podman Compose is the default;
-Docker users can run `make up COMPOSE="docker compose"`. This override works for
-all Compose targets. Use `ENV_FILE=.env.local` to select a different environment
-file, or `PYTHON=python3` with setup on systems where Python is named `python3`.
-
-To run a subset of tests or display skip reasons:
-
-```powershell
-make test TEST_ARGS="-q tests/test_api.py"
-make test TEST_ARGS="-q -rs"
-```
-
-After editing `policies/decision.rego`, run `make policy-build`,
-`make policy-verify`, then `make restart` to recreate the default services and
-remount the active snapshot in OPA. If the policy revision changes, update
-`EXPECTED_POLICY_REVISION` in `.env` before restarting. These commands preserve
-policy archives and audit volumes.
+The proposed next priorities are **independently witnessed audit checkpoints and externally pinned audit trust anchors**, then a real local inference runtime with stronger egress/workload identity, followed by enterprise governance and operations. These are roadmap items, **not implemented guarantees**. Security and compliance claims must be bounded by the threat model and actual deployment evidence.

@@ -1,113 +1,83 @@
-# Audit event design, integrity, and replay (M1)
+# Audit integrity, provenance and independent review — Milestone 6
 
-## Guarantee and event lifecycle
+**Current scope:** A single SQLite writer persists tamper-evident evidence for each admitted policy decision, before any model invocation. See [architecture](architecture.md), [policy design](policy-design.md) and [Milestone 6](milestone-6.md).
 
-Every **admitted policy decision** must be durably committed as a `DECISION`
-event before forwarding to any model. On successful completion or known denial,
-an `OUTCOME` event follows. Model timeouts record `UNKNOWN` execution outcome:
-a request may have reached a model even if no response was received.
+## Commit order and failure semantics
 
-A crash between forwarding and an outcome commit leaves a decision event without
-an outcome. This is *pending/unknown*, not proof the request was blocked.
+1. Ingress creates an authenticated `PromptCommand` and a unique request ID.
+2. The detector emits a normalized classification; OPA evaluates structured metadata and returns a content-bound policy decision.
+3. The enforcement planner validates `REDACT`/`ROUTE` obligations and, when needed, redacts and rescans.
+4. The orchestrator **durably appends and signs `DECISION` before calling any model**. A decision-commit failure prevents forwarding.
+5. A denial appends `OUTCOME` with `BLOCKED` and `model_invoked=false`; a successful call appends `COMPLETED`. A model exception appends `UNKNOWN` execution status because the request could have reached the destination.
+6. An outcome-write failure or process crash can leave an unresolved/pending decision. Missing outcomes are **not** evidence that the model was never invoked.
 
-When audit storage is down before decision commit, requests fail closed; those
-precommit rejections cannot be durably recorded in the unavailable store.
+This guarantee covers **admitted policy decisions**. Rejected authentication, malformed pre-validation HTTP traffic or audit-store outages may prevent durable entry creation. The system does not currently reconcile unresolved executions using an idempotency protocol.
 
-## Event representation
+## Event fields and privacy
 
-```json
-{
-  "schema_version": "1",
-  "event_id": "random-uuid",
-  "request_id": "random-uuid",
-  "tenant_id": "local-tenant",
-  "event_type": "DECISION",
-  "timestamp": "2026-11-18T12:00:00+00:00",
-  "payload": {
-    "principal_id": "local-tester",
-    "input_hmac_sha256": "(tenant-local keyed fingerprint)",
-    "policy_input": {"principal": {}, "request": {}, "classification": {}},
-    "decision": {"effect": "DENY", "obligations": [], "reason_codes": ["DEFAULT_DENY"], "policy_revision": "baseline-v1"}
-  }
-}
-```
+The SQLite record stores a schema version, sequence, event/request/tenant IDs, event type, timestamp, previous/current hashes, Ed25519 signature and JSON payload. The signed `DECISION` payload includes:
 
-The event excludes plaintext prompt, exact matching values, and model output.
-The HMAC derives a distinct key from local Ed25519 seed via HKDF for M1; a
-production deployment should use separately managed, tenant-specific keys.
+- Trusted principal ID and HMAC fingerprint of original input (not plaintext).
+- Exact structured `policy_input`, normalized detection status, categories, scores, spans, detector/configuration identities.
+- Final `decision` and, if evaluated, original `policy_evaluation`, exact `policy_snapshot` digest and revision.
+- Optional `detector_snapshot` artifact digest (M5+) and `release_snapshot` release identity/approved digests (M6+).
+- Transformation `applied` flag, output HMAC and second-scan metadata when redaction occurred.
 
-## Hash chain and signature
+The signed `OUTCOME` records execution status, destination/model ID and transformation flag. Raw prompts, matched text, model output and private keys are not copied into normal audit entries or evidence ZIPs. **Metadata still has privacy implications** (principal IDs, finding categories, offsets and operational history); restrict exports.
 
-The writer uses deterministic Python JSON (sorted keys, UTF-8, compact separators,
-no NaN) for **this bounded schema**. It is *not* yet RFC 8785/JCS and must not
-be presented as such. RFC 8785 canonicalization will be a later compatibility
-upgrade with a version change.
+The input HMAC is for within-installation correlation. In the current design its key is derived from local audit key material rather than an independently managed tenant secret.
 
-```text
+## Integrity construction
+
+For this bounded v1 schema, serialized JSON uses deterministic Python JSON: sorted keys, compact separators, UTF-8, `allow_nan=False`. **It is not RFC 8785/JCS**.
+
+~~~text
 hash_i = SHA256(
-  b"sovereign-audit-event-v1\\0"
-  || bytes(previous_hash)
+  "sovereign-audit-event-v1\0"
+  || previous_hash_bytes
   || uint64_be(sequence)
   || canonical_json(event)
 )
-signature_i = Ed25519_sign(private_key, bytes(hash_i))
-```
+signature_i = Ed25519_sign(audit_private_key, hash_i)
+~~~
 
-A SQLite `BEGIN IMMEDIATE` write transaction serializes competing appends and
-persists event, sequence, previous hash, current hash, and signature. SQLite uses
-`PRAGMA synchronous=FULL` and WAL. The app is one local writer in M1.
+`BEGIN IMMEDIATE` serializes append transactions. SQLite uses WAL with `synchronous=FULL`. One local SQLite sequencer is assumed; no distributed ordering guarantee is claimed.
 
-The signature covers the hash which covers metadata, event type, sequence,
-predecessor, and payload; a database editor cannot rewrite a verified event
-without the signing key.
+`tools.verify_audit` recomputes hashes, checks continuity and verifies every event using an audit public key. A forged or edited record is detectable without the private key. **Tail deletion can preserve a valid signed prefix** unless an earlier, independently retained chain-head checkpoint is available.
 
-## Independent verification and truncation detection
+The exporter uses SQLite's backup API and changes only the **copied snapshot** to `journal_mode=DELETE`, so the network-disabled, read-only reviewer need not create WAL sidecar files.
 
-`python -m tools.verify_audit --db ... --public-key ...` recomputes every hash,
-checks event metadata consistency, sequence continuity, and Ed25519 signatures.
-It does **not** load the private key and must use a public key already trusted
-independently of the database.
+## Portable evidence and verification levels
 
-An attacker could truncate the tail and retain a valid prefix. To detect it,
-export a checkpoint of the known-good `{verified_events, latest_sequence,
-latest_hash}` and retain it separately. `--checkpoint ...` requires exact match.
-A checkpoint is a witness to a **specific** log state; new append events require
-new checkpoints or a verifier strategy that checks earlier checkpoints as a
-prefix of the later chain.
+`tools.export_evidence_package` creates a ZIP with the consistent database snapshot, audit public key, checkpoint, referenced Rego snapshots, detector manifests and signed release approvals. `tools.verify_evidence_package` validates ZIP hashes, audit-chain signatures, detector manifest references, eligible Rego decision replays and release approval signatures.
 
-Example unit tests: `tests/test_audit_integrity.py` alters a record and removes
-an event, showing both types of failure.
+| Reviewer claim | Required independent input | What it means |
+| --- | --- | --- |
+| `EVIDENCE_PACKAGE_SELF_CONSISTENT` | None; ZIP's own keys/checkpoint | Internally consistent, **not** independently authentic |
+| `release_signer_trusted_externally=true` | Public release signing key supplied outside ZIP | Release approvals verify against that key; does **not** authenticate audit history |
+| `public_key_trusted_externally=true` | Independently pinned audit public key | Audit signatures are checked against a pre-trusted key |
+| `checkpoint_trusted_externally=true` | Independently retained checkpoint | Exact witnessed head is checked; strengthens completeness/truncation evidence |
+| `REPLAY_VERIFIED` | Archived policy bytes + OPA binary | Eligible historical structured policy decisions reproduce |
 
-## Reconstruction scope
+The bundle's checkpoint generated during export is **not** an independent witness. A checkpoint needs to have been stored under separate authority *before* a potential compromise. The current verifier expects an exact checkpoint for the provided snapshot, not a general proof of later extension from an older checkpoint.
 
-The metadata and `policy_input` retain the exact classification signals the
-OPA evaluator saw, plus result and reason codes. This is sufficient to understand
-**why the recorded policy decision was made**, but **not yet to independently
-replay the exact historical policy bytecode**. M2/M3 will archive signed and
-hash-pinned OPA bundles and add an offline policy replay command.
+Example reviewer CLI (paths must exist in reviewer environment):
 
-Re-running detection from the original prompt is impossible with M1 metadata
-alone. Encrypted input evidence, key management, and authorized forensic replay
-are intentionally deferred.
+~~~powershell
+python -m tools.verify_evidence_package --bundle evidence.zip --trusted-public-key trusted-audit-key.pub.pem --trusted-checkpoint witnessed-checkpoint.json --trusted-release-public-key trusted-release-key.pub.pem
+~~~
 
-## Operational limitations
+The standard `Verify-Milestone6.ps1` intentionally pins only the **release** public key outside the bundle; its observed result remains `EVIDENCE_PACKAGE_SELF_CONSISTENT` with authenticated release approvals until independent audit anchors are provided.
 
-- Signer key and SQLite data are on the same local volume. An attacker controlling
-  both can forge a new history unless the verifier has a trusted external public
-  key and checkpoint.
-- `GET /v1/requests/{id}` is a convenience evidence view, not a verified export.
-- A process killed between a call and outcome commit produces an unresolved
-  decision; reconciliation, idempotent model calls, and eventual completeness
-  checks are later milestones.
-- PostgreSQL/Kafka migration requires new sequencer/transaction semantics;
-  Kafka publication alone is not an audit durability guarantee.
+## Replay limits and history compatibility
 
+- **M1–M3:** Audit signature integrity only; no archived source digest with which to replay exact old Rego.
+- **M4+:** Eligible policy decisions can be reevaluated with archived Rego. Local fail-closed overrides are reported separately, not misrepresented as OPA replay.
+- **M5+:** Detector manifest identity can be checked, **but original NLP classification cannot be reproduced** without original prompt/model artifacts.
+- **M6+:** Archived release approvals can be authenticated with an out-of-bundle release signer key.
 
-## Milestone 4 extension
+The release authority is **separate from** the audit signer. Host compromise remains a material threat: the audit key and SQLite volume are locally managed, and independently witnessed audit checkpoints are **not yet automated**.
 
-New signed `DECISION` payloads preserve the original OPA response, its source
-bundle digest and the resolved final enforcement decision. See
-[milestone-4.md](milestone-4.md) for policy archive verification and replay.
-The on-disk chain encoding and signature scheme are intentionally unchanged,
-so older signed events remain verifiable. Legacy events lack policy digests
-and are counted as integrity-only by the offline reviewer.
+## Next security work
+
+Independent audit public-key pinning, periodic checkpoint witnessing to a separate trust domain, protected audit signing (KMS/HSM), recovery/rotation, audited evidence export access controls and an explicit unresolved-request reconciliation workflow. Do not imply GDPR/PCI certification or forensic completeness beyond the tested scope.

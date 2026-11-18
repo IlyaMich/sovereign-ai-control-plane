@@ -1,5 +1,7 @@
 # Milestone 5 — Detector Provenance and Portable Evidence
 
+> **Historical M5 design:** Artifact manifests and portable evidence remain in use. Milestone 6 additionally signs and activates an approved policy+detector release and can authenticate its approval with a separately supplied public key. Use [current audit design](audit-design.md) and [Milestone 6](milestone-6.md) for the current trust and release workflow.
+
 ## Security objective
 
 Bind each new detection result to an identifiable set of local classifier source
@@ -119,8 +121,9 @@ history and supply a self-consistent new chain head.
 3. Compare the public signing key to an independent anchor, if supplied.
 4. Verify the entire Ed25519-signed audit chain and checkpoint.
 5. Resolve and validate detector manifest hashes referenced in M5 events.
-6. Resolve the archived Rego bytes and replay each M4/M5 OPA decision.
-7. Report counts for legacy decisions and classifications *not* replayed.
+6. Resolve the archived Rego bytes and replay each eligible M4+ OPA decision.
+7. **M6 addition:** authenticate archived release approvals when an external release public key is provided.
+8. Report counts for legacy decisions and classifications *not* replayed.
 
 No model invocation, prompt detection, or network access occurs in the reviewer.
 
@@ -128,8 +131,7 @@ No model invocation, prompt detection, or network access occurs in the reviewer.
 
 - No default retention of prompt values; consequently **no historical NER
   re-execution** from an audit-only export.
-- No production-grade artifact-signing or build provenance framework (e.g.,
-  signed SBOM, supply-chain attestations, fully pinned wheels/base images).
+- M6 subsequently added signed **release approval of policy and detector artifact identities**, but not a production-grade image/build provenance framework (e.g., signed SBOM, full dependency closure, or supply-chain attestations).
 - Retained detector manifests can verify announced file hashes but not recreate
   deleted model binaries without separately retained model artifacts.
 - If the audit writer host and signing key are compromised together, a signed
