@@ -1,4 +1,4 @@
-# Architecture and API / Domain Contracts (M1)
+# Architecture and API / Domain Contracts (M2)
 
 ## Logical architecture
 
@@ -7,7 +7,7 @@ flowchart TD
     U[API caller] --> API[FastAPI /v1/prompts]
     subgraph Boundary[Local sovereign boundary]
       API --> O[RequestOrchestrator]
-      O --> D[Detector port: DemoPatternDetector]
+      O --> D[Detector port: PresidioDetector + FindingAggregator]
       O --> P[PolicyEvaluator port: OPA]
       O --> A[AuditWriter port: SQLite + signed hash chain]
       O --> E[EnforcementPlanner]
@@ -27,8 +27,8 @@ flowchart TD
 - **Application** (`app/application/orchestrator.py`): lifecycle ordering, safe
   fallback, and orchestration. No policy rules hardcoded except invariant fail-closed
   guardrails.
-- **Detection** (`app/detection`): provisional pattern recognizers. M2 replaces it
-  with Presidio and a pinned local spaCy model, retaining `DetectionResult`.
+- **Detection** (`app/detection`): Presidio built-ins and custom patterns, local pinned spaCy NLP,
+  and a stable adapter/aggregator; `UNKNOWN` on missing coverage or invalid output.
 - **Policy** (`app/policy`): OPA's decision endpoint. Strict parse rejects absent
   `result`, unknown actions, or unrecognized fields.
 - **Enforcement** (`app/enforcement`): validates the plan before any model call;
@@ -70,7 +70,7 @@ Body (`application/json`):
 {"prompt":"Hello world", "destination_id":"sovereign-model", "purpose":"GENERAL"}
 ```
 
-Authentication: `X-API-Key`. Principal is a fixed local-test identity for M1;
+Authentication: `X-API-Key`. Principal is a fixed local-test identity for M2;
 no tenant or role claims accepted from the request body. Prompts are limited to
 8192 UTF-8 bytes and HTTP bodies to 16384 bytes.
 
@@ -96,15 +96,15 @@ health. For local test fixture mode, readiness reports `TEST_MODE`.
 
 - `PromptCommand`: id, prompt, requested destination, purpose, trusted principal.
 - `DetectionResult`: `PRIVATE | NO_PRIVATE_DETECTED | UNKNOWN`, sensitivity,
-  findings, coverage, detector version, reason codes.
+  findings, coverage, detector version, reason codes, additive configuration digest.
 - `PolicyContext`: classification plus trusted caller/destination/purpose input;
   explicitly contains no raw prompt.
 - `PolicyDecision`: `PERMIT | DENY`, ordered obligations, reason codes, revision.
 - `ProcessedRequest`: status, classification, decision, receipts, optional model output.
 - `AuditReceipt`: sequence, event hash, Ed25519 signature.
 
-M1 obligations support only a single `ROUTE` on a permitted decision. The M2/M3
-plan adds REDACT (including reclassification), external destination registry,
+M2 obligations support only a single `ROUTE` on a permitted decision. A future
+milestone adds REDACT (including reclassification), external destination registry,
 and additional transformation obligations.
 
 ## Migration path
@@ -113,3 +113,12 @@ Replace in-process detector with a separately scaled recognition service,
 SQLite audit with a sequenced multi-writer service, local OPA with policy-bundle
 sidecars, and Compose with Kubernetes. None of those replacements should change
 the domain schemas. They **will** need new fault/latency and consistency designs.
+
+## M2 detection details
+
+The `PresidioDetector` performs inference entirely within the local trust boundary,
+never forwarding raw input to a remote NLP service. `FindingAggregator` provides
+deterministic overlap-resolution and a policy-independent classification schema.
+Incomplete required recognizer coverage, unsupported non-ASCII input, or malformed
+recognizer output returns `UNKNOWN`. The orchestrator denies before model access.
+See [detection-design.md](detection-design.md) for exact category and scoring rules.

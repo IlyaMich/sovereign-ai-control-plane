@@ -1,178 +1,198 @@
-# Sovereign AI Control Plane — Milestone 1
+# Sovereign AI Control Plane — Milestone 2
 
-A locally runnable **security-first AI request gateway**. Its request path is:
+A locally runnable, **fail-closed AI security gateway**, with Presidio + local spaCy
+classification, directly authored OPA/Rego rules, and cryptographically
+verifiable audit evidence. Based on the working Milestone 1 repository.
 
 ```text
 Client (X-API-Key)
-  → FastAPI ingress (untrusted prompt)
-  → demo deterministic recognizers (M2: Presidio + spaCy)
-  → OPA Rego policy decision
-  → local enforcement-plan validation
-  → durable SHA-256-chain + Ed25519-signed DECISION event in SQLite
-  → allowed local model simulator (no external network)
-  → OUTCOME event (or unresolved/pending audit record on crash)
-  → response with verifiable decision/outcome receipts
+   -> FastAPI ingress and trusted request context
+   -> Presidio built-ins + custom deterministic patterns + local spaCy NLP
+   -> our stable classification/coverage aggregator
+   -> OPA policy decision (structured input; never the plaintext prompt)
+   -> independent enforcement-plan validation
+   -> durable SHA-256-chain + Ed25519-signed DECISION event
+   -> permitted local model simulator (no external network)
+   -> OUTCOME event and signed receipts
 ```
 
-**This is an architectural baseline, not a complete production DLP/security product.**
-The current recognizers handle a narrow subset of email / key formats only;
-`NO_PRIVATE_DETECTED` never means globally safe. The only allowed route is to a
-local simulator. External egress, redaction, real NLP, encrypted prompt evidence,
-policy-bundle pinning, and multi-tenant authentication are deliberately deferred.
+**Safety scope:** M2 recognizes multiple classes of PII and some credential
+formats, but detection is **best effort**, not a data-leak prevention guarantee.
+The initial supported input is ASCII text evaluated with English recognizers.
+Unsupported characters fail closed. A prompt with no findings is *not*
+guaranteed free of confidential data. No external AI route or redaction is enabled.
 
-## What is already implemented
+## Milestone 2 changes
 
-- Strict JSON API and fixed authenticated principal, request size limits, sanitized validation errors.
-- Domain contracts independent of HTTP/OPA/SQLite, with ports for detection, policy, audit, and model execution.
-- Fail-closed behavior for missing/invalid OPA output, unknown detection, invalid plan, and audit precommit failure.
-- Actual OPA/Rego adapter and baseline Rego policy, with default deny and protected-credential blocking.
-- Strict local destination registry; no caller-supplied URL accepted.
-- Persistent SQLite append-by-application event chain, transactional sequence allocation, signatures per event.
-- Independent offline verifier using a trusted public key and optionally a known-good checkpoint.
-- Local deterministic HTTP model simulator with no raw-prompt logging.
-- Test suite covering domain, API, policy adapter, audit integrity, concurrency, and fail-closed cases.
+- Runtime `PresidioDetector` with the local `en_core_web_sm` 3.8.0 spaCy model
+  and pinned `presidio-analyzer==2.2.366` dependency.
+- Custom pattern recognizers for email addresses, API-key-style credentials and
+  PEM private-key headers. Presidio supplies additional PII recognizers.
+- Our technology-neutral `FindingAggregator`: deterministic overlap merging,
+  sensitivity prioritization, minimum-score filtering, mandatory recognizer
+  coverage and `UNKNOWN` for invalid/unsupported results.
+- Additive `config_digest` field in the `DetectionResult` JSON/audit record.
+- Direct OPA baseline policy `presidio-baseline-v2`: permitted local processing
+  for approved purposes, explicit credential blocking, no external destination.
+- Regression tests plus live-in-image Presidio smoke test and eight Rego tests.
+- Existing M1 API shape, audit database, Ed25519 keys, and verifier retained.
 
-## Prerequisites
+See [detection design](docs/detection-design.md), [OPA policy design](docs/policy-design.md),
+[architecture](docs/architecture.md), [audit](docs/audit-design.md), and
+[testing](docs/testing.md).
 
-- Podman Desktop / Podman CLI and a **Compose provider** (`podman-compose` or Docker Compose).
-  `podman compose` delegates to an installed Compose provider; Podman alone may not be enough.
-- Available port `127.0.0.1:8000`.
-- For running the Python tests without containers: Python 3.12+.
+## Requirements
 
-## Run on Podman
+- Podman and an installed Compose provider (Docker Compose or podman-compose).
+- An internet connection **during the first container build** to install
+  Python dependencies and download the pinned spaCy model wheel from GitHub.
+- Available `127.0.0.1:8000` port. Docker/Podman resources sufficient for the
+  NLP model. No GPU required.
+- For tests outside containers: Python 3.12+ and dev dependencies.
 
-Run these commands **from the repository root**.
+## Upgrade from Milestone 1 (Windows PowerShell)
 
-### Bash / Linux / macOS
+1. Extract this ZIP as a separate directory, **or** back up your existing
+   repository and copy/merge the source files into it.
+2. Keep your existing `.env` file and `CONTROL_PLANE_API_KEY` secret; the ZIP
+   deliberately contains no `.env` or private keys.
+3. If upgrading your current deployment under the same Compose project name,
+   retain the existing `audit-data` volume. **Do not run `down -v`.**
+4. Use the new `--env-file .env` flag explicitly when running Compose.
 
-```bash
-python3 -c "import secrets; print('CONTROL_PLANE_API_KEY='+secrets.token_urlsafe(36))" > .env
-podman compose -f deploy/compose.yaml up --build -d
-podman compose -f deploy/compose.yaml ps
-curl -fsS http://127.0.0.1:8000/health/ready
-```
-
-### PowerShell / Windows
+From the project root:
 
 ```powershell
-python -c "import secrets; print('CONTROL_PLANE_API_KEY='+secrets.token_urlsafe(36))" | Set-Content -Encoding ascii .env
-podman compose -f deploy/compose.yaml up --build -d
-podman compose -f deploy/compose.yaml ps
+# Only for a fresh setup; if upgrading, keep your existing .env instead.
+if (-not (Test-Path .env)) {
+    python -c "import secrets; print('CONTROL_PLANE_API_KEY='+secrets.token_urlsafe(36))" |
+      Set-Content -Encoding ascii .env
+}
+
+podman compose -f deploy/compose.yaml --env-file .env up --build -d
+podman compose -f deploy/compose.yaml --env-file .env ps
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 ```
 
-Most Compose providers read `.env` automatically; if yours does not, add `--env-file .env`
-to the Compose command or export `CONTROL_PLANE_API_KEY` into your shell.
+> If you extracted to a **new directory**, Compose still uses the project name
+> `sovereign-ai-control-plane`. Existing containers may need to be stopped with
+> `podman compose -f deploy/compose.yaml --env-file .env down` from the original
+> directory first. `down` without `-v` preserves the named audit volume.
+> Keep a backup of audit evidence and keys before changing the environment.
 
-**Demo request (PowerShell):**
+### Test the real detector and Rego policies
+
+```powershell
+# Executes the actual installed Presidio + spaCy pipeline in the application image
+podman compose -f deploy/compose.yaml --env-file .env exec control-plane `
+  python -m tools.smoke_detection
+
+# Execute Rego tests with the pinned OPA image
+podman compose -f deploy/compose.yaml --env-file .env run --rm opa `
+  test /policies /policy-tests
+```
+
+The real detector smoke test should report four PASS lines: ordinary text,
+email, private-key marker, and unsupported script. The OPA tests should pass.
+
+### Test through the API
 
 ```powershell
 $key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
-$body = @{prompt='Explain local policy evaluation'; destination_id='sovereign-model'; purpose='GENERAL'} | ConvertTo-Json
-Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST -Headers @{'X-API-Key'=$key} -ContentType 'application/json' -Body $body
+
+function Invoke-SovereignPrompt([string]$Prompt, [string]$Destination = 'sovereign-model', [string]$Purpose = 'GENERAL') {
+    $body = @{prompt=$Prompt; destination_id=$Destination; purpose=$Purpose} | ConvertTo-Json
+    try {
+        Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts `
+          -Method POST -Headers @{'X-API-Key'=$key} `
+          -ContentType 'application/json' -Body $body -ErrorAction Stop | ConvertTo-Json -Depth 10
+    } catch {
+        Write-Host "HTTP status: $([int]$_.Exception.Response.StatusCode)"
+        if ($_.ErrorDetails.Message) { $_.ErrorDetails.Message }
+    }
+}
+
+# Ordinary prompt: permitted to local model; response has signed receipts
+Invoke-SovereignPrompt 'Explain local policy evaluation'
+
+# Email: PRIVATE / MEDIUM, may be permitted for local routing
+Invoke-SovereignPrompt 'Contact jane@example.com about the report'
+
+# Secret: HIGH / CREDENTIAL_BLOCKED, HTTP 403
+Invoke-SovereignPrompt '-----BEGIN PRIVATE KEY-----'
+
+# Unapproved external destination: HTTP 403
+Invoke-SovereignPrompt 'Hello world' 'external-model'
+
+# Unsupported script: UNKNOWN / DETECTION_UNKNOWN, HTTP 403
+Invoke-SovereignPrompt 'שלום'
 ```
 
-**Demo request (Bash):**
+The API is available at <http://127.0.0.1:8000/docs>. `/health/live` is a
+process check; `/health/ready` checks OPA, model service and writable audit.
 
-```bash
-set -a; source .env; set +a
-curl -i -X POST http://127.0.0.1:8000/v1/prompts \
-  -H "X-API-Key: $CONTROL_PLANE_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"prompt":"Explain local policy evaluation","destination_id":"sovereign-model","purpose":"GENERAL"}'
+## Policy configuration
+
+Rego is authored directly at `policies/decision.rego`, with the entry point:
+
+`data.sovereign.authz.decision`
+
+The policy only permits a `sovereign-model` route for successful
+`presidio-spacy-v1` classifications with required coverage, a configuration
+digest, and purpose `GENERAL`, `SUMMARIZATION` or `INTERNAL_ANALYSIS`.
+`API_CREDENTIAL` or `PRIVATE_KEY` findings are always blocked by baseline policy.
+
+Modify Rego as an authorized developer, increment `revision` and the default
+revision string, run Rego tests, then restart OPA:
+
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env restart opa
 ```
 
-Expected HTTP statuses:
+We are intentionally **not** claiming cryptographic policy-bundle pinning in
+M2. Evidence records the revision reported by OPA and the exact structured
+policy inputs; attesting the actual policy bytes is later work.
 
-| Condition | HTTP | Result |
-| --- | --- | --- |
-| Allowed local prompt | `200` | `COMPLETED`, decision and outcome receipts, simulator response |
-| Credential or disallowed destination | `403` | `BLOCKED`, auditable denial |
-| Model timeout/error | `502` | `ERROR`, ambiguous model outcome recorded |
-| Audit DB cannot commit | `503` | No model invocation if precommit fails |
-| Invalid request | `422` / `413` | No admitted policy decision |
-| Missing/wrong API key | `401` | Unauthorized |
-
-## Verify behavior
-
-```bash
-# Credential blocked; never forwarded to the model:
-curl -i -X POST http://127.0.0.1:8000/v1/prompts \
-  -H "X-API-Key: $CONTROL_PLANE_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"prompt":"-----BEGIN PRIVATE KEY-----","destination_id":"sovereign-model"}'
-
-# Explicit external routing is blocked:
-curl -i -X POST http://127.0.0.1:8000/v1/prompts \
-  -H "X-API-Key: $CONTROL_PLANE_API_KEY" -H 'Content-Type: application/json' \
-  -d '{"prompt":"Hello","destination_id":"external-model"}'
-
-# Stop OPA and repeat: the control plane must block, not forward.
-podman compose -f deploy/compose.yaml stop opa
-```
-
-Restart OPA with `podman compose -f deploy/compose.yaml start opa`.
-
-### Rego tests inside OPA container
-
-```bash
-podman compose -f deploy/compose.yaml run --rm opa test /policies /policy-tests
-```
-
-### Python tests
+## Regression tests
 
 ```bash
 python -m pip install -e '.[dev]'
 python -m pytest -q
 ```
 
-### Audit verification
+Local Python tests without the English model run all lightweight tests and
+**skip** the real NLP integration test. In a fully provisioned environment the
+real NLP test runs. The container smoke command above validates the actual
+installed dependencies without adding pytest to the production image.
 
-The audit data is persisted in the Compose volume `audit-data`. Inside the
-control-plane container its paths are:
+## Audit evidence verification
+
+Audit format and on-disk paths are unchanged from M1:
 
 ```text
 /var/lib/sovereign/audit.sqlite
-/var/lib/sovereign/audit-key.pem       # PRIVATE; never export or commit
-/var/lib/sovereign/audit-key.pub.pem   # public verifier key
+/var/lib/sovereign/audit-key.pem       # PRIVATE — do not export
+/var/lib/sovereign/audit-key.pub.pem   # public verification key
 ```
 
-To verify from a trusted/offline environment, first safely snapshot the SQLite
-DB and export the public key. **Keep a separately trusted copy of the public key**.
-Use the CLI against the copied files:
+To verify the signed audit chain, use a consistent SQLite snapshot and an
+independently trusted verification key, then run:
 
 ```bash
 python -m tools.verify_audit --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem
-python -m tools.export_checkpoint --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem --out ./known-good-checkpoint.json
-python -m tools.verify_audit --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem --checkpoint ./known-good-checkpoint.json
+python -m tools.export_checkpoint --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem --out ./checkpoint.json
+python -m tools.verify_audit --db ./audit.sqlite --public-key ./trusted-audit-key.pub.pem --checkpoint ./checkpoint.json
 ```
 
-Preserve `known-good-checkpoint.json` **outside the writer's control**. If a later
-snapshot has been truncated or rewritten, checking it against the checkpoint
-reveals a mismatch. See [audit design](docs/audit-design.md) for assumptions and
-an example tampering test.
-
-## Docs
-
-- [Architecture and contracts](docs/architecture.md)
-- [Threat model and sovereignty boundary](docs/threat-model.md)
-- [Policy semantics and versioning](docs/policy-design.md)
-- [Evidence format, guarantees, verifier](docs/audit-design.md)
-- [Test matrix and limitations](docs/testing.md)
-- [Architecture decisions](docs/adr/0001-modular-monolith.md)
+See [audit-design.md](docs/audit-design.md) for the threat model and limitations.
+Never copy only an actively written SQLite main file while WAL is enabled;
+use SQLite's online backup API for consistent snapshots.
 
 ## Stop and clean up
 
-```bash
-podman compose -f deploy/compose.yaml down
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env down
 ```
 
-To erase the persistent evidence volume as well (destructive):
-
-```bash
-podman compose -f deploy/compose.yaml down -v
-```
-
-**Security note:** The network is marked internal and the only published port is
-bound to host loopback. Depending on the host, VM, and Podman backend, additional
-host-to-container networking may exist; verify network policies on your system.
-This project's threat model trusts the local host and administrator. It does
-not guarantee no prompt disclosure on a compromised host.
+**Never add `-v` unless you deliberately want to destroy your persistent audit
+volume and signing keys.**

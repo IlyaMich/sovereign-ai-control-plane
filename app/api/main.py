@@ -15,7 +15,7 @@ from app.api.schemas import PromptInput
 from app.api.body_limit import RequestBodyLimitMiddleware
 from app.application.orchestrator import RequestOrchestrator
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
-from app.detection.demo import DemoPatternDetector
+from app.detection.presidio_detector import PresidioDetector
 from app.domain.contracts import Principal, PromptCommand, RequestStatus
 from app.enforcement.gateway import EnforcementPlanner, HTTPModelGateway
 from app.infrastructure.config import Settings
@@ -35,7 +35,7 @@ def make_components() -> Components:
     client = httpx.AsyncClient(trust_env=False)
     audit = SQLiteAuditStore(settings.db_path, settings.signing_key_path)
     orchestrator = RequestOrchestrator(
-        detector=DemoPatternDetector(),
+        detector=PresidioDetector.create(),
         policy=OPAPolicyEvaluator(client, settings.opa_url),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url),
@@ -55,8 +55,8 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
-        version="0.1.0",
-        description="Milestone 1: internal-only request processing with an explicit audit pre-commit.",
+        version="0.2.0",
+        description="Milestone 2: local Presidio classification, OPA policy, and durable audit pre-commit.",
         lifespan=lifespan,
     )
     app.add_middleware(RequestBodyLimitMiddleware, max_bytes=16384)

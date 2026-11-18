@@ -1,45 +1,59 @@
-# Testing and milestone acceptance
+# Milestone 2 test plan
 
-## Automated tests
+## Automated Python tests
 
-Run `python -m pytest -q` from repository root after installing `.[dev]`.
+Run locally (requires development dependencies, not the NLP model):
 
-| Guarantee | Test coverage |
+```bash
+python -m pip install -e '.[dev]'
+python -m pytest -q
+```
+
+Run all tests **inside the built control-plane image**, where Presidio and the
+pinned spaCy model are actually installed:
+
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
+```
+
+To run the full pytest suite against real NLP, set up a local Python environment
+with Presidio, spaCy, the English model, and dev dependencies. The production
+container deliberately does not include pytest or the test sources.
+
+| Guarantee | Tests |
 |---|---|
-| Exact detection shapes and deterministic ordering | `test_domain_detection.py` |
-| Missing/invalid OPA result denied | `test_policy_adapter.py` |
-| Decision persisted before model invocation | `test_orchestrator.py` |
-| Audit precommit failure prevents model call | `test_orchestrator.py` |
-| Detector/OPA faults deny | `test_orchestrator.py` |
-| Foreign destination rejected | `test_orchestrator.py` |
-| Model timeout remains ambiguous | `test_orchestrator.py` |
-| API key and validation safety | `test_api.py` |
-| Oversized request body rejected | `test_api.py` |
-| Tamper and truncation detection | `test_audit_integrity.py` |
-| Concurrent sequence allocation integrity | `test_audit_integrity.py` |
+| Stable overlapping-entity aggregation, severity precedence | `test_detection_aggregation.py` |
+| Unknown categories, missing coverage, invalid spans | `test_detection_aggregation.py` |
+| Presidio adapter translation, no raw matched values | `test_presidio_adapter.py` |
+| Real installed model pattern checks | `test_presidio_real_integration.py` (when model installed) |
+| Fail-closed detector/OPA failures; durable decision before model | `test_orchestrator.py` |
+| Strict OPA output schema and error handling | `test_policy_adapter.py` |
+| Audit tampering, truncation, concurrent writes | `test_audit_integrity.py` |
+| Authorization, input sanitization, request size limits | `test_api.py` |
 
-## Manual Podman test matrix
+## Podman smoke checks
 
-1. Start Compose and check `/health/ready == READY`.
-2. Submit ordinary prompt and assert HTTP 200 and two audit receipts.
-3. Submit a private-key marker and assert HTTP 403.
-4. Submit a public prompt targeting `external-model` and assert HTTP 403.
-5. Stop OPA, repeat request, and assert HTTP 403 with `POLICY_UNAVAILABLE`.
-6. Stop model, repeat local permitted request, and assert HTTP 502 with UNKNOWN outcome.
-7. Make SQLite volume unwritable and assert HTTP 503 with no model invocation.
-8. Take an offline audit snapshot, verify, alter an event, rerun verifier to fail.
-9. Restore clean snapshot, preserve checkpoint, truncate a tail event, verify
-   against the checkpoint and expect failure.
-10. Verify `podman compose ... run --rm opa test /policies /policy-tests` passes.
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env up --build -d
+podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
+podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
+Invoke-RestMethod http://127.0.0.1:8000/health/ready
+```
 
-The manual Podman scenario set has **not** been run in this authoring environment;
-Podman is not installed here. The Python test suite has been run locally.
+Use the PowerShell example in README to check a public prompt, an email and
+a synthetic private-key marker. The old M1 tests for OPA outages, unauthorized
+destinations, and independently verified audit corruption remain relevant.
 
-## Known gaps beyond milestone 1
+**Not executable here:** this authoring environment has neither Podman/OPA
+nor the installed Presidio package or spaCy English model, so I cannot claim
+a real-container/NLP/OPA integration pass until those commands are run locally.
 
-- Presidio/spaCy recognition and false-positive/false-negative benchmark set.
-- Redaction spans, overlap handling, reclassification, actual output DLP.
-- Rego policy bundle immutability, exact digest, and replay against archived rules.
-- Encrypted prompts for authorized forensic reconstruction.
-- External egress service with network enforcement and allowlisted destinations.
-- Real security/authn, rate limiting, production observability and key rotation.
+## Known limitations
+
+- Best-effort detection, English/ASCII-only input scope, no guarantee of
+  finding all PII, secrets, confidential business facts or regulated data.
+- No redaction or external egress yet.
+- M1 manually versioned Rego; no signed policy-bundle attestation.
+- No cryptographically authenticated archive of full NLP model bytes.
+- Full offline replay can verify OPA *inputs and reported output* from evidence,
+  but reproducing old policy execution requires the correct archived Rego.

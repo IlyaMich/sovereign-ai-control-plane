@@ -72,6 +72,7 @@ class DetectionResult:
     coverage: tuple[str, ...]
     detector_version: str
     reason_codes: tuple[str, ...] = ()
+    config_digest: str = ""
 
     @classmethod
     def unknown(cls, reason_code: str = "DETECTION_UNAVAILABLE") -> DetectionResult:
@@ -92,6 +93,7 @@ class DetectionResult:
             "coverage": list(self.coverage),
             "detector_version": self.detector_version,
             "reason_codes": list(self.reason_codes),
+            "config_digest": self.config_digest,
         }
 
 

@@ -1,40 +1,55 @@
-# Direct OPA/Rego policy model
+# Direct OPA/Rego policy model (M2)
 
-The initial policy is `policies/decision.rego` and the API entry point is
-`data.sovereign.authz.decision` (`POST /v1/data/sovereign/authz/decision`).
+The policy is `policies/decision.rego`. The app calls the OPA decision endpoint
+`POST /v1/data/sovereign/authz/decision`, with structured `PolicyContext` input.
+OPA receives **no raw prompt**; it receives categories and offsets, detection
+status/coverage/version/configuration digest, trusted principal, purpose and
+destination ID.
 
-Input contains only structured trusted context and detector findings; OPA never
-receives the plaintext prompt. `decision` returns an object with exactly:
+OPA returns the unchanged M1 `PolicyDecision` shape:
 
 ```json
-{"effect":"PERMIT", "obligations":[{"type":"ROUTE", "destination_id":"sovereign-model"}], "reason_codes":["APPROVED_INTERNAL_ROUTE"], "policy_revision":"baseline-v1"}
+{
+  "effect": "PERMIT",
+  "obligations": [{"type": "ROUTE", "destination_id": "sovereign-model"}],
+  "reason_codes": ["APPROVED_INTERNAL_ROUTE", "PRESIDIO_DETECTION_COMPLETE"],
+  "policy_revision": "presidio-baseline-v2"
+}
 ```
 
-M1 semantics:
+## M2 baseline logic
 
-- Default deny on undefined context, nonlocal destinations, and unsupported
-  classification status/version.
-- `API_CREDENTIAL` and `PRIVATE_KEY` findings produce an explicit deny even if
-  the requested route is local.
-- The only permitted route is the local simulator and only for successfully
-  completed demo classifications. The API's independent planner rechecks this.
-- Unknown output shape, missing OPA `result`, OPA timeout, and denied decision
-  with route obligations are not interpreted as permits.
-- Rules cannot authorize arbitrary external network operations via the public API.
+- **Default deny.** Unknown/unsupported classification, invalid version,
+  missing required coverage, unsupported purpose, external destination, etc.
+- Only `presidio-spacy-v1` detections with a nonempty configuration digest and
+  all required coverage categories can be considered for permission.
+- `PRIVATE` and `NO_PRIVATE_DETECTED` can be routed **locally only**, for
+  `GENERAL`, `SUMMARIZATION`, or `INTERNAL_ANALYSIS` purposes.
+- Findings classified as `API_CREDENTIAL` or `PRIVATE_KEY` are denied even for
+  the local model (`CREDENTIAL_BLOCKED`).
+- Future high-risk or regulatory restrictions may be represented as additional
+  Rego rules. M2 has no external route and no redaction obligation.
+- Independently, the Python planner accepts only a single `ROUTE` obligation
+  to `sovereign-model`. Malformed OPA output or unavailable OPA fails closed.
 
-Policy edits can change behavior, but the revision identifier is **manually
-maintained** at this milestone; exact active bundle-digest attestation and
-historical policy replay are not yet implemented. A future signed policy-bundle
-workflow will pin revision+digest, archive the bundle, validate activation, and
-audit policy changes. Without that, the recorded revision must not be treated
-as a strong proof of which source bytes OPA evaluated.
+Only trusted local administrators can edit Rego. Update the `revision` string
+when modifying policies, then restart OPA to load changed files:
 
-Run Rego tests under the OPA container:
-
-```bash
-podman compose -f deploy/compose.yaml run --rm opa test /policies /policy-tests
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env restart opa
 ```
 
-Future regulation-oriented packs can be separate Rego modules and data bundles;
-regulatory mapping will require domain/legal review. Supporting a rule does not
-itself establish certification or legal compliance.
+Policy revisions are currently **manually maintained**; archived, signed
+policy bundles and a verified active bundle digest are future work. The audit
+record captures the declared revision but does not cryptographically prove
+which Rego bytes were loaded. This limits strong historical policy replay.
+
+Run tests using the real OPA image:
+
+```powershell
+podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
+```
+
+Regulation-oriented packs are feasible with new Rego modules and trusted
+attribute definitions, but implementing controls is not equivalent to legal
+compliance or regulatory certification.
