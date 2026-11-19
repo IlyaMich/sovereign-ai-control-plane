@@ -225,7 +225,9 @@ def create_app(components: Components | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(
-        RequestBodyLimitMiddleware, max_bytes=deps.settings.limits.max_request_body_bytes
+        RequestBodyLimitMiddleware,
+        max_bytes=deps.settings.limits.max_request_body_bytes,
+        body_read_timeout_seconds=deps.settings.ingress.body_read_timeout_seconds,
     )
     # Logging wraps ingress; ingress wraps body buffering and FastAPI routing.
     app.add_middleware(HTTPIngressLimitMiddleware, admission=http_admission)
