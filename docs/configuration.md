@@ -10,9 +10,14 @@ variables; they do not automatically load `.env`.
 | `MAX_REQUEST_BODY_BYTES` | 16384 | Maximum complete ingress request, including JSON overhead |
 | `MAX_FORWARDED_PROMPT_BYTES` | 8192 | Maximum prompt accepted by all model simulators and egress gateway |
 | `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
+| `MAX_ACTIVE_HTTP_REQUESTS` | 32 | Active HTTP ASGI scopes per process, before reading the body; 503 on saturation |
+| `UVICORN_LIMIT_CONCURRENCY` | 96 | Outer Uvicorn connection/task pressure bound; 503 on saturation |
+| `UVICORN_KEEPALIVE_SECONDS` | 5 | Idle HTTP keep-alive timeout |
 | `MAX_DETECTOR_JOBS` | 8 | Per process, maximum detector submissions running or queued (1-1024) |
 | `DETECTOR_QUEUE_WAIT_SECONDS` | 1 | Max wait to reserve a detector submission slot, not an NLP execution deadline |
 | `MAX_AUDIT_JOBS` | 16 | Max in-flight/queued SQLite audit operations per API process |
+| `MAX_AUDIT_WAITERS` | 8 | Additional coroutines waiting for audit submission capacity; excess fails fast |
+| `MAX_AUDIT_AUXILIARY_JOBS` | 4 | Bound outstanding status/read/probe/idempotency jobs separately |
 | `AUDIT_QUEUE_WAIT_SECONDS` | 1 | Max wait for audit submission capacity, not a commit timeout |
 | `LOOP_LAG_INTERVAL_SECONDS` | 0.25 | Event-loop delay sampling interval, 0.05–5 seconds |
 | `METRICS_SAMPLE_WINDOW` | 512 | Recent queue/service/lag timings retained per process, 1–4096 |
@@ -127,3 +132,32 @@ Podman resources and a reproducible workload. Look for growing audit queue wait
 versus audit worker processing; this instrumentation does not itself determine
 the regression's cause. The diagnostics endpoint does not provide production
 monitoring, global admission accounting or external telemetry exports.
+
+## M7.6 — HTTP ingress and audit waiter limits
+
+The original `MAX_INFLIGHT_REQUESTS` admission (429) still applies *after*
+authentication and JSON validation. An outer ASGI middleware now caps active
+HTTP scopes *before* body buffering and FastAPI parsing (503, Retry-After: 1).
+The limit is process-local and includes readiness, lookups, diagnostics, and
+slow body uploads. A separate Uvicorn `limit_concurrency` setting caps server
+connection/task pressure even when a client has not finished sending a body.
+Uvicorn may return its own 503 when saturated; it counts connections and
+server tasks, so the numeric limit is not equal to request goodput.
+
+`MAX_AUDIT_JOBS` still bounds submitted/running audit work. `MAX_AUDIT_WAITERS`
+adds a hard cap on coroutines waiting for a slot. Requests above this total
+capacity fail immediately instead of joining a larger wait queue; existing
+waiters still have `AUDIT_QUEUE_WAIT_SECONDS` as a deadline. Auxiliary
+readiness, audit read, and idempotency DB calls share one separate quota
+(`MAX_AUDIT_AUXILIARY_JOBS`) whose permits are released on actual thread
+completion, not HTTP cancellation. For `MAX_AUDIT_JOBS` above 1, the effective
+auxiliary cap is at most `MAX_AUDIT_JOBS - 1`, preventing auxiliary operations
+alone from occupying every job slot. This is **not strict write priority**:
+an auxiliary job already ahead in the single-worker queue still runs first.
+
+Both new limits are per-process. No HTTP middleware can guarantee a cap on
+kernel sockets without also configuring Uvicorn or the edge proxy. The HTTP
+limits can reject readiness checks during overload: liveness/readiness should
+be interpreted accordingly. Neither the audit event schema nor signed-release
+verification is changed. Blocking filesystem checks and release activation
+races are handled in the subsequent M7.7 and M7.8 increments.

@@ -124,6 +124,26 @@ class AdmissionLimits:
 
 
 @dataclass(frozen=True)
+class IngressLimits:
+    """Per API process cap for active HTTP scopes, including slow uploads."""
+
+    max_active_http_requests: int = 32
+
+    def __post_init__(self) -> None:
+        value = self.max_active_http_requests
+        if type(value) is not int or not 1 <= value <= 1024:
+            raise ValueError("MAX_ACTIVE_HTTP_REQUESTS must be an integer from 1 to 1024")
+
+    @classmethod
+    def from_env(cls) -> IngressLimits:
+        return cls(
+            max_active_http_requests=positive_int(
+                "MAX_ACTIVE_HTTP_REQUESTS", cls.max_active_http_requests
+            )
+        )
+
+
+@dataclass(frozen=True)
 class DetectorExecutionLimits:
     """Per-worker bounded detector submissions (one detector thread)."""
 
@@ -158,10 +178,16 @@ class AuditExecutionLimits:
 
     max_jobs: int = 16
     queue_wait_seconds: float = 1.0
+    max_waiters: int = 8
+    max_auxiliary_jobs: int = 4
 
     def __post_init__(self) -> None:
         if type(self.max_jobs) is not int or not 1 <= self.max_jobs <= 1024:
             raise ValueError("MAX_AUDIT_JOBS must be an integer from 1 to 1024")
+        if type(self.max_waiters) is not int or not 1 <= self.max_waiters <= 1024:
+            raise ValueError("MAX_AUDIT_WAITERS must be an integer from 1 to 1024")
+        if type(self.max_auxiliary_jobs) is not int or not 1 <= self.max_auxiliary_jobs <= 1024:
+            raise ValueError("MAX_AUDIT_AUXILIARY_JOBS must be an integer from 1 to 1024")
         value = self.queue_wait_seconds
         if (
             isinstance(value, bool)
@@ -176,6 +202,8 @@ class AuditExecutionLimits:
         return cls(
             max_jobs=positive_int("MAX_AUDIT_JOBS", cls.max_jobs),
             queue_wait_seconds=positive_float("AUDIT_QUEUE_WAIT_SECONDS", cls.queue_wait_seconds),
+            max_waiters=positive_int("MAX_AUDIT_WAITERS", cls.max_waiters),
+            max_auxiliary_jobs=positive_int("MAX_AUDIT_AUXILIARY_JOBS", cls.max_auxiliary_jobs),
         )
 
 
@@ -224,6 +252,7 @@ class Settings:
     limits: RequestLimits = field(default_factory=RequestLimits)
     http: HTTPTimeouts = field(default_factory=HTTPTimeouts)
     admission: AdmissionLimits = field(default_factory=AdmissionLimits)
+    ingress: IngressLimits = field(default_factory=IngressLimits)
     detector_execution: DetectorExecutionLimits = field(default_factory=DetectorExecutionLimits)
     audit_execution: AuditExecutionLimits = field(default_factory=AuditExecutionLimits)
     telemetry: TelemetrySettings = field(default_factory=TelemetrySettings)
@@ -240,6 +269,7 @@ class Settings:
             limits=RequestLimits.from_env(),
             http=HTTPTimeouts.from_env(),
             admission=AdmissionLimits.from_env(),
+            ingress=IngressLimits.from_env(),
             detector_execution=DetectorExecutionLimits.from_env(),
             audit_execution=AuditExecutionLimits.from_env(),
             telemetry=TelemetrySettings.from_env(),

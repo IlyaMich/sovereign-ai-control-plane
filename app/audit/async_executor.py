@@ -58,6 +58,8 @@ class BoundedAuditExecutor:
         *,
         max_jobs: int = 16,
         queue_wait_seconds: float = 1.0,
+        max_waiters: int = 8,
+        max_auxiliary_jobs: int = 4,
         sample_window: int = 512,
     ) -> None:
         if type(max_jobs) is not int or not 1 <= max_jobs <= 1024:
@@ -69,6 +71,18 @@ class BoundedAuditExecutor:
             or queue_wait_seconds <= 0
         ):
             raise ValueError("queue_wait_seconds must be a finite positive number")
+        for name, count in (
+            ("max_waiters", max_waiters),
+            ("max_auxiliary_jobs", max_auxiliary_jobs),
+        ):
+            if type(count) is not int or not 1 <= count <= 1024:
+                raise ValueError(f"{name} must be an integer between 1 and 1024")
+        self._max_waiters = max_waiters
+        # When multiple submissions are possible, reserve at least one
+        # job slot for DECISION/OUTCOME writes against auxiliary saturation.
+        self._max_auxiliary_jobs = min(max_auxiliary_jobs, max(1, max_jobs - 1))
+        self._slot_waiters = 0
+        self._auxiliary_inflight = 0
         self._store = store
         self._slots = asyncio.Semaphore(max_jobs)
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sovereign-audit")
@@ -76,102 +90,144 @@ class BoundedAuditExecutor:
         self._closed = False
         self.metrics = ExecutorMetrics(max_jobs, sample_window)
 
+    def capacity_snapshot(self) -> dict[str, int]:
+        """Process-local capacity limits; no request or tenant identifiers."""
+        return {
+            "maximum_waiters": self._max_waiters,
+            "waiting_for_slot": self._slot_waiters,
+            "maximum_auxiliary_jobs": self._max_auxiliary_jobs,
+            "auxiliary_inflight": self._auxiliary_inflight,
+        }
+
+    def _refuse_capacity(self, reason: str) -> None:
+        self.metrics.refuse()
+        event(
+            "audit_capacity_exceeded",
+            level=logging.WARNING,
+            limited=True,
+            error_code="AUDIT_CAPACITY_EXCEEDED",
+            stage=reason,
+        )
+        raise AuditCapacityExceeded("Audit executor capacity exhausted")
+
     async def _execute(self, operation: Callable[[], T], *, kind: str = "aux") -> T:
         if self._closed:
             raise AuditExecutorClosed("Audit executor is shutting down")
-        requested_at = time.perf_counter()
-        self.metrics.begin_wait()
-        try:
-            await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait_seconds)
-        except TimeoutError as exc:
-            self.metrics.refuse()
-            event(
-                "audit_capacity_exceeded",
-                level=logging.WARNING,
-                limited=True,
-                error_code="AUDIT_CAPACITY_EXCEEDED",
-            )
-            raise AuditCapacityExceeded("Audit executor capacity exhausted") from exc
-        finally:
-            self.metrics.end_wait()
-        if self._closed:
-            self._slots.release()
-            raise AuditExecutorClosed("Audit executor is shutting down")
-        started_at: list[float | None] = [None]
-        stopped_at: list[float | None] = [None]
 
-        def timed_operation() -> T:
-            started_at[0] = time.perf_counter()
+        # Reserve auxiliary capacity before any await. Holding this reservation
+        # until the *real* thread future completes also covers cancelled callers.
+        auxiliary = kind in {"aux", "read", "probe"}
+        if auxiliary:
+            if self._auxiliary_inflight >= self._max_auxiliary_jobs:
+                self._refuse_capacity("auxiliary")
+            self._auxiliary_inflight += 1
+
+        acquired = False
+        handed_off = False
+        try:
+            # A coroutine may enter wait_for before the Semaphore's internal
+            # acquire task executes. Count those callers explicitly rather than
+            # using semaphore.locked() as an optimistic capacity test.
+            if self.metrics.active + self._slot_waiters >= (
+                self.metrics.capacity + self._max_waiters
+            ):
+                self._refuse_capacity("waiters")
+            requested_at = time.perf_counter()
+            self._slot_waiters += 1
+            self.metrics.begin_wait()
             try:
-                return operation()
+                try:
+                    await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait_seconds)
+                    acquired = True
+                except TimeoutError as exc:
+                    self.metrics.refuse()
+                    event(
+                        "audit_capacity_exceeded",
+                        level=logging.WARNING,
+                        limited=True,
+                        error_code="AUDIT_CAPACITY_EXCEEDED",
+                        stage="timeout",
+                    )
+                    raise AuditCapacityExceeded("Audit executor capacity exhausted") from exc
             finally:
-                stopped_at[0] = time.perf_counter()
+                self._slot_waiters -= 1
+                self.metrics.end_wait()
 
-        try:
-            submitted: Future[T] = self._executor.submit(timed_operation)
-        except RuntimeError as exc:
-            self._slots.release()
-            raise AuditExecutorClosed("Audit executor is shutting down") from exc
-        except BaseException:
-            self._slots.release()
-            raise
+            if self._closed:
+                raise AuditExecutorClosed("Audit executor is shutting down")
+            started_at: list[float | None] = [None]
+            stopped_at: list[float | None] = [None]
 
-        self.metrics.submit(kind)
-        loop = asyncio.get_running_loop()
+            def timed_operation() -> T:
+                started_at[0] = time.perf_counter()
+                try:
+                    return operation()
+                finally:
+                    stopped_at[0] = time.perf_counter()
 
-        captured_context = dict(context.get() or {})
-        caller_cancelled = False
+            try:
+                submitted: Future[T] = self._executor.submit(timed_operation)
+            except RuntimeError as exc:
+                raise AuditExecutorClosed("Audit executor is shutting down") from exc
 
-        def after_real_completion(_: Future[T]) -> None:
-            # Release only when the *thread-pool* future actually completes. An
-            # asyncio caller may already have been cancelled at this point.
-            def finalize() -> None:
-                now = time.perf_counter()
-                began = started_at[0] if started_at[0] is not None else now
-                ended = stopped_at[0] if stopped_at[0] is not None else now
-                self.metrics.finish(
-                    (began - requested_at) * 1000,
-                    (ended - began) * 1000,
-                    submitted.cancelled() or submitted.exception() is not None,
-                )
-                self._slots.release()
+            handed_off = True
+            self.metrics.submit(kind)
+            loop = asyncio.get_running_loop()
+            captured_context = dict(context.get() or {})
+            caller_cancelled = False
+
+            def after_real_completion(_: Future[T]) -> None:
+                def finalize() -> None:
+                    now = time.perf_counter()
+                    began = started_at[0] if started_at[0] is not None else now
+                    ended = stopped_at[0] if stopped_at[0] is not None else now
+                    failed = submitted.cancelled() or submitted.exception() is not None
+                    self.metrics.finish(
+                        (began - requested_at) * 1000,
+                        (ended - began) * 1000,
+                        failed,
+                    )
+                    self._slots.release()
+                    if auxiliary:
+                        self._auxiliary_inflight -= 1
+                    event(
+                        "audit_operation_finished",
+                        level=logging.ERROR if failed else logging.DEBUG,
+                        correlation_id=captured_context.get("correlation_id"),
+                        request_id=captured_context.get("request_id"),
+                        event_type=kind,
+                        error_code="AUDIT_OPERATION_FAILED" if failed else "NONE",
+                        state="CALLER_CANCELLED" if caller_cancelled else "CALLER_WAITING",
+                        queue_wait_ms=round((began - requested_at) * 1000, 3),
+                        processing_ms=round((ended - began) * 1000, 3),
+                    )
+
+                try:
+                    loop.call_soon_threadsafe(finalize)
+                except RuntimeError:
+                    # Closed loop cannot admit further work, so no reusable slot.
+                    pass
+
+            submitted.add_done_callback(after_real_completion)
+            # Do not cancel an already-submitted SQLite operation on HTTP disconnect.
+            try:
+                return await asyncio.shield(asyncio.wrap_future(submitted))
+            except asyncio.CancelledError:
+                caller_cancelled = True
                 event(
-                    "audit_operation_finished",
-                    level=logging.ERROR
-                    if submitted.cancelled() or submitted.exception()
-                    else logging.DEBUG,
+                    "audit_wait_cancelled",
+                    level=logging.WARNING,
                     correlation_id=captured_context.get("correlation_id"),
                     request_id=captured_context.get("request_id"),
-                    event_type=kind,
-                    error_code="AUDIT_OPERATION_FAILED"
-                    if submitted.cancelled() or submitted.exception()
-                    else "NONE",
-                    state="CALLER_CANCELLED" if caller_cancelled else "CALLER_WAITING",
-                    queue_wait_ms=round((began - requested_at) * 1000, 3),
-                    processing_ms=round((ended - began) * 1000, 3),
+                    stage="audit",
                 )
-
-            try:
-                loop.call_soon_threadsafe(finalize)
-            except RuntimeError:
-                # No more requests can enter after a closed event loop.
-                pass
-
-        submitted.add_done_callback(after_real_completion)
-        # shield is crucial: cancellation of an awaiting request must NOT cancel
-        # the queued concurrent.futures.Future (or forge an audit success).
-        try:
-            return await asyncio.shield(asyncio.wrap_future(submitted))
-        except asyncio.CancelledError:
-            caller_cancelled = True
-            event(
-                "audit_wait_cancelled",
-                level=logging.WARNING,
-                correlation_id=captured_context.get("correlation_id"),
-                request_id=captured_context.get("request_id"),
-                stage="audit",
-            )
-            raise
+                raise
+        finally:
+            if not handed_off:
+                if acquired:
+                    self._slots.release()
+                if auxiliary:
+                    self._auxiliary_inflight -= 1
 
     async def run(self, operation: Callable[[], T]) -> T:
         """Run internal auxiliary SQLite operations in the existing bounded lane."""
