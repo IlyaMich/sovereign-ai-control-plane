@@ -1,9 +1,10 @@
 """CLI for dataset validation, detector evaluation, and reproducible reports.
 
-  python -m evaluation.cli validate
-  python -m evaluation.cli detect --split all --output-dir evaluation/runs/example
-  python -m evaluation.cli report --run evaluation/runs/example
+python -m evaluation.cli validate
+python -m evaluation.cli detect --split all --output-dir evaluation/runs/example
+python -m evaluation.cli report --run evaluation/runs/example
 """
+
 from __future__ import annotations
 
 import argparse

@@ -40,6 +40,7 @@ from app.enforcement.gateway import (
     HTTPModelGateway,
 )
 from app.infrastructure.config import Settings
+from app.infrastructure.integrity_executor import BoundedIntegrityExecutor
 from app.infrastructure.logging import configure_logging, context, event, logging_snapshot
 from app.infrastructure.runtime_metrics import LoopLagMonitor
 from app.policy.opa import OPAPolicyEvaluator
@@ -56,6 +57,7 @@ class Components:
     detector_executor: BoundedDetectorExecutor | None = None
     audit_executor: BoundedAuditExecutor | None = None
     idempotency: IdempotencyStore | None = None
+    integrity_executor: BoundedIntegrityExecutor | None = None
 
 
 def make_components() -> Components:
@@ -115,10 +117,20 @@ def make_components() -> Components:
         max_auxiliary_jobs=settings.audit_execution.max_auxiliary_jobs,
         sample_window=settings.telemetry.sample_window,
     )
+    integrity_executor = BoundedIntegrityExecutor(
+        max_jobs=settings.integrity_execution.max_jobs,
+        max_waiters=settings.integrity_execution.max_waiters,
+        queue_wait_seconds=settings.integrity_execution.queue_wait_seconds,
+    )
     orchestrator = RequestOrchestrator(
         detector=detector,
         policy=OPAPolicyEvaluator(
-            client, settings.opa_url, snapshot_store, release_store, timeout=settings.http.opa
+            client,
+            settings.opa_url,
+            snapshot_store,
+            release_store,
+            timeout=settings.http.opa,
+            integrity_executor=integrity_executor,
         ),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
@@ -126,8 +138,18 @@ def make_components() -> Components:
         release_store=release_store,
         detection_executor=executor,
         audit_executor=audit_executor,
+        integrity_executor=integrity_executor,
     )
-    return Components(settings, orchestrator, audit, client, executor, audit_executor, idempotency)
+    return Components(
+        settings,
+        orchestrator,
+        audit,
+        client,
+        executor,
+        audit_executor,
+        idempotency,
+        integrity_executor,
+    )
 
 
 def create_app(components: Components | None = None) -> FastAPI:
@@ -169,16 +191,20 @@ def create_app(components: Components | None = None) -> FastAPI:
             event("shutdown_started", stage="runtime")
             await lag.aclose()
             try:
-                if deps.detector_executor is not None:
-                    await deps.detector_executor.aclose()
+                if deps.integrity_executor is not None:
+                    await deps.integrity_executor.aclose()
             finally:
                 try:
-                    if deps.audit_executor is not None:
-                        await deps.audit_executor.aclose()
+                    if deps.detector_executor is not None:
+                        await deps.detector_executor.aclose()
                 finally:
-                    if deps.client is not None:
-                        await deps.client.aclose()
-                    event("service_stopped", stage="runtime")
+                    try:
+                        if deps.audit_executor is not None:
+                            await deps.audit_executor.aclose()
+                    finally:
+                        if deps.client is not None:
+                            await deps.client.aclose()
+                        event("service_stopped", stage="runtime")
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
@@ -268,6 +294,11 @@ def create_app(components: Components | None = None) -> FastAPI:
                     else None
                 ),
                 "event_loop": lag.snapshot(),
+                "integrity": (
+                    deps.integrity_executor.snapshot()
+                    if deps.integrity_executor is not None
+                    else None
+                ),
             },
         )
 
@@ -291,23 +322,37 @@ def create_app(components: Components | None = None) -> FastAPI:
             result = response.json().get("result")
             if not isinstance(result, dict):
                 raise ValueError("OPA policy result missing")
+            stage = "integrity"
+            # All filesystem reads, signatures, and the full installed-model
+            # byte scan run off-loop. Overlapping readiness probes coalesce,
+            # but each subsequent probe performs a fresh live verification.
             policy = deps.orchestrator.policy
-            if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None:
-                info = policy.snapshots.verify_active()
-                if (
-                    result.get("policy_digest") != info.policy_digest
-                    or result.get("policy_revision") != info.policy_revision
-                ):
-                    raise ValueError("OPA policy does not match active archived snapshot")
+            detector = deps.orchestrator.detector
+
+            def check_files():
+                info = (
+                    policy.snapshots.verify_active()
+                    if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None
+                    else None
+                )
+                if hasattr(detector, "check_integrity"):
+                    detector.check_integrity()
+                if deps.orchestrator.release_store is not None:
+                    deps.orchestrator.release_store.verify_active()
+                return info
+
+            if deps.integrity_executor is not None:
+                info = await deps.integrity_executor.check_readiness(check_files)
+            else:
+                # Injected developer/test components also avoid blocking the loop.
+                info = await asyncio.to_thread(check_files)
+            if info is not None and (
+                result.get("policy_digest") != info.policy_digest
+                or result.get("policy_revision") != info.policy_revision
+            ):
+                raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
-            stage = "detector"
-            detector = deps.orchestrator.detector
-            if hasattr(detector, "check_integrity"):
-                detector.check_integrity()
-            stage = "release"
-            if deps.orchestrator.release_store is not None:
-                deps.orchestrator.release_store.verify_active()
             stage = "audit"
             if deps.audit_executor is not None:
                 await deps.audit_executor.check_writable()

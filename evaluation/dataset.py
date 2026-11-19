@@ -1,4 +1,5 @@
 """Versioned, integrity-checked ground truth for evaluation; independent of production."""
+
 from __future__ import annotations
 
 import hashlib

@@ -1,4 +1,5 @@
 """Stage 1 adapter to the existing, unmodified PresidioDetector API."""
+
 from __future__ import annotations
 
 from importlib import metadata

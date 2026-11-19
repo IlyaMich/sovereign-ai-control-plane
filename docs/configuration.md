@@ -16,6 +16,9 @@ variables; they do not automatically load `.env`.
 | `MAX_DETECTOR_JOBS` | 8 | Per process, maximum detector submissions running or queued (1-1024) |
 | `DETECTOR_QUEUE_WAIT_SECONDS` | 1 | Max wait to reserve a detector submission slot, not an NLP execution deadline |
 | `MAX_AUDIT_JOBS` | 16 | Max in-flight/queued SQLite audit operations per API process |
+| `MAX_INTEGRITY_JOBS` | 8 | Request-time filesystem/signature verification submissions per API process |
+| `MAX_INTEGRITY_WAITERS` | 8 | Additional callers allowed to wait for request-time integrity capacity |
+| `INTEGRITY_QUEUE_WAIT_SECONDS` | 1 | Max wait for a verification job slot; not a verification deadline |
 | `MAX_AUDIT_WAITERS` | 8 | Additional coroutines waiting for audit submission capacity; excess fails fast |
 | `MAX_AUDIT_AUXILIARY_JOBS` | 4 | Bound outstanding status/read/probe/idempotency jobs separately |
 | `AUDIT_QUEUE_WAIT_SECONDS` | 1 | Max wait for audit submission capacity, not a commit timeout |
@@ -161,3 +164,29 @@ limits can reject readiness checks during overload: liveness/readiness should
 be interpreted accordingly. Neither the audit event schema nor signed-release
 verification is changed. Blocking filesystem checks and release activation
 races are handled in the subsequent M7.7 and M7.8 increments.
+
+## M7.7 — Nonblocking integrity verification
+
+Policy snapshot and signed release checks performed during request processing
+run in a dedicated bounded two-worker thread pool. The original checks still
+run *before and after* OPA evaluation and in the orchestrator before audit and
+model execution. Results are **not cached** between requests. If verification
+cannot complete or its queue is exhausted, requests fail closed and cannot
+invoke the model before a durable signed decision.
+
+Readiness runs the original full detector live-file scan, release verification,
+and policy snapshot validation in a separate single-worker lane. Overlapping
+readiness probes share only the **in-progress** scan; the next probe after
+completion checks the real artifact bytes again. The readiness lane does not
+consume request-time verification capacity. A cancelled HTTP caller cannot
+cancel work already submitted to either lane. Running verification is not
+forcibly interrupted: an indefinitely blocked filesystem can delay graceful
+shutdown. Neither an in-flight shared readiness check nor this process-local
+worker isolation provides atomicity against concurrent release activation;
+M7.8 addresses that separate operator-side race.
+
+`MAX_INTEGRITY_JOBS` bounds submitted and queued request-time verifications;
+`MAX_INTEGRITY_WAITERS` bounds additional slot waiters. The asynchronous
+verification limits are per process, not global across multiple Uvicorn workers.
+The authenticated concurrency diagnostics endpoint reports request verification
+capacity and coalesced readiness scan counts without storing request data.

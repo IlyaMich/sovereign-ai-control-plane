@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from functools import partial
 from typing import Any
 
 from app.application.detector_executor import (
@@ -29,6 +30,7 @@ from app.domain.contracts import (
 )
 from app.enforcement.gateway import EnforcementPlanner, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
+from app.infrastructure.integrity_executor import BoundedIntegrityExecutor
 from app.infrastructure.logging import event
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
@@ -45,6 +47,7 @@ class RequestOrchestrator:
         release_store: ReleaseVerifier | None = None,
         detection_executor: BoundedDetectorExecutor | None = None,
         audit_executor: BoundedAuditExecutor | None = None,
+        integrity_executor: BoundedIntegrityExecutor | None = None,
     ):
         self.detector = detector
         self.policy = policy
@@ -54,6 +57,7 @@ class RequestOrchestrator:
         self.release_store = release_store
         self.detection_executor = detection_executor
         self.audit_executor = audit_executor
+        self.integrity_executor = integrity_executor
 
     async def _detect(self, prompt: str) -> DetectionResult:
         if self.detection_executor is None:
@@ -91,6 +95,16 @@ class RequestOrchestrator:
         )
         return receipt
 
+    async def _verify_release(self, **checks: Any) -> dict[str, Any]:
+        verifier = self.release_store
+        if verifier is None:
+            raise ReleaseIntegrityError("Release verifier unavailable")
+        verify = partial(verifier.verify_active, **checks)
+        if self.integrity_executor is not None:
+            return await self.integrity_executor.run(verify)
+        # Keep existing injected test adapters usable without an executor.
+        return verify()
+
     async def process(self, command: PromptCommand) -> ProcessedRequest:
         try:
             classification = await self._detect(command.prompt)
@@ -118,12 +132,12 @@ class RequestOrchestrator:
         release_untrusted = False
         if self.release_store is not None:
             try:
-                approved_release = self.release_store.verify_active(
+                approved_release = await self._verify_release(
                     detector_digest=classification.artifact_digest
                     if classification.artifact_digest
                     else None
                 )
-            except ReleaseIntegrityError:
+            except Exception:
                 release_untrusted = True
         if release_untrusted:
             event(
@@ -209,7 +223,7 @@ class RequestOrchestrator:
 
         if approved_release is not None and self.release_store is not None:
             try:
-                rechecked = self.release_store.verify_active(
+                rechecked = await self._verify_release(
                     detector_digest=classification.artifact_digest
                     if classification.artifact_digest
                     else None,
@@ -217,7 +231,7 @@ class RequestOrchestrator:
                 )
                 if rechecked["release_id"] != approved_release["release_id"]:
                     raise ReleaseIntegrityError("Active release changed during request")
-            except ReleaseIntegrityError:
+            except Exception:
                 event(
                     "request_safety_failure",
                     level=logging.ERROR,
