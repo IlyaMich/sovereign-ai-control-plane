@@ -2,6 +2,7 @@
 
 Do not modify v1 to improve a benchmark score. Publish a new dataset version instead.
 """
+
 from __future__ import annotations
 
 import hashlib
@@ -19,27 +20,69 @@ COUNTS = {
     "unsupported": 100,
 }
 CATEGORIES = (
-    "EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "LOCATION", "CREDIT_CARD",
-    "US_SSN", "IBAN_CODE", "API_CREDENTIAL", "PRIVATE_KEY",
+    "EMAIL_ADDRESS",
+    "PHONE_NUMBER",
+    "PERSON",
+    "LOCATION",
+    "CREDIT_CARD",
+    "US_SSN",
+    "IBAN_CODE",
+    "API_CREDENTIAL",
+    "PRIVATE_KEY",
 )
-NAMES = ("Avery Chen", "Morgan Patel", "Riley Brooks", "Taylor Nguyen", "Jamie Rivera",
-         "Casey Morgan", "Jordan Ellis", "Sydney Parker", "Alex Kim", "Robin Shah")
-LOCATIONS = ("Seattle, Washington", "Austin, Texas", "Denver, Colorado", "Portland, Oregon",
-             "Boston, Massachusetts", "Chicago, Illinois", "Miami, Florida", "Phoenix, Arizona")
-CARDS = ("4111 1111 1111 1111", "5555 5555 5555 4444", "3782 822463 10005",
-         "4000 0000 0000 0002")  # Public payment-network test number patterns; no accounts.
-IBANS = ("GB82 WEST 1234 5698 7654 32", "DE89 3704 0044 0532 0130 00",
-         "FR14 2004 1010 0505 0001 3M02 606")  # Publicly documented examples.
+NAMES = (
+    "Avery Chen",
+    "Morgan Patel",
+    "Riley Brooks",
+    "Taylor Nguyen",
+    "Jamie Rivera",
+    "Casey Morgan",
+    "Jordan Ellis",
+    "Sydney Parker",
+    "Alex Kim",
+    "Robin Shah",
+)
+LOCATIONS = (
+    "Seattle, Washington",
+    "Austin, Texas",
+    "Denver, Colorado",
+    "Portland, Oregon",
+    "Boston, Massachusetts",
+    "Chicago, Illinois",
+    "Miami, Florida",
+    "Phoenix, Arizona",
+)
+CARDS = (
+    "4111 1111 1111 1111",
+    "5555 5555 5555 4444",
+    "3782 822463 10005",
+    "4000 0000 0000 0002",
+)  # Public payment-network test number patterns; no accounts.
+IBANS = (
+    "GB82 WEST 1234 5698 7654 32",
+    "DE89 3704 0044 0532 0130 00",
+    "FR14 2004 1010 0505 0001 3M02 606",
+)  # Publicly documented examples.
 SSNS = ("123-45-6789", "219-09-9999", "111-22-3333")  # Synthetic example strings only.
 PREFIXES = (
-    "Review the submitted note: ", "Extract sensitive values from: ",
-    "The customer wrote: ", "Prepare a response about ",
-    "Security review of: ", "Summarize this text: ",
-    "The support ticket contains ", "Check the privacy of ",
-    "Assess forwarding eligibility for ", "The analyst recorded ",
+    "Review the submitted note: ",
+    "Extract sensitive values from: ",
+    "The customer wrote: ",
+    "Prepare a response about ",
+    "Security review of: ",
+    "Summarize this text: ",
+    "The support ticket contains ",
+    "Check the privacy of ",
+    "Assess forwarding eligibility for ",
+    "The analyst recorded ",
 )
-SUFFIXES = (" for the support team.", " in the case notes.", " before exporting.",
-            " for tomorrow's report.", " in the attached message.")
+SUFFIXES = (
+    " for the support team.",
+    " in the case notes.",
+    " before exporting.",
+    " for tomorrow's report.",
+    " in the attached message.",
+)
 
 
 def value_for(category: str, i: int) -> str:
@@ -60,9 +103,11 @@ def value_for(category: str, i: int) -> str:
     if category == "API_CREDENTIAL":
         return f"sk-testsynthetic{i:04d}AbC987654321"
     if category == "PRIVATE_KEY":
-        return ("-----BEGIN PRIVATE KEY-----\n"
-                f"INVALID-EXAMPLE-KEY-CONTENT-{i:04d}\n"
-                "-----END PRIVATE KEY-----")
+        return (
+            "-----BEGIN PRIVATE KEY-----\n"
+            f"INVALID-EXAMPLE-KEY-CONTENT-{i:04d}\n"
+            "-----END PRIVATE KEY-----"
+        )
     raise ValueError(category)
 
 
@@ -80,11 +125,16 @@ def build_text(parts: list[str | tuple[str, str]]) -> tuple[str, list[dict[str, 
     return text, spans
 
 
-def record(group: str, i: int, parts: list[str | tuple[str, str]], tags: list[str],
-           *, in_scope: bool = True) -> dict:
+def record(
+    group: str,
+    i: int,
+    parts: list[str | tuple[str, str]],
+    tags: list[str],
+    *,
+    in_scope: bool = True,
+) -> dict:
     text, spans = build_text(parts)
-    status = ("UNKNOWN" if not in_scope else
-              "PRIVATE" if spans else "NO_PRIVATE_DETECTED")
+    status = "UNKNOWN" if not in_scope else "PRIVATE" if spans else "NO_PRIVATE_DETECTED"
     return {
         "id": f"{group.upper()}-{i + 1:04d}",
         "text": text,
@@ -93,17 +143,22 @@ def record(group: str, i: int, parts: list[str | tuple[str, str]], tags: list[st
         "in_scope": in_scope,
         "group": group,
         "tags": sorted(set(tags)),
-        "split": ("development" if i % 5 == 0 else
-                  "validation" if i % 5 == 1 else "evaluation"),
+        "split": ("development" if i % 5 == 0 else "validation" if i % 5 == 1 else "evaluation"),
     }
 
 
 def generate() -> list[dict]:
     cases: list[dict] = []
     distribution = (
-        ("EMAIL_ADDRESS", 50), ("PHONE_NUMBER", 45), ("PERSON", 45),
-        ("LOCATION", 35), ("CREDIT_CARD", 40), ("US_SSN", 40),
-        ("IBAN_CODE", 35), ("API_CREDENTIAL", 35), ("PRIVATE_KEY", 25),
+        ("EMAIL_ADDRESS", 50),
+        ("PHONE_NUMBER", 45),
+        ("PERSON", 45),
+        ("LOCATION", 35),
+        ("CREDIT_CARD", 40),
+        ("US_SSN", 40),
+        ("IBAN_CODE", 35),
+        ("API_CREDENTIAL", 35),
+        ("PRIVATE_KEY", 25),
     )
     index = 0
     for category, count in distribution:
@@ -114,8 +169,7 @@ def generate() -> list[dict]:
                 (category, value_for(category, n)),
                 SUFFIXES[(n // 7) % len(SUFFIXES)],
             ]
-            cases.append(record("standard_sensitive", index, parts,
-                                ["standard", category.lower()]))
+            cases.append(record("standard_sensitive", index, parts, ["standard", category.lower()]))
             index += 1
 
     CLEAN = (
@@ -172,9 +226,14 @@ def generate() -> list[dict]:
         "The policy revision is redaction-baseline-v3.",
     )
     for i in range(COUNTS["hard_negative"]):
-        cases.append(record("hard_negative", i,
-                            [f"Synthetic negative {i + 1:04d}: {HARD[i % len(HARD)]}"],
-                            ["negative", "hard_negative"]))
+        cases.append(
+            record(
+                "hard_negative",
+                i,
+                [f"Synthetic negative {i + 1:04d}: {HARD[i % len(HARD)]}"],
+                ["negative", "hard_negative"],
+            )
+        )
 
     for i in range(COUNTS["mixed_entities"]):
         a = CATEGORIES[i % len(CATEGORIES)]
@@ -182,11 +241,14 @@ def generate() -> list[dict]:
         if a == b:
             b = CATEGORIES[(CATEGORIES.index(a) + 1) % len(CATEGORIES)]
         n = i + 701
-        parts = [f"Combined request {i + 1:04d}: first is ",
-                 (a, value_for(a, n)), "; second is ",
-                 (b, value_for(b, n + 11)), ". Treat both as sample inputs."]
-        cases.append(record("mixed_entities", i, parts,
-                            ["mixed", a.lower(), b.lower()]))
+        parts = [
+            f"Combined request {i + 1:04d}: first is ",
+            (a, value_for(a, n)),
+            "; second is ",
+            (b, value_for(b, n + 11)),
+            ". Treat both as sample inputs.",
+        ]
+        cases.append(record("mixed_entities", i, parts, ["mixed", a.lower(), b.lower()]))
 
     # Hard cases are intentionally within ASCII; ordinary recognizers may miss them.
     # Exact spans designate the entire sensitive token, even when broken by separators.
@@ -194,19 +256,27 @@ def generate() -> list[dict]:
         category = CATEGORIES[i % len(CATEGORIES)]
         n = i + 2001
         if category == "EMAIL_ADDRESS":
-            variant = (f"case{n}@example.com", f"case{n} @ example . com",
-                       f"CASE{n}@EXAMPLE.COM")[i % 3]
+            variant = (f"case{n}@example.com", f"case{n} @ example . com", f"CASE{n}@EXAMPLE.COM")[
+                i % 3
+            ]
         elif category == "PHONE_NUMBER":
-            variant = (f"202.555.01{n % 100:02d}", f"202 555 01{n % 100:02d}",
-                       f"(202) 555-01{n % 100:02d}")[i % 3]
+            variant = (
+                f"202.555.01{n % 100:02d}",
+                f"202 555 01{n % 100:02d}",
+                f"(202) 555-01{n % 100:02d}",
+            )[i % 3]
         elif category == "PERSON":
-            variant = (NAMES[n % len(NAMES)],
-                       NAMES[n % len(NAMES)].upper(),
-                       NAMES[n % len(NAMES)].replace(" ", "\n"))[i % 3]
+            variant = (
+                NAMES[n % len(NAMES)],
+                NAMES[n % len(NAMES)].upper(),
+                NAMES[n % len(NAMES)].replace(" ", "\n"),
+            )[i % 3]
         elif category == "LOCATION":
-            variant = (LOCATIONS[n % len(LOCATIONS)],
-                       LOCATIONS[n % len(LOCATIONS)].upper(),
-                       LOCATIONS[n % len(LOCATIONS)].replace(", ", ",\n"))[i % 3]
+            variant = (
+                LOCATIONS[n % len(LOCATIONS)],
+                LOCATIONS[n % len(LOCATIONS)].upper(),
+                LOCATIONS[n % len(LOCATIONS)].replace(", ", ",\n"),
+            )[i % 3]
         elif category == "CREDIT_CARD":
             base = CARDS[n % len(CARDS)]
             variant = (base, base.replace(" ", "-"), base.replace(" ", ""))[i % 3]
@@ -220,12 +290,19 @@ def generate() -> list[dict]:
             base = value_for(category, n)
             variant = (base, base.upper(), base.replace("sk-", "sk - "))[i % 3]
         else:
-            variant = ("-----BEGIN PRIVATE KEY-----\nFAKE ONLY\n-----END PRIVATE KEY-----",
-                       "-----begin private key-----\nFAKE ONLY\n-----end private key-----",
-                       "-----BEGIN PRIVATE KEY----- FAKE ONLY")[i % 3]
-        cases.append(record("adversarial", i,
-                            [f"Unusual input {i + 1:04d}: <", (category, variant), ">. Review carefully."],
-                            ["adversarial", category.lower(), "ascii_obfuscation"]))
+            variant = (
+                "-----BEGIN PRIVATE KEY-----\nFAKE ONLY\n-----END PRIVATE KEY-----",
+                "-----begin private key-----\nFAKE ONLY\n-----end private key-----",
+                "-----BEGIN PRIVATE KEY----- FAKE ONLY",
+            )[i % 3]
+        cases.append(
+            record(
+                "adversarial",
+                i,
+                [f"Unusual input {i + 1:04d}: <", (category, variant), ">. Review carefully."],
+                ["adversarial", category.lower(), "ascii_obfuscation"],
+            )
+        )
 
     UNSUPPORTED = (
         "Résumé contains an accent and must not be classified as ASCII.",
@@ -240,9 +317,15 @@ def generate() -> list[dict]:
         "Phrase: naïve approach to input handling.",
     )
     for i in range(COUNTS["unsupported"]):
-        cases.append(record("unsupported", i,
-                            [f"Unsupported example {i + 1:04d}: {UNSUPPORTED[i % len(UNSUPPORTED)]}"],
-                            ["unsupported", "non_ascii"], in_scope=False))
+        cases.append(
+            record(
+                "unsupported",
+                i,
+                [f"Unsupported example {i + 1:04d}: {UNSUPPORTED[i % len(UNSUPPORTED)]}"],
+                ["unsupported", "non_ascii"],
+                in_scope=False,
+            )
+        )
 
     assert len(cases) == sum(COUNTS.values()) == 1200
     assert len({c["text"] for c in cases}) == len(cases)
@@ -252,8 +335,10 @@ def generate() -> list[dict]:
 def write_dataset(root: Path = ROOT) -> None:
     root.mkdir(parents=True, exist_ok=True)
     cases = generate()
-    data = "".join(json.dumps(c, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
-                   + "\n" for c in cases).encode("utf-8")
+    data = "".join(
+        json.dumps(c, ensure_ascii=False, sort_keys=True, separators=(",", ":")) + "\n"
+        for c in cases
+    ).encode("utf-8")
     (root / "cases.jsonl").write_bytes(data)
     manifest = {
         "schema_version": 1,
@@ -262,13 +347,16 @@ def write_dataset(root: Path = ROOT) -> None:
         "generator_revision": "deterministic-templates-20261119-v1",
         "case_count": len(cases),
         "distribution": COUNTS,
-        "split_counts": {s: sum(c["split"] == s for c in cases)
-                         for s in ("development", "validation", "evaluation")},
+        "split_counts": {
+            s: sum(c["split"] == s for c in cases)
+            for s in ("development", "validation", "evaluation")
+        },
         "cases_sha256": hashlib.sha256(data).hexdigest(),
         "notes": "Synthetic only; no real credentials, personal records, or model outputs.",
     }
-    (root / "manifest.json").write_text(json.dumps(manifest, indent=2, sort_keys=True) + "\n",
-                                          encoding="utf-8")
+    (root / "manifest.json").write_text(
+        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    )
 
 
 if __name__ == "__main__":

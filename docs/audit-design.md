@@ -81,3 +81,15 @@ The release authority is **separate from** the audit signer. Host compromise rem
 ## Next security work
 
 Independent audit public-key pinning, periodic checkpoint witnessing to a separate trust domain, protected audit signing (KMS/HSM), recovery/rotation, audited evidence export access controls and an explicit unresolved-request reconciliation workflow. Do not imply GDPR/PCI certification or forensic completeness beyond the tested scope.
+
+## M7.8 — Signing key initialization
+
+The runtime audit signing key is now written and synced to a private same-volume
+staging file, then atomically published without replacement. Concurrent startup
+on the same SQLite volume adopts and validates the winning complete key;
+existing history without its private signer remains a startup failure.
+The derived audit public PEM is independently published and checked against
+the private key, including restarts after interrupted public-file creation.
+This improves initialization crash safety but does not provide an HSM,
+externally trusted audit key, cross-host distributed storage, or protection
+against a privileged administrator who can replace the entire audit volume.

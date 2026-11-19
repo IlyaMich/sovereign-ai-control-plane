@@ -13,6 +13,7 @@ import os
 import re
 import shutil
 import tempfile
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -21,6 +22,13 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey, Ed25519PublicKey
 
 from app.detection.provenance import canonical, load_verified
+from app.infrastructure.atomic_files import (
+    fsync_directory,
+    fsync_tree,
+    interprocess_lock,
+    publish_new_bytes,
+    read_regular_bytes,
+)
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 
 RELEASE_DOMAIN = b"sovereign-release-approval-v1\x00"
@@ -44,29 +52,58 @@ def key_id(key: Ed25519PublicKey) -> str:
     return hashlib.sha256(binary).hexdigest()
 
 
+def recover_public_key(private_path: str | Path, public_path: str | Path) -> str:
+    """Explicit operator recovery if a complete private key lacks its public PEM.
+
+    Never overwrites an existing mismatched public key or replaces private bytes.
+    """
+    try:
+        private = serialization.load_pem_private_key(
+            read_regular_bytes(private_path), password=None
+        )
+    except (OSError, ValueError, TypeError) as exc:
+        raise ReleaseIntegrityError("Existing release private key is invalid") from exc
+    if not isinstance(private, Ed25519PrivateKey):
+        raise ReleaseIntegrityError("Release signing key must be Ed25519")
+    expected = private.public_key().public_bytes(
+        serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+    )
+    try:
+        public = Path(public_path)
+        if not public.exists() and not public.is_symlink():
+            try:
+                publish_new_bytes(public, expected, mode=0o644)
+            except FileExistsError:
+                pass
+        if read_regular_bytes(public) != expected:
+            raise ReleaseIntegrityError("Existing release public key does not match private key")
+    except (OSError, ValueError) as exc:
+        raise ReleaseIntegrityError("Release public key unavailable or unsafe") from exc
+    return key_id(private.public_key())
+
+
 def new_keypair(private_path: str | Path, public_path: str | Path) -> str:
-    """Development keypair; key path must be OUTSIDE repo and protected by OS ACLs."""
+    """Development signer; private PEM must stay outside repo and container.
+
+    Write and fsync private material before making its name visible. If a
+    process crashes before public-key publication, use explicit recovery.
+    """
     priv, pub = Path(private_path), Path(public_path)
-    if priv.exists() or pub.exists():
+    if priv.exists() or priv.is_symlink() or pub.exists() or pub.is_symlink():
         raise ReleaseIntegrityError("Refusing to overwrite signing key")
-    priv.parent.mkdir(parents=True, exist_ok=True)
-    pub.parent.mkdir(parents=True, exist_ok=True)
     key = Ed25519PrivateKey.generate()
     raw = key.private_bytes(
         serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()
     )
-    fd = os.open(str(priv), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     try:
-        with os.fdopen(fd, "wb") as writer:
-            writer.write(raw)
-    except BaseException:
-        priv.unlink(missing_ok=True)
-        raise
-    pub.write_bytes(
-        key.public_key().public_bytes(
-            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-        )
-    )
+        publish_new_bytes(priv, raw)
+    except FileExistsError as exc:
+        raise ReleaseIntegrityError("Signing key already published by another process") from exc
+    except OSError as exc:
+        raise ReleaseIntegrityError("Signing key publication failed") from exc
+    # Do not delete a published private key if public-key publication fails:
+    # it may already have been used to sign a release by another process.
+    recover_public_key(priv, pub)
     return key_id(key.public_key())
 
 
@@ -229,6 +266,7 @@ def _atomic_replace(path: Path, raw: bytes) -> None:
             out.flush()
             os.fsync(out.fileno())
         os.replace(temp, path)
+        fsync_directory(path.parent)
     finally:
         Path(temp).unlink(missing_ok=True)
 
@@ -276,14 +314,27 @@ class ReleaseStore:
         return approval
 
     def activate(self, candidate: Path | str, *, detector_digest: str | None = None) -> dict:
-        """Offline operator operation; cannot be initiated by an API caller."""
+        """Serialize the complete offline activation on the host filesystem.
+
+        Callers must stop/recreate OPA and the control plane for a policy rollout.
+        The two active entries cannot be changed in one filesystem transaction;
+        any intervening mismatch remains fail-closed until operator recovery.
+        """
+        try:
+            with interprocess_lock(self.active.parent / ".release-activation.lock"):
+                return self._activate_locked(candidate, detector_digest=detector_digest)
+        except (TimeoutError, ValueError) as exc:
+            raise ReleaseIntegrityError("Release activation lock unavailable") from exc
+
+    def _activate_locked(
+        self, candidate: Path | str, *, detector_digest: str | None = None
+    ) -> dict:
         proposed = load_approval(candidate, self.trust)
         policy = proposed["payload"]
         location = self.policy_store.find(policy["policy_digest"])
-        snapshot = location
         from app.policy.snapshots import verify_snapshot
 
-        if verify_snapshot(snapshot).policy_revision != policy["policy_revision"]:
+        if verify_snapshot(location).policy_revision != policy["policy_revision"]:
             raise ReleaseIntegrityError("Approved policy revision mismatch")
         if detector_digest is not None and detector_digest != policy["detector_digest"]:
             raise ReleaseIntegrityError("Candidate does not approve chosen detector")
@@ -298,6 +349,7 @@ class ReleaseStore:
                 )
         elif policy["generation"] != 1 or policy["previous_release_id"] is not None:
             raise ReleaseIntegrityError("First release must be generation 1")
+
         archive_item = self.archive / (proposed["release_id"] + ".json")
         self.archive.mkdir(parents=True, exist_ok=True)
         if self.archive.is_symlink():
@@ -309,7 +361,6 @@ class ReleaseStore:
             if archive_item.read_bytes() != raw:
                 raise ReleaseIntegrityError("Immutable release archive collision")
         else:
-            # Do not overwrite previously archived release identities.
             fd, tmp = tempfile.mkstemp(prefix=".approval-", dir=self.archive)
             try:
                 with os.fdopen(fd, "wb") as f:
@@ -322,14 +373,12 @@ class ReleaseStore:
                     raise ReleaseIntegrityError("Concurrent conflicting release")
             finally:
                 Path(tmp).unlink(missing_ok=True)
-        # The active policy and release metadata are two filesystem entries.
-        # During a crash/race the service fails closed on a mismatch.
-        # Avoid rewriting an identical mounted policy (especially on Windows).
+            fsync_directory(self.archive)
+
         active_policy = self.policy_store.active
         if active_policy.is_symlink():
             raise ReleaseIntegrityError("Active policy directory cannot be a symlink")
-        from app.policy.snapshots import verify_snapshot
-
+        active_policy.parent.mkdir(parents=True, exist_ok=True)
         current_matches = False
         if active_policy.exists():
             try:
@@ -339,9 +388,45 @@ class ReleaseStore:
                 )
             except (SnapshotError, OSError):
                 current_matches = False
-        if not current_matches:
+        if current_matches:
+            _atomic_replace(self.active, raw)
+            return proposed
+
+        # Prepare and verify new policy bytes in a sibling directory *before*
+        # touching the old active policy. Renames remain on one filesystem.
+        stage = Path(tempfile.mkdtemp(prefix=".policy-stage-", dir=active_policy.parent))
+        staged_policy = stage / "policy"
+        backup = active_policy.parent / (".policy-backup-" + uuid.uuid4().hex)
+        failed = active_policy.parent / (".policy-unpublished-" + uuid.uuid4().hex)
+        old_moved = False
+        new_installed = False
+        completed = False
+        try:
+            shutil.copytree(location, staged_policy)
+            verify_snapshot(staged_policy, policy["policy_digest"])
+            fsync_tree(staged_policy)
             if active_policy.exists():
-                shutil.rmtree(active_policy)
-            shutil.copytree(location, active_policy)
-        _atomic_replace(self.active, raw)
+                os.replace(active_policy, backup)
+                old_moved = True
+            os.replace(staged_policy, active_policy)
+            new_installed = True
+            fsync_directory(active_policy.parent)
+            _atomic_replace(self.active, raw)
+            completed = True
+        except BaseException:
+            # On ordinary I/O failure restore prior active policy if possible.
+            # On an abrupt process death, retained .policy-backup-* and archive
+            # enable explicit operator review; runtime release checks fail closed.
+            if new_installed and active_policy.exists():
+                os.replace(active_policy, failed)
+            if old_moved and backup.exists():
+                os.replace(backup, active_policy)
+            if failed.exists():
+                shutil.rmtree(failed)
+            fsync_directory(active_policy.parent)
+            raise
+        finally:
+            shutil.rmtree(stage, ignore_errors=True)
+            if completed and old_moved and backup.exists():
+                shutil.rmtree(backup)
         return proposed
