@@ -12,6 +12,8 @@ variables; they do not automatically load `.env`.
 | `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
 | `MAX_DETECTOR_JOBS` | 8 | Per process, maximum detector submissions running or queued (1-1024) |
 | `DETECTOR_QUEUE_WAIT_SECONDS` | 1 | Max wait to reserve a detector submission slot, not an NLP execution deadline |
+| `MAX_AUDIT_JOBS` | 16 | Max in-flight/queued SQLite audit operations per API process |
+| `AUDIT_QUEUE_WAIT_SECONDS` | 1 | Max wait for audit submission capacity, not a commit timeout |
 | `OPA_TIMEOUT_SECONDS` | 2 | OPA evaluation HTTP timeout |
 | `MODEL_TIMEOUT_SECONDS` | 10 | Model invocation HTTP timeout |
 | `READINESS_TIMEOUT_SECONDS` | 1 | Timeout for each readiness HTTP probe |
@@ -38,7 +40,17 @@ Cancellation of a request does not release an underlying detector job
 until the worker future actually finishes or is cancelled. No parallel
 Presidio access is attempted. Graceful shutdown waits for real detector
 work to finish; a permanently hung recognizer can delay shutdown.
-This change does not make SQLite auditing or release verification async.
+M7.3 offloads the existing SQLite operations through a bounded, single-worker
+audit executor. The durable signed DECISION commit must finish successfully
+before model invocation; OUTCOME commits are awaited before returning a
+successful HTTP response. Database errors or exhausted audit capacity
+fail with a sanitized 503; no model call occurs when precommit fails.
+The request-history endpoint and audit readiness probe also use the
+executor. Cancellation after submitting a commit does not cancel its
+thread: it can leave an unresolved DECISION requiring M7.4 reconciliation.
+Graceful shutdown drains submitted audit operations. SQLite still
+serializes cross-process writers through BEGIN IMMEDIATE and WAL.
+Release verification and prompt fingerprint calculation remain synchronous.
 Timeouts must be positive and finite; HTTPX applies them to individual network operations,
 not to the entire request lifecycle. Invalid values fail startup. Character counts in
 OpenAPI are a preliminary bound; UTF-8 byte validation also applies. Each API app instance
