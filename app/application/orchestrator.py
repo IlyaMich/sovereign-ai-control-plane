@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from app.application.detector_executor import (
     BoundedDetectorExecutor,
     DetectorCapacityExceeded,
 )
+from app.audit.async_executor import BoundedAuditExecutor
 from app.domain.contracts import (
+    AuditReceipt,
     AuditWriter,
     DetectionResult,
     DetectionStatus,
@@ -37,6 +41,7 @@ class RequestOrchestrator:
         planner: EnforcementPlanner,
         release_store: ReleaseVerifier | None = None,
         detection_executor: BoundedDetectorExecutor | None = None,
+        audit_executor: BoundedAuditExecutor | None = None,
     ):
         self.detector = detector
         self.policy = policy
@@ -45,12 +50,22 @@ class RequestOrchestrator:
         self.planner = planner
         self.release_store = release_store
         self.detection_executor = detection_executor
+        self.audit_executor = audit_executor
 
     async def _detect(self, prompt: str) -> DetectionResult:
         if self.detection_executor is None:
             # Legacy/test adapters remain injectable without a thread pool.
             return self.detector.detect(prompt)
         return await self.detection_executor.detect(prompt)
+
+    async def _commit(
+        self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]
+    ) -> AuditReceipt:
+        if self.audit_executor is None:
+            # Legacy/test adapters remain supported. The production path
+            # uses the nonblocking bounded audit executor.
+            return self.audit.commit(request_id, tenant_id, event_type, payload)
+        return await self.audit_executor.commit(request_id, tenant_id, event_type, payload)
 
     async def process(self, command: PromptCommand) -> ProcessedRequest:
         try:
@@ -171,12 +186,12 @@ class RequestOrchestrator:
             },
         }
         # MUST commit before any model call (including a simulated external call).
-        decision_receipt = self.audit.commit(
+        decision_receipt = await self._commit(
             command.request_id, command.principal.tenant_id, "DECISION", evidence
         )
 
         if decision.effect == Effect.DENY:
-            outcome_receipt = self.audit.commit(
+            outcome_receipt = await self._commit(
                 command.request_id,
                 command.principal.tenant_id,
                 "OUTCOME",
@@ -196,7 +211,7 @@ class RequestOrchestrator:
                 command.request_id, forwarded_prompt, command.destination_id
             )
         except Exception:
-            outcome_receipt = self.audit.commit(
+            outcome_receipt = await self._commit(
                 command.request_id,
                 command.principal.tenant_id,
                 "OUTCOME",
@@ -216,7 +231,7 @@ class RequestOrchestrator:
                 outcome_receipt,
             )
 
-        outcome_receipt = self.audit.commit(
+        outcome_receipt = await self._commit(
             command.request_id,
             command.principal.tenant_id,
             "OUTCOME",

@@ -18,6 +18,7 @@ from app.api.body_limit import RequestBodyLimitMiddleware
 from app.api.schemas import PromptInput, prompt_input_model
 from app.application.detector_executor import BoundedDetectorExecutor
 from app.application.orchestrator import RequestOrchestrator
+from app.audit.async_executor import BoundedAuditExecutor
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
 from app.detection.presidio_detector import PresidioDetector
 from app.domain.contracts import Principal, PromptCommand, RequestStatus
@@ -40,6 +41,7 @@ class Components:
     audit: SQLiteAuditStore
     client: httpx.AsyncClient | None = None
     detector_executor: BoundedDetectorExecutor | None = None
+    audit_executor: BoundedAuditExecutor | None = None
 
 
 def make_components() -> Components:
@@ -77,6 +79,11 @@ def make_components() -> Components:
         max_jobs=settings.detector_execution.max_jobs,
         queue_wait_seconds=settings.detector_execution.queue_wait_seconds,
     )
+    audit_executor = BoundedAuditExecutor(
+        audit,
+        max_jobs=settings.audit_execution.max_jobs,
+        queue_wait_seconds=settings.audit_execution.queue_wait_seconds,
+    )
     orchestrator = RequestOrchestrator(
         detector=detector,
         policy=OPAPolicyEvaluator(
@@ -87,8 +94,9 @@ def make_components() -> Components:
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
         release_store=release_store,
         detection_executor=executor,
+        audit_executor=audit_executor,
     )
-    return Components(settings, orchestrator, audit, client, executor)
+    return Components(settings, orchestrator, audit, client, executor, audit_executor)
 
 
 def create_app(components: Components | None = None) -> FastAPI:
@@ -104,8 +112,12 @@ def create_app(components: Components | None = None) -> FastAPI:
                 if deps.detector_executor is not None:
                     await deps.detector_executor.aclose()
             finally:
-                if deps.client is not None:
-                    await deps.client.aclose()
+                try:
+                    if deps.audit_executor is not None:
+                        await deps.audit_executor.aclose()
+                finally:
+                    if deps.client is not None:
+                        await deps.client.aclose()
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
@@ -170,7 +182,10 @@ def create_app(components: Components | None = None) -> FastAPI:
                 detector.check_integrity()
             if deps.orchestrator.release_store is not None:
                 deps.orchestrator.release_store.verify_active()
-            deps.audit.check_writable()
+            if deps.audit_executor is not None:
+                await deps.audit_executor.check_writable()
+            else:
+                deps.audit.check_writable()
             model = await deps.client.get(
                 deps.settings.model_url.rstrip("/") + "/health",
                 timeout=deps.settings.http.readiness,
@@ -232,7 +247,10 @@ def create_app(components: Components | None = None) -> FastAPI:
         request_id: uuid.UUID, x_api_key: str | None = Header(default=None, alias="X-API-Key")
     ):
         principal = authenticate(x_api_key)
-        events = deps.audit.get_events(str(request_id), principal.tenant_id)
+        if deps.audit_executor is not None:
+            events = await deps.audit_executor.get_events(str(request_id), principal.tenant_id)
+        else:
+            events = deps.audit.get_events(str(request_id), principal.tenant_id)
         if not events:
             raise HTTPException(status_code=404, detail="Not found")
         return {"request_id": str(request_id), "events": events}
