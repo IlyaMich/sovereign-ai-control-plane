@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.admission import InFlightAdmission
 from app.api.body_limit import RequestBodyLimitMiddleware
+from app.api.ingress_limit import HTTPIngressLimitMiddleware
 from app.api.logging import RequestLoggingMiddleware
 from app.api.schemas import PromptInput, prompt_input_model
 from app.application.detector_executor import BoundedDetectorExecutor
@@ -110,6 +111,8 @@ def make_components() -> Components:
         audit,
         max_jobs=settings.audit_execution.max_jobs,
         queue_wait_seconds=settings.audit_execution.queue_wait_seconds,
+        max_waiters=settings.audit_execution.max_waiters,
+        max_auxiliary_jobs=settings.audit_execution.max_auxiliary_jobs,
         sample_window=settings.telemetry.sample_window,
     )
     orchestrator = RequestOrchestrator(
@@ -150,6 +153,7 @@ def create_app(components: Components | None = None) -> FastAPI:
             readiness_state = identity
 
     admission = InFlightAdmission(deps.settings.admission.max_inflight_requests)
+    http_admission = InFlightAdmission(deps.settings.ingress.max_active_http_requests)
     lag = LoopLagMonitor(
         interval_seconds=deps.settings.telemetry.loop_lag_interval_seconds,
         sample_window=deps.settings.telemetry.sample_window,
@@ -185,9 +189,12 @@ def create_app(components: Components | None = None) -> FastAPI:
     app.add_middleware(
         RequestBodyLimitMiddleware, max_bytes=deps.settings.limits.max_request_body_bytes
     )
+    # Logging wraps ingress; ingress wraps body buffering and FastAPI routing.
+    app.add_middleware(HTTPIngressLimitMiddleware, admission=http_admission)
     app.add_middleware(RequestLoggingMiddleware)
     app.state.components = deps
     app.state.admission = admission
+    app.state.http_admission = http_admission
     app.state.loop_lag = lag
 
     async def idempotency_io(operation):
@@ -233,6 +240,12 @@ def create_app(components: Components | None = None) -> FastAPI:
             content={
                 "scope": "process",
                 "logging": logging_snapshot(),
+                "http_ingress": {
+                    "limit": http_admission.limit,
+                    "active": http_admission.active,
+                    "peak_active": http_admission.peak_active,
+                    "rejected": http_admission.rejected,
+                },
                 "admission": {
                     "limit": admission.limit,
                     "active": admission.active,
@@ -246,6 +259,11 @@ def create_app(components: Components | None = None) -> FastAPI:
                 ),
                 "audit": (
                     deps.audit_executor.metrics.snapshot()
+                    if deps.audit_executor is not None
+                    else None
+                ),
+                "audit_limits": (
+                    deps.audit_executor.capacity_snapshot()
                     if deps.audit_executor is not None
                     else None
                 ),
