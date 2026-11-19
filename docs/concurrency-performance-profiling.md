@@ -29,7 +29,7 @@ scenario, and its response/evidence assertions remain authoritative.
 Run from the repository root in PowerShell:
 
 ```powershell
-python -m tools.m7_performance capture `
+python -m tools.concurrency_performance capture `
   --label-prefix m7-9-8clients `
   --runs 3 `
   --clients 8 `
@@ -59,7 +59,7 @@ The existing `benchmarks/` suite retains its own privacy and evidence rules.
 Produce an integrity-gated report:
 
 ```powershell
-python -m tools.m7_performance report `
+python -m tools.concurrency_performance report `
   --label-prefix m7-9-8clients `
   --runs 3 `
   --out bench-results/m7-9-report.md
@@ -115,10 +115,10 @@ Run the already implemented regression tests against a safe test database:
 
 ```powershell
 python -m pytest -q `
-  tests/test_m7_ingress_bounds.py `
-  tests/test_m7_audit_waiter_bounds.py `
-  tests/test_m7_integrity_executor.py `
-  tests/test_m7_integrity_runtime.py `
+  tests/test_ingress_bounds.py `
+  tests/test_audit_capacity_bounds.py `
+  tests/test_integrity_executor.py `
+  tests/test_integrity_runtime.py `
   tests/test_audit_executor.py `
   tests/test_request_admission.py
 ```
