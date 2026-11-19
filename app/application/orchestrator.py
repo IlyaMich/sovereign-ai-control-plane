@@ -2,6 +2,10 @@
 
 from __future__ import annotations
 
+from app.application.detector_executor import (
+    BoundedDetectorExecutor,
+    DetectorCapacityExceeded,
+)
 from app.domain.contracts import (
     AuditWriter,
     DetectionResult,
@@ -32,6 +36,7 @@ class RequestOrchestrator:
         model: ModelGateway,
         planner: EnforcementPlanner,
         release_store: ReleaseVerifier | None = None,
+        detection_executor: BoundedDetectorExecutor | None = None,
     ):
         self.detector = detector
         self.policy = policy
@@ -39,10 +44,19 @@ class RequestOrchestrator:
         self.model = model
         self.planner = planner
         self.release_store = release_store
+        self.detection_executor = detection_executor
+
+    async def _detect(self, prompt: str) -> DetectionResult:
+        if self.detection_executor is None:
+            # Legacy/test adapters remain injectable without a thread pool.
+            return self.detector.detect(prompt)
+        return await self.detection_executor.detect(prompt)
 
     async def process(self, command: PromptCommand) -> ProcessedRequest:
         try:
-            classification = self.detector.detect(command.prompt)
+            classification = await self._detect(command.prompt)
+        except DetectorCapacityExceeded:
+            classification = DetectionResult.unknown("DETECTION_CAPACITY_EXCEEDED")
         except Exception:
             classification = DetectionResult.unknown()
 
@@ -84,7 +98,7 @@ class RequestOrchestrator:
                     )
                     transformed = True
                     # Fail closed for incomplete or broken verification; no prompt forwarded.
-                    verification = self.detector.detect(forwarded_prompt)
+                    verification = await self._detect(forwarded_prompt)
                     if verification.status != DetectionStatus.NO_PRIVATE_DETECTED or (
                         approved_release is not None
                         and verification.artifact_digest

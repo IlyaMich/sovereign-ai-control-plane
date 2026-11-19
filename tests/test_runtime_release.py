@@ -74,7 +74,9 @@ def test_explicit_unsigned_developer_mode(runtime, monkeypatch, capsys):
 
 @pytest.mark.parametrize("target", ["up", "restart"])
 def test_make_startup_checks_release_without_building(target):
-    result = subprocess.run(["make", "-n", target], capture_output=True, text=True, timeout=10)
+    result = subprocess.run(
+        ["make", "--no-print-directory", "-n", target], capture_output=True, text=True, timeout=10
+    )
     assert result.returncode == 0, result.stderr
     commands = result.stdout.splitlines()
     assert "tools.verify_runtime_release" in commands[0]

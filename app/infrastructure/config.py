@@ -124,6 +124,35 @@ class AdmissionLimits:
 
 
 @dataclass(frozen=True)
+class DetectorExecutionLimits:
+    """Per-worker bounded detector submissions (one detector thread)."""
+
+    max_jobs: int = 8
+    queue_wait_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        if type(self.max_jobs) is not int or not 1 <= self.max_jobs <= 1024:
+            raise ValueError("MAX_DETECTOR_JOBS must be an integer from 1 to 1024")
+        value = self.queue_wait_seconds
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError("DETECTOR_QUEUE_WAIT_SECONDS must be finite and positive")
+
+    @classmethod
+    def from_env(cls) -> DetectorExecutionLimits:
+        return cls(
+            max_jobs=positive_int("MAX_DETECTOR_JOBS", cls.max_jobs),
+            queue_wait_seconds=positive_float(
+                "DETECTOR_QUEUE_WAIT_SECONDS", cls.queue_wait_seconds
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class Settings:
     api_key: str
     opa_url: str = "http://opa:8181"
@@ -144,6 +173,7 @@ class Settings:
     limits: RequestLimits = field(default_factory=RequestLimits)
     http: HTTPTimeouts = field(default_factory=HTTPTimeouts)
     admission: AdmissionLimits = field(default_factory=AdmissionLimits)
+    detector_execution: DetectorExecutionLimits = field(default_factory=DetectorExecutionLimits)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -157,6 +187,7 @@ class Settings:
             limits=RequestLimits.from_env(),
             http=HTTPTimeouts.from_env(),
             admission=AdmissionLimits.from_env(),
+            detector_execution=DetectorExecutionLimits.from_env(),
             opa_url=os.environ.get("OPA_URL", "http://opa:8181"),
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),

@@ -10,6 +10,8 @@ variables; they do not automatically load `.env`.
 | `MAX_REQUEST_BODY_BYTES` | 16384 | Maximum complete ingress request, including JSON overhead |
 | `MAX_FORWARDED_PROMPT_BYTES` | 8192 | Maximum prompt accepted by all model simulators and egress gateway |
 | `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
+| `MAX_DETECTOR_JOBS` | 8 | Per process, maximum detector submissions running or queued (1-1024) |
+| `DETECTOR_QUEUE_WAIT_SECONDS` | 1 | Max wait to reserve a detector submission slot, not an NLP execution deadline |
 | `OPA_TIMEOUT_SECONDS` | 2 | OPA evaluation HTTP timeout |
 | `MODEL_TIMEOUT_SECONDS` | 10 | Model invocation HTTP timeout |
 | `READINESS_TIMEOUT_SECONDS` | 1 | Timeout for each readiness HTTP probe |
@@ -25,6 +27,18 @@ detection, audit or model work. Rejected requests have no audit receipt because
 they were never admitted; client retries must use backoff. This limit applies
 per Uvicorn worker, not globally across multiple processes. It does not cap
 HTTP body buffering, event-loop CPU work or the model server's queue.
+
+M7.2 submits both the initial and post-redaction detection passes to a
+single-worker thread executor per API process. Submissions are bounded by
+`MAX_DETECTOR_JOBS` (including the running job). Excess work waits for
+up to `DETECTOR_QUEUE_WAIT_SECONDS`, then fails closed with signed
+`DETECTION_UNKNOWN` / `DETECTION_CAPACITY_EXCEEDED` evidence when possible.
+The detector's queue bound is separate from M7.1 request admission.
+Cancellation of a request does not release an underlying detector job
+until the worker future actually finishes or is cancelled. No parallel
+Presidio access is attempted. Graceful shutdown waits for real detector
+work to finish; a permanently hung recognizer can delay shutdown.
+This change does not make SQLite auditing or release verification async.
 Timeouts must be positive and finite; HTTPX applies them to individual network operations,
 not to the entire request lifecycle. Invalid values fail startup. Character counts in
 OpenAPI are a preliminary bound; UTF-8 byte validation also applies. Each API app instance

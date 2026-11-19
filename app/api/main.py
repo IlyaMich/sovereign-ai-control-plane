@@ -16,6 +16,7 @@ from fastapi.responses import JSONResponse
 from app.api.admission import InFlightAdmission
 from app.api.body_limit import RequestBodyLimitMiddleware
 from app.api.schemas import PromptInput, prompt_input_model
+from app.application.detector_executor import BoundedDetectorExecutor
 from app.application.orchestrator import RequestOrchestrator
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
 from app.detection.presidio_detector import PresidioDetector
@@ -38,6 +39,7 @@ class Components:
     orchestrator: RequestOrchestrator
     audit: SQLiteAuditStore
     client: httpx.AsyncClient | None = None
+    detector_executor: BoundedDetectorExecutor | None = None
 
 
 def make_components() -> Components:
@@ -66,11 +68,17 @@ def make_components() -> Components:
     )
     if release_store is not None:
         release_store.verify_active()
+    detector = PresidioDetector.create(
+        manifest_path=settings.detector_manifest_path,
+        archive_root=settings.detector_archive_path,
+    )
+    executor = BoundedDetectorExecutor(
+        detector,
+        max_jobs=settings.detector_execution.max_jobs,
+        queue_wait_seconds=settings.detector_execution.queue_wait_seconds,
+    )
     orchestrator = RequestOrchestrator(
-        detector=PresidioDetector.create(
-            manifest_path=settings.detector_manifest_path,
-            archive_root=settings.detector_archive_path,
-        ),
+        detector=detector,
         policy=OPAPolicyEvaluator(
             client, settings.opa_url, snapshot_store, release_store, timeout=settings.http.opa
         ),
@@ -78,8 +86,9 @@ def make_components() -> Components:
         model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
         release_store=release_store,
+        detection_executor=executor,
     )
-    return Components(settings, orchestrator, audit, client)
+    return Components(settings, orchestrator, audit, client, executor)
 
 
 def create_app(components: Components | None = None) -> FastAPI:
@@ -88,9 +97,15 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
-        yield
-        if deps.client is not None:
-            await deps.client.aclose()
+        try:
+            yield
+        finally:
+            try:
+                if deps.detector_executor is not None:
+                    await deps.detector_executor.aclose()
+            finally:
+                if deps.client is not None:
+                    await deps.client.aclose()
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
