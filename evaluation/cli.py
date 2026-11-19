@@ -12,6 +12,7 @@ import sys
 from pathlib import Path
 
 from evaluation.dataset import DEFAULT_DATASET, DatasetError, load_dataset
+from evaluation.adapters.control_plane import ControlPlaneAdapter, DetectorSetupError
 from evaluation.reporting import rerender
 from evaluation.runner import evaluate, save_run
 
@@ -45,8 +46,6 @@ def main(argv: list[str] | None = None) -> int:
                               "splits": dataset.manifest["split_counts"]}, indent=2))
             return 0
         # No production release or policy files are edited; standalone model setup only.
-        from evaluation.adapters.control_plane import ControlPlaneAdapter
-
         detector = ControlPlaneAdapter.create()
         summary, predictions = evaluate(dataset, detector, split=args.split)
         output = args.output_dir or Path("evaluation/runs") / summary["run_id"]
@@ -57,6 +56,10 @@ def main(argv: list[str] | None = None) -> int:
                           "unknown_count": m["in_scope_unknown_count"],
                           "detector_errors": m["detector_error_count"]}, indent=2))
         return 2 if m["detector_error_count"] else 0
+    except DetectorSetupError as exc:
+        # Only validated, hard-coded setup guidance is printed; no prompts are evaluated.
+        print(f"Evaluation setup failed: {exc}", file=sys.stderr)
+        return 2
     except DatasetError as exc:
         # The dataset validator emits only fixed messages and validated case IDs,
         # never the prompt or matched sensitive values.

@@ -63,6 +63,26 @@ a signed production image just to run it. `ControlPlaneAdapter.create()` uses
 operational detector artifact manifest. Production enforcement provenance
 therefore remains separate from this benchmark's source/config fingerprints.
 
+## Troubleshooting startup errors
+
+The detector benchmark creates the real `PresidioDetector` before processing any
+cases. Dataset validation does not require the spaCy NLP model, so validation
+can pass even when the detector is not installed. The CLI prints actionable
+setup diagnostics when the pinned model or packages are missing.
+
+From the same activated virtual environment used to run the benchmark:
+
+```powershell
+python -m pip show presidio-analyzer spacy en-core-web-sm
+python -c "import spacy; model = spacy.load('en_core_web_sm'); print(model.meta['version'])"
+python -c "from app.detection.presidio_detector import PresidioDetector; PresidioDetector.create(); print('Detector initialized')"
+```
+
+The pinned model must report `3.8.0`. The final command shows the full Python
+traceback if an unexpected initialization failure remains, without processing
+any dataset prompts. Do not paste full tracebacks from tests that process
+real/private prompts into shared issue trackers.
+
 ## Commands
 
 ```powershell
