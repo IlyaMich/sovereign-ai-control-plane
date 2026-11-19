@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from performance.config import load_profile
-from performance.reporting import aggregate, compare, number
+from performance.reporting import SIGNALS, aggregate, compare, number
 from performance.resources import _parse_one
 
 
@@ -38,6 +38,8 @@ def test_aggregate_repetitions() -> None:
          "p50_ms": 40, "p95_ms": p95, "p99_ms": 200}
         for rate, p95 in ((10, 100), (20, 120), (30, 140))
     ]
+    for row in rows:
+        row.update({key: None for key in SIGNALS})
     output = aggregate(rows)
     assert output[0]["goodput_rps"] == 20
     assert output[0]["p95_ms"] == 120
