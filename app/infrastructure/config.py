@@ -128,18 +128,30 @@ class IngressLimits:
     """Per API process cap for active HTTP scopes, including slow uploads."""
 
     max_active_http_requests: int = 32
+    body_read_timeout_seconds: float = 10.0
 
     def __post_init__(self) -> None:
         value = self.max_active_http_requests
         if type(value) is not int or not 1 <= value <= 1024:
             raise ValueError("MAX_ACTIVE_HTTP_REQUESTS must be an integer from 1 to 1024")
+        seconds = self.body_read_timeout_seconds
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not math.isfinite(seconds)
+            or seconds <= 0
+        ):
+            raise ValueError("BODY_READ_TIMEOUT_SECONDS must be finite and positive")
 
     @classmethod
     def from_env(cls) -> IngressLimits:
         return cls(
             max_active_http_requests=positive_int(
                 "MAX_ACTIVE_HTTP_REQUESTS", cls.max_active_http_requests
-            )
+            ),
+            body_read_timeout_seconds=positive_float(
+                "BODY_READ_TIMEOUT_SECONDS", cls.body_read_timeout_seconds
+            ),
         )
 
 

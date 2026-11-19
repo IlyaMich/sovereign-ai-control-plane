@@ -11,6 +11,7 @@ variables; they do not automatically load `.env`.
 | `MAX_FORWARDED_PROMPT_BYTES` | 8192 | Maximum prompt accepted by all model simulators and egress gateway |
 | `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
 | `MAX_ACTIVE_HTTP_REQUESTS` | 32 | Active HTTP ASGI scopes per process, before reading the body; 503 on saturation |
+| `BODY_READ_TIMEOUT_SECONDS` | 10 | Total body-read deadline for POST/PUT/PATCH; 408 on expiry, releasing ingress capacity |
 | `UVICORN_LIMIT_CONCURRENCY` | 96 | Outer Uvicorn connection/task pressure bound; 503 on saturation |
 | `UVICORN_KEEPALIVE_SECONDS` | 5 | Idle HTTP keep-alive timeout |
 | `MAX_DETECTOR_JOBS` | 8 | Per process, maximum detector submissions running or queued (1-1024) |
@@ -135,6 +136,18 @@ Podman resources and a reproducible workload. Look for growing audit queue wait
 versus audit worker processing; this instrumentation does not itself determine
 the regression's cause. The diagnostics endpoint does not provide production
 monitoring, global admission accounting or external telemetry exports.
+
+## Upload deadline
+
+`BODY_READ_TIMEOUT_SECONDS` must be a finite positive number. The deadline starts
+when body buffering begins and spans all chunks, including chunked requests without
+Content-Length. Sending occasional bytes does not reset it. Expiry returns a
+sanitized HTTP 408 before authentication, detection, audit, or model work and releases
+the HTTP ingress slot. HTTP/1.x timeout responses close the connection because the
+body may be incomplete. Disconnects and external cancellation also release capacity.
+The deadline ends when the body is buffered; it does not limit policy/model processing
+or response transmission. It does not cover time spent receiving HTTP headers.
+Recreate the control-plane service to apply changes.
 
 ## M7.6 — HTTP ingress and audit waiter limits
 
