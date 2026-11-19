@@ -37,6 +37,7 @@ from app.enforcement.gateway import (
     HTTPModelGateway,
 )
 from app.infrastructure.config import Settings
+from app.infrastructure.runtime_metrics import LoopLagMonitor
 from app.policy.opa import OPAPolicyEvaluator
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError, ReleaseStore
@@ -87,12 +88,14 @@ def make_components() -> Components:
         detector,
         max_jobs=settings.detector_execution.max_jobs,
         queue_wait_seconds=settings.detector_execution.queue_wait_seconds,
+        sample_window=settings.telemetry.sample_window,
     )
     idempotency = IdempotencyStore(audit)
     audit_executor = BoundedAuditExecutor(
         audit,
         max_jobs=settings.audit_execution.max_jobs,
         queue_wait_seconds=settings.audit_execution.queue_wait_seconds,
+        sample_window=settings.telemetry.sample_window,
     )
     orchestrator = RequestOrchestrator(
         detector=detector,
@@ -112,12 +115,18 @@ def make_components() -> Components:
 def create_app(components: Components | None = None) -> FastAPI:
     deps = components or make_components()
     admission = InFlightAdmission(deps.settings.admission.max_inflight_requests)
+    lag = LoopLagMonitor(
+        interval_seconds=deps.settings.telemetry.loop_lag_interval_seconds,
+        sample_window=deps.settings.telemetry.sample_window,
+    )
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        lag.start()
         try:
             yield
         finally:
+            await lag.aclose()
             try:
                 if deps.detector_executor is not None:
                     await deps.detector_executor.aclose()
@@ -140,6 +149,7 @@ def create_app(components: Components | None = None) -> FastAPI:
     )
     app.state.components = deps
     app.state.admission = admission
+    app.state.loop_lag = lag
 
     async def idempotency_io(operation):
         """Route auxiliary DB work through M7.3's bounded SQLite lane."""
@@ -164,6 +174,36 @@ def create_app(components: Components | None = None) -> FastAPI:
         if not api_key or not hmac.compare_digest(api_key, deps.settings.api_key):
             raise HTTPException(status_code=401, detail="Unauthorized")
         return Principal("local-tester", "local-tenant", ("tester",))
+
+    @app.get("/v1/diagnostics/concurrency")
+    async def concurrency_diagnostics(
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    ):
+        authenticate(x_api_key)
+        # No prompts, keys, request IDs, destinations or model content are exposed.
+        return JSONResponse(
+            headers={"Cache-Control": "no-store"},
+            content={
+                "scope": "process",
+                "admission": {
+                    "limit": admission.limit,
+                    "active": admission.active,
+                    "peak_active": admission.peak_active,
+                    "rejected": admission.rejected,
+                },
+                "detector": (
+                    deps.detector_executor.metrics.snapshot()
+                    if deps.detector_executor is not None
+                    else None
+                ),
+                "audit": (
+                    deps.audit_executor.metrics.snapshot()
+                    if deps.audit_executor is not None
+                    else None
+                ),
+                "event_loop": lag.snapshot(),
+            },
+        )
 
     @app.get("/health/live")
     async def live():

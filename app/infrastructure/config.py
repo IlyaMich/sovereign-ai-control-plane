@@ -180,6 +180,30 @@ class AuditExecutionLimits:
 
 
 @dataclass(frozen=True)
+class TelemetrySettings:
+    """Small bounded metrics windows, kept only in process memory."""
+
+    loop_lag_interval_seconds: float = 0.25
+    sample_window: int = 512
+
+    def __post_init__(self) -> None:
+        delay = self.loop_lag_interval_seconds
+        if isinstance(delay, bool) or not math.isfinite(delay) or not 0.05 <= delay <= 5:
+            raise ValueError("LOOP_LAG_INTERVAL_SECONDS must be between 0.05 and 5")
+        if type(self.sample_window) is not int or not 1 <= self.sample_window <= 4096:
+            raise ValueError("METRICS_SAMPLE_WINDOW must be between 1 and 4096")
+
+    @classmethod
+    def from_env(cls) -> TelemetrySettings:
+        return cls(
+            loop_lag_interval_seconds=positive_float(
+                "LOOP_LAG_INTERVAL_SECONDS", cls.loop_lag_interval_seconds
+            ),
+            sample_window=positive_int("METRICS_SAMPLE_WINDOW", cls.sample_window),
+        )
+
+
+@dataclass(frozen=True)
 class Settings:
     api_key: str
     opa_url: str = "http://opa:8181"
@@ -202,6 +226,7 @@ class Settings:
     admission: AdmissionLimits = field(default_factory=AdmissionLimits)
     detector_execution: DetectorExecutionLimits = field(default_factory=DetectorExecutionLimits)
     audit_execution: AuditExecutionLimits = field(default_factory=AuditExecutionLimits)
+    telemetry: TelemetrySettings = field(default_factory=TelemetrySettings)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -217,6 +242,7 @@ class Settings:
             admission=AdmissionLimits.from_env(),
             detector_execution=DetectorExecutionLimits.from_env(),
             audit_execution=AuditExecutionLimits.from_env(),
+            telemetry=TelemetrySettings.from_env(),
             opa_url=os.environ.get("OPA_URL", "http://opa:8181"),
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),

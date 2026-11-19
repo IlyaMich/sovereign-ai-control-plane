@@ -9,9 +9,11 @@ from __future__ import annotations
 
 import asyncio
 import math
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 
 from app.domain.contracts import DetectionResult, Detector
+from app.infrastructure.runtime_metrics import ExecutorMetrics
 
 
 class DetectorCapacityExceeded(RuntimeError):
@@ -36,6 +38,7 @@ class BoundedDetectorExecutor:
         *,
         max_jobs: int = 8,
         queue_wait_seconds: float = 1.0,
+        sample_window: int = 512,
     ) -> None:
         if type(max_jobs) is not int or not 1 <= max_jobs <= 1024:
             raise ValueError("max_jobs must be an integer between 1 and 1024")
@@ -51,36 +54,62 @@ class BoundedDetectorExecutor:
         self._executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="sovereign-detector")
         self._queue_wait_seconds = float(queue_wait_seconds)
         self._closed = False
+        self.metrics = ExecutorMetrics(max_jobs, sample_window)
 
     async def detect(self, prompt: str) -> DetectionResult:
         if self._closed:
             raise DetectorExecutorClosed("Detector executor is shutting down")
+        requested_at = time.perf_counter()
+        self.metrics.begin_wait()
         try:
             await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait_seconds)
         except TimeoutError as exc:
+            self.metrics.refuse()
             raise DetectorCapacityExceeded("Detector executor capacity exhausted") from exc
+        finally:
+            self.metrics.end_wait()
 
         # No await between checking closed state and submitting the job.
         if self._closed:
             self._slots.release()
             raise DetectorExecutorClosed("Detector executor is shutting down")
+        started_at: list[float | None] = [None]
+        stopped_at: list[float | None] = [None]
+
+        def timed_detection() -> DetectionResult:
+            started_at[0] = time.perf_counter()
+            try:
+                return self._detector.detect(prompt)
+            finally:
+                stopped_at[0] = time.perf_counter()
+
         try:
-            submitted: Future[DetectionResult] = self._executor.submit(
-                self._detector.detect, prompt
-            )
+            submitted: Future[DetectionResult] = self._executor.submit(timed_detection)
         except BaseException:
             self._slots.release()
             raise
 
+        self.metrics.submit("detect")
         loop = asyncio.get_running_loop()
 
         def after_real_completion(_: Future[DetectionResult]) -> None:
             # Completion is the *concurrent.futures* Future, not the cancelled
             # asyncio wrapper. A running thread may outlive its awaiting request.
+            def finalize() -> None:
+                now = time.perf_counter()
+                began = started_at[0] if started_at[0] is not None else now
+                ended = stopped_at[0] if stopped_at[0] is not None else now
+                self.metrics.finish(
+                    (began - requested_at) * 1000,
+                    (ended - began) * 1000,
+                    submitted.cancelled() or submitted.exception() is not None,
+                )
+                self._slots.release()
+
             try:
-                loop.call_soon_threadsafe(self._slots.release)
+                loop.call_soon_threadsafe(finalize)
             except RuntimeError:
-                # Shutdown may have closed the loop after joining this worker.
+                # No more requests can enter after a closed event loop.
                 pass
 
         submitted.add_done_callback(after_real_completion)
