@@ -40,12 +40,23 @@ from app.enforcement.gateway import (
     HTTPModelGateway,
 )
 from app.infrastructure.config import Settings
-from app.infrastructure.integrity_executor import BoundedIntegrityExecutor
+from app.infrastructure.integrity_executor import (
+    BoundedIntegrityExecutor,
+    integrity_unavailable_code,
+)
 from app.infrastructure.logging import configure_logging, context, event, logging_snapshot
 from app.infrastructure.runtime_metrics import LoopLagMonitor
 from app.policy.opa import OPAPolicyEvaluator
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError, ReleaseStore
+
+
+class ReadinessCheckFailed(RuntimeError):
+    """Carry a controlled component name across a shared off-loop scan."""
+
+    def __init__(self, component: str):
+        super().__init__("Readiness verification failed")
+        self.component = component
 
 
 @dataclass
@@ -162,15 +173,16 @@ def create_app(components: Components | None = None) -> FastAPI:
         raise
     readiness_state = None
 
-    def readiness(state, stage):
+    def readiness(state, stage, error_code=None):
         nonlocal readiness_state
-        identity = (state, stage)
+        identity = (state, stage, error_code)
         if identity != readiness_state:
             event(
                 "readiness_changed",
                 level=logging.ERROR if state == "NOT_READY" else logging.INFO,
                 state=state,
                 stage=stage,
+                error_code=error_code,
             )
             readiness_state = identity
 
@@ -330,22 +342,35 @@ def create_app(components: Components | None = None) -> FastAPI:
             detector = deps.orchestrator.detector
 
             def check_files():
-                info = (
-                    policy.snapshots.verify_active()
-                    if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None
-                    else None
-                )
-                if hasattr(detector, "check_integrity"):
-                    detector.check_integrity()
-                if deps.orchestrator.release_store is not None:
-                    deps.orchestrator.release_store.verify_active()
-                return info
+                component = "policy"
+                try:
+                    info = (
+                        policy.snapshots.verify_active()
+                        if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None
+                        else None
+                    )
+                    component = "detector"
+                    if hasattr(detector, "check_integrity"):
+                        detector.check_integrity()
+                    component = "release"
+                    if deps.orchestrator.release_store is not None:
+                        deps.orchestrator.release_store.verify_active()
+                    return info
+                except (
+                    ValueError,
+                    RuntimeError,
+                    OSError,
+                    SnapshotError,
+                    ReleaseIntegrityError,
+                ) as exc:
+                    raise ReadinessCheckFailed(component) from exc
 
             if deps.integrity_executor is not None:
                 info = await deps.integrity_executor.check_readiness(check_files)
             else:
                 # Injected developer/test components also avoid blocking the loop.
                 info = await asyncio.to_thread(check_files)
+            stage = "policy"
             if info is not None and (
                 result.get("policy_digest") != info.policy_digest
                 or result.get("policy_revision") != info.policy_revision
@@ -372,8 +397,17 @@ def create_app(components: Components | None = None) -> FastAPI:
             AuditUnavailable,
             SnapshotError,
             ReleaseIntegrityError,
-        ):
-            readiness("NOT_READY", stage)
+        ) as exc:
+            if isinstance(exc, ReadinessCheckFailed):
+                stage = exc.component
+            code = integrity_unavailable_code(exc) or {
+                "policy": "POLICY_READINESS_FAILED",
+                "detector": "DETECTOR_READINESS_FAILED",
+                "release": "RELEASE_READINESS_FAILED",
+                "audit": "AUDIT_READINESS_FAILED",
+                "model": "MODEL_READINESS_FAILED",
+            }.get(stage, "INTEGRITY_READINESS_FAILED")
+            readiness("NOT_READY", stage, code)
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         readiness("READY", "runtime")
         return {"status": "READY"}

@@ -9,7 +9,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-from tools.m7_performance import (
+from tools.concurrency_performance import (
     benchmark_integrity,
     capture_command,
     counter_changes,

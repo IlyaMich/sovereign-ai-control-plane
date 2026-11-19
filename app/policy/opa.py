@@ -16,6 +16,7 @@ from app.infrastructure.integrity_executor import (
     BoundedIntegrityExecutor,
     IntegrityCapacityExceeded,
     IntegrityExecutorClosed,
+    integrity_unavailable_code,
 )
 from app.infrastructure.logging import event, failure_code
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
@@ -104,12 +105,14 @@ class OPAPolicyEvaluator:
                 if verified_after["release_id"] != pinned_release["release_id"]:
                     raise ReleaseIntegrityError("Approved release changed during evaluation")
             return decision
-        except PolicyIntegrityError:
+        except PolicyIntegrityError as exc:
+            unavailable = integrity_unavailable_code(exc)
             event(
-                "policy_integrity_failed",
-                level=logging.ERROR,
+                "policy_verification_unavailable" if unavailable else "policy_integrity_failed",
+                level=logging.WARNING if unavailable else logging.ERROR,
+                limited=unavailable is not None,
                 stage="policy",
-                error_code="POLICY_INTEGRITY_FAILED",
+                error_code=unavailable or "POLICY_INTEGRITY_FAILED",
             )
             raise
         except ReleaseIntegrityError as exc:

@@ -592,7 +592,7 @@ def main(argv: list[str] | None = None) -> int:
                 file=sys.stderr,
             )
             return 1
-    print("All repetitions completed; run: python -m tools.m7_performance report ...")
+    print("All repetitions completed; run: python -m tools.concurrency_performance report ...")
     return 0
 
 

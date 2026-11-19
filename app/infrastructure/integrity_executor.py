@@ -8,9 +8,13 @@ scan; the next readiness call runs a new scan. No prompts are retained here.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
+import time
 from concurrent.futures import Future, ThreadPoolExecutor
 from typing import Any, Callable, TypeVar, cast
+
+from app.infrastructure.logging import context, event
 
 T = TypeVar("T")
 
@@ -21,6 +25,18 @@ class IntegrityCapacityExceeded(RuntimeError):
 
 class IntegrityExecutorClosed(RuntimeError):
     """Verification was requested after shutdown started; fail closed."""
+
+
+def integrity_unavailable_code(exc: BaseException) -> str | None:
+    """Inspect only known types and explicit causes, never exception text."""
+    current: BaseException | None = exc
+    for _ in range(3):
+        if isinstance(current, IntegrityCapacityExceeded):
+            return "INTEGRITY_CAPACITY_EXCEEDED"
+        if isinstance(current, IntegrityExecutorClosed):
+            return "INTEGRITY_EXECUTOR_CLOSED"
+        current = current.__cause__ if current is not None else None
+    return None
 
 
 class BoundedIntegrityExecutor:
@@ -71,14 +87,89 @@ class BoundedIntegrityExecutor:
         self._readiness_future: Future[Any] | None = None
         self._readiness_scans = 0
         self._readiness_coalesced = 0
+        self._readiness_cancelled = [False]
+
+    @staticmethod
+    def _closed_event(stage: str) -> None:
+        event(
+            "integrity_executor_closed",
+            level=logging.WARNING,
+            limited=True,
+            stage=stage,
+            error_code="INTEGRITY_EXECUTOR_CLOSED",
+        )
+
+    @staticmethod
+    def _capacity_event(stage: str) -> None:
+        event(
+            "integrity_capacity_exceeded",
+            level=logging.WARNING,
+            limited=True,
+            stage=stage,
+            error_code="INTEGRITY_CAPACITY_EXCEEDED",
+        )
+
+    def _observe(
+        self,
+        submitted: Future[T],
+        requested_at: float,
+        timing: list[float | None],
+        cancelled: list[bool],
+        *,
+        stage: str,
+    ) -> None:
+        captured = dict(context.get() or {})
+        loop = asyncio.get_running_loop()
+
+        def completed(future: Future[T]) -> None:
+            def finalize() -> None:
+                failed = future.cancelled() or future.exception() is not None
+                if stage == "integrity":
+                    self._active -= 1
+                    self._completed += 1
+                    self._failed += int(failed)
+                    self._slots.release()
+                now = time.perf_counter()
+                began = timing[0] if timing[0] is not None else now
+                ended = timing[1] if timing[1] is not None else now
+                event(
+                    "integrity_operation_finished",
+                    level=logging.ERROR
+                    if failed and (stage != "readiness" or cancelled[0])
+                    else logging.DEBUG,
+                    correlation_id=captured.get("correlation_id"),
+                    request_id=captured.get("request_id"),
+                    stage=stage,
+                    error_code="INTEGRITY_VERIFICATION_FAILED" if failed else "NONE",
+                    state="CALLER_CANCELLED" if cancelled[0] else "CALLER_WAITING",
+                    queue_wait_ms=round((began - requested_at) * 1000, 3),
+                    processing_ms=round((ended - began) * 1000, 3),
+                )
+
+            try:
+                loop.call_soon_threadsafe(finalize)
+            except RuntimeError:
+                pass  # No further admissions are possible on a closed loop.
+
+        submitted.add_done_callback(completed)
+
+    @staticmethod
+    def _timed(operation: Callable[[], T], timing: list[float | None]) -> T:
+        timing[0] = time.perf_counter()
+        try:
+            return operation()
+        finally:
+            timing[1] = time.perf_counter()
 
     async def run(self, operation: Callable[[], T]) -> T:
         """Perform fresh verification on a worker; never cache an approval."""
+        requested_at = time.perf_counter()
         if self._closed:
+            self._closed_event("integrity")
             raise IntegrityExecutorClosed("Integrity executor is shutting down")
-        # This check and increment are on the owning event loop, without await.
         if self._active + self._waiting >= self._max_jobs + self._max_waiters:
             self._rejected += 1
+            self._capacity_event("waiters")
             raise IntegrityCapacityExceeded("Integrity verification capacity exhausted")
         self._waiting += 1
         try:
@@ -86,58 +177,68 @@ class BoundedIntegrityExecutor:
                 await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait_seconds)
             except TimeoutError as exc:
                 self._rejected += 1
+                self._capacity_event("timeout")
                 raise IntegrityCapacityExceeded(
                     "Integrity verification capacity exhausted"
                 ) from exc
+            except asyncio.CancelledError:
+                event("integrity_wait_cancelled", level=logging.WARNING, stage="integrity_queue")
+                raise
         finally:
             self._waiting -= 1
         if self._closed:
             self._slots.release()
+            self._closed_event("integrity")
             raise IntegrityExecutorClosed("Integrity executor is shutting down")
+        timing: list[float | None] = [None, None]
         try:
-            submitted: Future[T] = self._pool.submit(operation)
+            submitted: Future[T] = self._pool.submit(self._timed, operation, timing)
         except RuntimeError as exc:
             self._slots.release()
+            self._closed_event("integrity")
             raise IntegrityExecutorClosed("Integrity executor is shutting down") from exc
         except BaseException:
             self._slots.release()
             raise
         self._active += 1
-        loop = asyncio.get_running_loop()
-
-        def completed(future: Future[T]) -> None:
-            def finalize() -> None:
-                self._active -= 1
-                self._completed += 1
-                self._failed += int(future.cancelled() or future.exception() is not None)
-                self._slots.release()
-
-            try:
-                loop.call_soon_threadsafe(finalize)
-            except RuntimeError:
-                # Event loop is gone; no further admissions are possible.
-                pass
-
-        submitted.add_done_callback(completed)
-        # shield prevents cancellation propagating into the concurrent future.
-        return await asyncio.shield(asyncio.wrap_future(submitted))
+        cancelled = [False]
+        self._observe(submitted, requested_at, timing, cancelled, stage="integrity")
+        try:
+            return await asyncio.shield(asyncio.wrap_future(submitted))
+        except asyncio.CancelledError:
+            cancelled[0] = True
+            event("integrity_wait_cancelled", level=logging.WARNING, stage="integrity")
+            raise
 
     async def check_readiness(self, operation: Callable[[], T]) -> T:
         """Run full live-byte verification; overlap shares work, never cached."""
         if self._closed:
+            self._closed_event("readiness")
             raise IntegrityExecutorClosed("Integrity executor is shutting down")
         future = self._readiness_future
         if future is None or future.done():
+            requested_at = time.perf_counter()
+            timing: list[float | None] = [None, None]
             try:
-                future = self._readiness_pool.submit(operation)
+                future = self._readiness_pool.submit(self._timed, operation, timing)
             except RuntimeError as exc:
+                self._closed_event("readiness")
                 raise IntegrityExecutorClosed("Integrity executor is shutting down") from exc
             self._readiness_future = future
             self._readiness_scans += 1
+            self._readiness_cancelled = [False]
+            self._observe(
+                future, requested_at, timing, self._readiness_cancelled, stage="readiness"
+            )
         else:
             self._readiness_coalesced += 1
-        # Caller cancellation cannot stop the ongoing model-file hash scan.
-        return cast(T, await asyncio.shield(asyncio.wrap_future(future)))
+        cancelled = self._readiness_cancelled
+        try:
+            return cast(T, await asyncio.shield(asyncio.wrap_future(future)))
+        except asyncio.CancelledError:
+            cancelled[0] = True
+            event("integrity_wait_cancelled", level=logging.WARNING, stage="readiness")
+            raise
 
     def snapshot(self) -> dict[str, int | bool]:
         return {

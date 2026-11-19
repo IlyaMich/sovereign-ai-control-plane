@@ -2,8 +2,10 @@
 
 import argparse
 import json
+import sys
 from pathlib import Path
 
+from app.infrastructure.logging import configure_logging
 from app.policy.snapshots import PolicySnapshotStore
 from app.release.approvals import ReleaseStore, summary
 
@@ -18,6 +20,7 @@ def main():
     p.add_argument("--policy-active", default="policy-active")
     p.add_argument("--policy-archive", default="policy-archive")
     args = p.parse_args()
+    configure_logging(stream=sys.stderr)
     store = ReleaseStore(
         Path(args.release_active),
         Path(args.release_archive),
