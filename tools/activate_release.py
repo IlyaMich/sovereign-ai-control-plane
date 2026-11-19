@@ -24,6 +24,8 @@ def main():
         Path(args.trust),
         PolicySnapshotStore(args.policy_active, args.policy_archive),
     )
+    # ReleaseStore.activate holds a cross-process lock across validation,
+    # archive publication and active release/policy publication.
     envelope = store.activate(args.candidate, detector_digest=args.detector_digest)
     print(json.dumps({"status": "ACTIVATED", **summary(envelope)}, indent=2))
     print("Recreate control-plane and OPA to load the new signed release and Rego policy.")

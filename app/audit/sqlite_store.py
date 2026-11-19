@@ -10,7 +10,6 @@ import base64
 import hashlib
 import hmac
 import json
-import os
 import sqlite3
 import uuid
 from contextlib import closing
@@ -23,6 +22,7 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
 from app.domain.contracts import AuditReceipt
+from app.infrastructure.atomic_files import publish_new_bytes, read_regular_bytes
 
 GENESIS_HASH = "00" * 32
 DOMAIN_PREFIX = b"sovereign-audit-event-v1\x00"
@@ -68,13 +68,22 @@ class SQLiteAuditStore:
                 serialization.NoEncryption(),
             )
         )
+        # The public verifier is independently published and checked against
+        # the already durable private key, even after an interrupted startup.
         public_path = self.key_path.with_suffix(".pub.pem")
-        if not public_path.exists():
-            public_path.write_bytes(
-                self._key.public_key().public_bytes(
-                    serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
-                )
-            )
+        expected_public = self._key.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo
+        )
+        try:
+            if not public_path.exists() and not public_path.is_symlink():
+                try:
+                    publish_new_bytes(public_path, expected_public, mode=0o644)
+                except FileExistsError:
+                    pass
+            if read_regular_bytes(public_path) != expected_public:
+                raise AuditUnavailable("Audit public key does not match private signing key")
+        except (OSError, ValueError) as exc:
+            raise AuditUnavailable("Audit public key unavailable or unsafe") from exc
 
     def _connect(self) -> sqlite3.Connection:
         connection = sqlite3.connect(self.db_path, timeout=5.0, isolation_level=None)
@@ -108,11 +117,20 @@ class SQLiteAuditStore:
             )
 
     def _load_or_create_key(self) -> Ed25519PrivateKey:
-        if self.key_path.exists():
-            key = serialization.load_pem_private_key(self.key_path.read_bytes(), password=None)
-            if not isinstance(key, Ed25519PrivateKey):
+        def read_existing() -> Ed25519PrivateKey:
+            try:
+                loaded = serialization.load_pem_private_key(
+                    read_regular_bytes(self.key_path), password=None
+                )
+            except (OSError, ValueError, TypeError) as exc:
+                # Do not regenerate after a corrupt or incomplete legacy key.
+                raise AuditUnavailable("Audit signing key unavailable or invalid") from exc
+            if not isinstance(loaded, Ed25519PrivateKey):
                 raise AuditUnavailable("Invalid signing key type")
-            return key
+            return loaded
+
+        if self.key_path.exists() or self.key_path.is_symlink():
+            return read_existing()
         with closing(self._connect()) as conn, conn:
             count = conn.execute("SELECT COUNT(*) FROM events").fetchone()[0]
         if count:
@@ -124,13 +142,12 @@ class SQLiteAuditStore:
             serialization.NoEncryption(),
         )
         try:
-            fd = os.open(str(self.key_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+            publish_new_bytes(self.key_path, data)
         except FileExistsError:
-            return self._load_or_create_key()
-        with os.fdopen(fd, "wb") as stream:
-            stream.write(data)
-            stream.flush()
-            os.fsync(stream.fileno())
+            # Another process won publication. Its fully synced key is authoritative.
+            return read_existing()
+        except OSError as exc:
+            raise AuditUnavailable("Audit signing key publication failed") from exc
         return key
 
     def check_writable(self) -> None:

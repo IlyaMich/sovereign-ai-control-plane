@@ -105,3 +105,44 @@ an independent witness of completeness.
   development only**; it bypasses the new authorization boundary.
 - Detector provenance still does not replay classification without raw input
   and pinned NLP binaries. Privacy-first choice remains unchanged.
+
+## M7.8 — Concurrent and crash-safe operator publication
+
+Audit and development release signing keys are first written and fsynced under
+private temporary filenames in their target directory, then published using
+atomic, non-replacing hard links. A competing initializer loads and validates
+the existing complete audit key; it never overwrites a key or reconstructs one
+when signed audit events already exist. Existing public keys are checked against
+their private key, with a missing verifier published the same way.
+
+The development release keypair is **two files**, not an indivisible commit.
+If a process dies after publishing the complete private PEM but before the
+public PEM, do **not** generate another private key. An authorized operator can
+recreate only the public PEM from the existing complete private PEM:
+
+```powershell
+python -m tools.generate_release_key --recover-public `
+  --private-key C:\secure\signer.pem --public-key release-trust\signer.pub.pem
+```
+
+Release activation now holds `.release-activation.lock` beside
+`release-active/release.json` across the predecessor/generation check, archive
+publication, policy staging and final active release publication. The file is
+intentionally retained; the OS releases the actual lock when a process exits.
+All concurrent operators **must** use the same release-active directory and
+this activation path. The new policy is copied into a sibling staging folder,
+verified and synced before any active policy change; an in-process failure
+attempts to restore the old policy. An abrupt crash between policy and release
+publication still creates a temporary mismatch: the running control plane
+must fail closed. Operators should stop OPA/control-plane before policy
+activation, inspect any `.policy-backup-*` artifacts after a crash, and rerun
+the original candidate if its predecessor remains active. Never delete an
+archived release or sign over an ambiguous active generation.
+
+Windows bind mounts and a portable filesystem cannot atomically publish a
+nonempty policy directory and release.json as one transaction. M7.8 therefore
+provides serialized activation, staged verified bytes and fail-closed recovery,
+**not** cross-filesystem atomicity or a live zero-downtime policy rollout.
+The older `tools.build_policy_snapshot` can update `policy-active` separately;
+do not invoke it concurrently with activation. Stop services and coordinate
+all operator commands during the release window.

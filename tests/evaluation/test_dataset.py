@@ -1,4 +1,5 @@
 """Stage 1 ground-truth integrity and dataset reproducibility."""
+
 from __future__ import annotations
 
 import json
