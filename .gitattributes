@@ -1,0 +1,2 @@
+# Benchmark datasets are byte-addressed; do not convert CRLF on checkout.
+evaluation/datasets/**/cases.jsonl text eol=lf

@@ -57,7 +57,12 @@ def main(argv: list[str] | None = None) -> int:
                           "unknown_count": m["in_scope_unknown_count"],
                           "detector_errors": m["detector_error_count"]}, indent=2))
         return 2 if m["detector_error_count"] else 0
-    except (DatasetError, OSError, ValueError, RuntimeError, ImportError) as exc:
+    except DatasetError as exc:
+        # The dataset validator emits only fixed messages and validated case IDs,
+        # never the prompt or matched sensitive values.
+        print(f"Evaluation failed: DatasetError: {exc}", file=sys.stderr)
+        return 2
+    except (OSError, ValueError, RuntimeError, ImportError) as exc:
         # Exception messages from the model could contain input. Print exception type only.
         print(f"Evaluation failed: {type(exc).__name__}", file=sys.stderr)
         return 2

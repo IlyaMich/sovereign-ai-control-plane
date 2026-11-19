@@ -110,8 +110,17 @@ def load_dataset(root: Path = DEFAULT_DATASET) -> Dataset:
         raise DatasetError("Cannot open dataset and manifest") from exc
     _assert(isinstance(manifest, dict) and manifest.get("schema_version") == 1 and
             manifest.get("dataset_version") == "1.0.0", "Unknown dataset schema/version")
-    _assert(manifest.get("cases_sha256") == hashlib.sha256(data).hexdigest(),
-            "Dataset checksum mismatch")
+    if manifest.get("cases_sha256") != hashlib.sha256(data).hexdigest():
+        # Git for Windows may convert line endings when the patch is applied.
+        # Keep strict raw-byte integrity; suggest an exact deterministic repair.
+        if hashlib.sha256(data.replace(b"\r\n", b"\n")).hexdigest() == manifest.get(
+            "cases_sha256"
+        ):
+            raise DatasetError(
+                "Dataset has Windows CRLF line endings; run "
+                "'python -m evaluation.generate_dataset' to restore canonical LF bytes"
+            )
+        raise DatasetError("Dataset checksum mismatch")
     try:
         lines = data.decode("utf-8").splitlines()
         cases = tuple(_case(json.loads(line)) for line in lines)

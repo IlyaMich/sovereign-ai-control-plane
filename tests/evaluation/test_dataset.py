@@ -55,3 +55,14 @@ def test_invalid_spans_rejected_even_with_recomputed_manifest(tmp_path: Path):
     manifest_path.write_text(json.dumps(manifest), encoding="utf-8")
     with pytest.raises(DatasetError):
         load_dataset(tmp_path)
+
+
+def test_crlf_conversion_reports_actionable_error(tmp_path: Path):
+    write_dataset(tmp_path)
+    file = tmp_path / "cases.jsonl"
+    data = file.read_bytes()
+    file.write_bytes(data.replace(b"\n", b"\r\n"))
+    with pytest.raises(DatasetError, match="Windows CRLF line endings"):
+        load_dataset(tmp_path)
+    write_dataset(tmp_path)
+    assert len(load_dataset(tmp_path).cases) == 1200
