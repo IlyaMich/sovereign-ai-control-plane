@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
 import hmac
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from functools import partial
 from pathlib import Path
 
 import httpx
@@ -19,6 +21,12 @@ from app.api.schemas import PromptInput, prompt_input_model
 from app.application.detector_executor import BoundedDetectorExecutor
 from app.application.orchestrator import RequestOrchestrator
 from app.audit.async_executor import BoundedAuditExecutor
+from app.audit.idempotency import (
+    ClaimState,
+    IdempotencyStore,
+    audit_state,
+    validate_key,
+)
 from app.audit.sqlite_store import AuditUnavailable, SQLiteAuditStore
 from app.detection.presidio_detector import PresidioDetector
 from app.domain.contracts import Principal, PromptCommand, RequestStatus
@@ -42,6 +50,7 @@ class Components:
     client: httpx.AsyncClient | None = None
     detector_executor: BoundedDetectorExecutor | None = None
     audit_executor: BoundedAuditExecutor | None = None
+    idempotency: IdempotencyStore | None = None
 
 
 def make_components() -> Components:
@@ -79,6 +88,7 @@ def make_components() -> Components:
         max_jobs=settings.detector_execution.max_jobs,
         queue_wait_seconds=settings.detector_execution.queue_wait_seconds,
     )
+    idempotency = IdempotencyStore(audit)
     audit_executor = BoundedAuditExecutor(
         audit,
         max_jobs=settings.audit_execution.max_jobs,
@@ -96,7 +106,7 @@ def make_components() -> Components:
         detection_executor=executor,
         audit_executor=audit_executor,
     )
-    return Components(settings, orchestrator, audit, client, executor, audit_executor)
+    return Components(settings, orchestrator, audit, client, executor, audit_executor, idempotency)
 
 
 def create_app(components: Components | None = None) -> FastAPI:
@@ -130,6 +140,13 @@ def create_app(components: Components | None = None) -> FastAPI:
     )
     app.state.components = deps
     app.state.admission = admission
+
+    async def idempotency_io(operation):
+        """Route auxiliary DB work through M7.3's bounded SQLite lane."""
+        if deps.audit_executor is not None:
+            return await deps.audit_executor.run(operation)
+        # Test/developer adapters may not have the production executor.
+        return await asyncio.to_thread(operation)
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -204,7 +221,9 @@ def create_app(components: Components | None = None) -> FastAPI:
         return {"status": "READY"}
 
     async def submit(
-        payload: PromptInput, x_api_key: str | None = Header(default=None, alias="X-API-Key")
+        payload: PromptInput,
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ):
         principal = authenticate(x_api_key)
         if not admission.try_enter():
@@ -215,6 +234,49 @@ def create_app(components: Components | None = None) -> FastAPI:
             )
         try:
             request_id = str(uuid.uuid4())
+            if idempotency_key is not None:
+                try:
+                    validate_key(idempotency_key)
+                except ValueError:
+                    return JSONResponse(
+                        status_code=400, content={"detail": "Invalid Idempotency-Key"}
+                    )
+                if deps.idempotency is None:
+                    return JSONResponse(
+                        status_code=503,
+                        content={"status": "ERROR", "reason_codes": ["IDEMPOTENCY_UNAVAILABLE"]},
+                    )
+                claimed = await idempotency_io(
+                    partial(
+                        deps.idempotency.claim,
+                        tenant_id=principal.tenant_id,
+                        principal_id=principal.principal_id,
+                        key=idempotency_key,
+                        prompt=payload.prompt,
+                        destination_id=payload.destination_id,
+                        purpose=payload.purpose,
+                        request_id=request_id,
+                    )
+                )
+                if claimed.state == ClaimState.CONFLICT:
+                    return JSONResponse(
+                        status_code=409,
+                        headers={"Cache-Control": "no-store"},
+                        content={
+                            "status": "REJECTED",
+                            "reason_codes": ["IDEMPOTENCY_KEY_CONFLICT"],
+                        },
+                    )
+                if claimed.state == ClaimState.EXISTING:
+                    return JSONResponse(
+                        status_code=409,
+                        headers={"Cache-Control": "no-store"},
+                        content={
+                            "status": "REPLAY_PREVENTED",
+                            "reason_codes": ["IDEMPOTENCY_ALREADY_ACCEPTED"],
+                            "request_id": claimed.request_id,
+                        },
+                    )
             command = PromptCommand(
                 request_id, payload.prompt, payload.destination_id, payload.purpose, principal
             )
@@ -241,6 +303,38 @@ def create_app(components: Components | None = None) -> FastAPI:
     # Bind the configured schema before FastAPI inspects the endpoint annotations.
     submit.__annotations__["payload"] = prompt_input_model(deps.settings.limits.max_prompt_bytes)
     app.post("/v1/prompts")(submit)
+
+    @app.get("/v1/idempotency/status")
+    async def idempotency_status(
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    ):
+        principal = authenticate(x_api_key)
+        try:
+            idempotency_key = validate_key(idempotency_key)
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid Idempotency-Key")
+        if deps.idempotency is None:
+            raise HTTPException(status_code=503, detail="Idempotency unavailable")
+        request_id = await idempotency_io(
+            partial(
+                deps.idempotency.lookup,
+                tenant_id=principal.tenant_id,
+                principal_id=principal.principal_id,
+                key=idempotency_key,
+            )
+        )
+        if request_id is None:
+            raise HTTPException(status_code=404, detail="Not found")
+        if deps.audit_executor is not None:
+            events = await deps.audit_executor.get_events(request_id, principal.tenant_id)
+        else:
+            events = await asyncio.to_thread(deps.audit.get_events, request_id, principal.tenant_id)
+        state, outcome = audit_state(events)
+        return JSONResponse(
+            headers={"Cache-Control": "no-store"},
+            content={"request_id": request_id, "audit_state": state, "execution_status": outcome},
+        )
 
     @app.get("/v1/requests/{request_id}")
     async def get_request(
