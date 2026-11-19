@@ -1,6 +1,6 @@
 # Milestone 3: verified transformations and simulated model egress
 
-> **Historical milestone:** The redaction and simulated egress behavior below remains implemented. M4 added content-addressed policy replay, M5 added detector provenance, and M6 added signed release authorization. Use [current architecture](architecture.md), [policy design](policy-design.md) and [Milestone 6](milestone-6.md) for deployment and release instructions.
+> **Historical milestone:** The redaction and simulated egress behavior below remains implemented. M4 added content-addressed policy replay, M5 added detector provenance, and M6 added signed release authorization. Use [current architecture](../architecture.md), [policy design](../policy-design.md) and [Milestone 6](../signed-release-workflow.md) for deployment and release instructions.
 
 ## Invariants
 

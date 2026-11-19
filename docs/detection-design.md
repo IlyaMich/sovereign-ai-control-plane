@@ -50,4 +50,4 @@ podman compose -f deploy/compose.yaml --env-file .env exec control-plane python 
 podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.verify_detector_manifest
 ~~~
 
-Future improvements: non-English language coverage and quantitative detection benchmarks, model-image/SBOM signing, adversarial false-negative evaluation and consented encrypted forensic input retention where explicitly justified. See [testing](testing.md), [threat model](threat-model.md) and [Milestone 5](milestone-5.md).
+Future improvements: non-English language coverage and quantitative detection benchmarks, model-image/SBOM signing, adversarial false-negative evaluation and consented encrypted forensic input retention where explicitly justified. See [testing](testing.md), [threat model](threat-model.md) and [Milestone 5](history/detector-provenance-and-evidence.md).

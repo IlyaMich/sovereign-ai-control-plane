@@ -98,4 +98,4 @@ stateDiagram-v2
 
 HTTP permit returns `COMPLETED` with output; policy denies return 403 `BLOCKED`; model failures return 502 `ERROR` with potentially unknown invocation status. An unavailable audit writer returns 503.
 
-**Not implemented:** arbitrary model providers, streaming, attachments/RAG, output DLP, tenant OIDC/JWT, admin policy API, independent egress attestation, multi-host audit consensus. See [threat model](threat-model.md) and [Milestone 6](milestone-6.md).
+**Not implemented:** arbitrary model providers, streaming, attachments/RAG, output DLP, tenant OIDC/JWT, admin policy API, independent egress attestation, multi-host audit consensus. See [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).

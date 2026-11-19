@@ -1,6 +1,6 @@
 # Milestone 5 — Detector Provenance and Portable Evidence
 
-> **Historical M5 design:** Artifact manifests and portable evidence remain in use. Milestone 6 additionally signs and activates an approved policy+detector release and can authenticate its approval with a separately supplied public key. Use [current audit design](audit-design.md) and [Milestone 6](milestone-6.md) for the current trust and release workflow.
+> **Historical M5 design:** Artifact manifests and portable evidence remain in use. Milestone 6 additionally signs and activates an approved policy+detector release and can authenticate its approval with a separately supplied public key. Use [current audit design](../audit-design.md) and [Milestone 6](../signed-release-workflow.md) for the current trust and release workflow.
 
 ## Security objective
 

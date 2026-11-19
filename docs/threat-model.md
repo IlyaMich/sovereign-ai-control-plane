@@ -53,4 +53,4 @@ Default `sovereign-internal` network is private; API published only on loopback.
 
 Independent audit trust and periodic checkpoint witnessing; protected audit/release keys; real local inference and authenticated egress; output data-loss prevention; OIDC/multi-tenant policy governance; then deployment hardening and performance benchmarks.
 
-See [audit design](audit-design.md), [architecture](architecture.md), [Milestone 6](milestone-6.md) and the [release workflow](policy-design.md).
+See [audit design](audit-design.md), [architecture](architecture.md), [Milestone 6](signed-release-workflow.md) and the [release workflow](policy-design.md).

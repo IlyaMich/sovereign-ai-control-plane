@@ -9,7 +9,7 @@ import pytest
 
 from app.detection.provenance import DetectorIntegrityError
 from app.infrastructure.config import Settings
-from tests.test_m6_release_approvals import D, approval_fixture
+from tests.test_release_approvals import D, approval_fixture
 from tools import verify_runtime_release
 
 

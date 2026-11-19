@@ -2,7 +2,7 @@
 
 **Status:** Accepted for Milestone 4; extended by separately signed release approval in Milestone 6.
 
-> **Current implementation:** The snapshot and offline replay design remains active, but M6 requires a separately signed release authorizing the policy and detector identities before activation. The older alternatives and consequences below record the M4 decision context. See [current policy design](../policy-design.md) and [Milestone 6](../milestone-6.md).
+> **Current implementation:** The snapshot and offline replay design remains active, but M6 requires a separately signed release authorizing the policy and detector identities before activation. The older alternatives and consequences below record the M4 decision context. See [current policy design](../policy-design.md) and [Milestone 6](../signed-release-workflow.md).
 
 ## Context
 
