@@ -208,6 +208,44 @@ class AuditExecutionLimits:
 
 
 @dataclass(frozen=True)
+class IntegrityExecutionLimits:
+    """Per process, bounded filesystem and signature verification jobs."""
+
+    max_jobs: int = 8
+    max_waiters: int = 8
+    queue_wait_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        if type(self.max_jobs) is not int or not 2 <= self.max_jobs <= 1024:
+            raise ValueError("MAX_INTEGRITY_JOBS must be an integer from 2 to 1024")
+        if type(self.max_waiters) is not int or not 0 <= self.max_waiters <= 1024:
+            raise ValueError("MAX_INTEGRITY_WAITERS must be an integer from 0 to 1024")
+        value = self.queue_wait_seconds
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError("INTEGRITY_QUEUE_WAIT_SECONDS must be finite and positive")
+
+    @classmethod
+    def from_env(cls) -> IntegrityExecutionLimits:
+        raw_waiters = os.environ.get("MAX_INTEGRITY_WAITERS", str(cls.max_waiters))
+        try:
+            waiters = int(raw_waiters)
+        except ValueError as exc:
+            raise ValueError("MAX_INTEGRITY_WAITERS must be a nonnegative integer") from exc
+        return cls(
+            max_jobs=positive_int("MAX_INTEGRITY_JOBS", cls.max_jobs),
+            max_waiters=waiters,
+            queue_wait_seconds=positive_float(
+                "INTEGRITY_QUEUE_WAIT_SECONDS", cls.queue_wait_seconds
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class TelemetrySettings:
     """Small bounded metrics windows, kept only in process memory."""
 
@@ -256,6 +294,7 @@ class Settings:
     detector_execution: DetectorExecutionLimits = field(default_factory=DetectorExecutionLimits)
     audit_execution: AuditExecutionLimits = field(default_factory=AuditExecutionLimits)
     telemetry: TelemetrySettings = field(default_factory=TelemetrySettings)
+    integrity_execution: IntegrityExecutionLimits = field(default_factory=IntegrityExecutionLimits)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -273,6 +312,7 @@ class Settings:
             detector_execution=DetectorExecutionLimits.from_env(),
             audit_execution=AuditExecutionLimits.from_env(),
             telemetry=TelemetrySettings.from_env(),
+            integrity_execution=IntegrityExecutionLimits.from_env(),
             opa_url=os.environ.get("OPA_URL", "http://opa:8181"),
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),
