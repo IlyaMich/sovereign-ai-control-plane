@@ -12,11 +12,11 @@ Keep other benchmark clients and audit-producing processes idle. From the repo
 root, with the approved stack running and `.env` configured:
 
 ```powershell
-python -m pytest -q tests/test_m7_overload_followup.py
-python -m tools.m7_overload_followup --label-prefix m7-9-overload-16 --clients 16 --duration 20 --lookup-rounds 12
+python -m pytest -q tests/test_overload_and_audit_lookup.py
+python -m tools.overload_and_audit_lookup --label-prefix m7-9-overload-16 --clients 16 --duration 20 --lookup-rounds 12
 ```
 
-The tool first invokes `tools.m7_performance capture --allow-overload` using
+The tool first invokes `tools.concurrency_performance capture --allow-overload` using
 `benchmarks.suite` for a single **16-client, 20-second local_permit** scenario.
 The existing kit performs independent before/after audit-chain verification,
 checks exact two-event pairs for admitted responses and recognizes correct 429
@@ -45,7 +45,7 @@ Result files:
 To retry lookup analysis without adding another set of signed audit events:
 
 ```powershell
-python -m tools.m7_overload_followup --label-prefix m7-9-overload-16 --existing-run --lookup-rounds 12
+python -m tools.overload_and_audit_lookup --label-prefix m7-9-overload-16 --existing-run --lookup-rounds 12
 ```
 
 ## Interpretation / acceptance
