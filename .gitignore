@@ -38,3 +38,7 @@ coverage.xml
 .DS_Store
 Thumbs.db
 Desktop.ini
+
+# Benchmark tests
+benchmarks/
+bench-results/

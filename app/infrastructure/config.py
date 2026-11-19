@@ -106,6 +106,24 @@ def simulator_upstream_url() -> str:
 
 
 @dataclass(frozen=True)
+class AdmissionLimits:
+    """Per API process, fail-fast capacity for admitted prompt requests."""
+
+    max_inflight_requests: int = 8
+
+    def __post_init__(self) -> None:
+        value = self.max_inflight_requests
+        if type(value) is not int or not 1 <= value <= 1024:
+            raise ValueError("MAX_INFLIGHT_REQUESTS must be an integer from 1 to 1024")
+
+    @classmethod
+    def from_env(cls) -> AdmissionLimits:
+        return cls(
+            max_inflight_requests=positive_int("MAX_INFLIGHT_REQUESTS", cls.max_inflight_requests)
+        )
+
+
+@dataclass(frozen=True)
 class Settings:
     api_key: str
     opa_url: str = "http://opa:8181"
@@ -125,6 +143,7 @@ class Settings:
     release_trust_path: str = "/release-trust"
     limits: RequestLimits = field(default_factory=RequestLimits)
     http: HTTPTimeouts = field(default_factory=HTTPTimeouts)
+    admission: AdmissionLimits = field(default_factory=AdmissionLimits)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -137,6 +156,7 @@ class Settings:
             api_key=key,
             limits=RequestLimits.from_env(),
             http=HTTPTimeouts.from_env(),
+            admission=AdmissionLimits.from_env(),
             opa_url=os.environ.get("OPA_URL", "http://opa:8181"),
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),

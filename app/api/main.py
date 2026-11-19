@@ -13,6 +13,7 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.api.admission import InFlightAdmission
 from app.api.body_limit import RequestBodyLimitMiddleware
 from app.api.schemas import PromptInput, prompt_input_model
 from app.application.orchestrator import RequestOrchestrator
@@ -83,6 +84,7 @@ def make_components() -> Components:
 
 def create_app(components: Components | None = None) -> FastAPI:
     deps = components or make_components()
+    admission = InFlightAdmission(deps.settings.admission.max_inflight_requests)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
@@ -100,6 +102,7 @@ def create_app(components: Components | None = None) -> FastAPI:
         RequestBodyLimitMiddleware, max_bytes=deps.settings.limits.max_request_body_bytes
     )
     app.state.components = deps
+    app.state.admission = admission
 
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
@@ -174,11 +177,20 @@ def create_app(components: Components | None = None) -> FastAPI:
         payload: PromptInput, x_api_key: str | None = Header(default=None, alias="X-API-Key")
     ):
         principal = authenticate(x_api_key)
-        request_id = str(uuid.uuid4())
-        command = PromptCommand(
-            request_id, payload.prompt, payload.destination_id, payload.purpose, principal
-        )
-        result = await deps.orchestrator.process(command)
+        if not admission.try_enter():
+            return JSONResponse(
+                status_code=429,
+                headers={"Retry-After": "1"},
+                content={"status": "REJECTED", "reason_codes": ["CAPACITY_EXCEEDED"]},
+            )
+        try:
+            request_id = str(uuid.uuid4())
+            command = PromptCommand(
+                request_id, payload.prompt, payload.destination_id, payload.purpose, principal
+            )
+            result = await deps.orchestrator.process(command)
+        finally:
+            admission.leave()
         body = {
             "request_id": result.request_id,
             "status": result.status.value,
