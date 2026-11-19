@@ -184,6 +184,7 @@ The verifier cannot replay original NLP classifications: raw prompts and origina
 - [Policy authoring, signing and activation](docs/policy-design.md)
 - [Audit integrity, replay and evidence trust](docs/audit-design.md)
 - [Testing and release verification](docs/testing.md)
+- [Operational logging and privacy](docs/logging.md)
 - [Milestone 3: redaction and simulated egress](docs/history/redaction-and-egress.md)
 - [Milestone 4: content-bound Rego](docs/history/policy-snapshots-and-replay.md)
 - [Milestone 5: detector provenance](docs/history/detector-provenance-and-evidence.md)

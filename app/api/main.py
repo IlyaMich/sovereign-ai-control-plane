@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import hmac
+import logging
 import uuid
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -17,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.admission import InFlightAdmission
 from app.api.body_limit import RequestBodyLimitMiddleware
+from app.api.logging import RequestLoggingMiddleware
 from app.api.schemas import PromptInput, prompt_input_model
 from app.application.detector_executor import BoundedDetectorExecutor
 from app.application.orchestrator import RequestOrchestrator
@@ -37,6 +39,7 @@ from app.enforcement.gateway import (
     HTTPModelGateway,
 )
 from app.infrastructure.config import Settings
+from app.infrastructure.logging import configure_logging, context, event, logging_snapshot
 from app.infrastructure.runtime_metrics import LoopLagMonitor
 from app.policy.opa import OPAPolicyEvaluator
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
@@ -55,8 +58,10 @@ class Components:
 
 
 def make_components() -> Components:
+    event("startup_stage", stage="configuration")
     settings = Settings.from_env()
     client = httpx.AsyncClient(trust_env=False)
+    event("startup_stage", stage="audit")
     audit = SQLiteAuditStore(settings.db_path, settings.signing_key_path)
     destinations = [Destination("sovereign-model", settings.model_url, "INTERNAL")]
     if settings.enable_external_simulator:
@@ -66,7 +71,9 @@ def make_components() -> Components:
     registry = DestinationRegistry(tuple(destinations))
     snapshot_store = PolicySnapshotStore(settings.active_policy_path, settings.policy_archive_path)
     # Reject an invalid or missing policy snapshot at startup.
-    snapshot_store.verify_active()
+    event("startup_stage", stage="policy")
+    snapshot = snapshot_store.verify_active()
+    event("policy_verified", policy_digest=snapshot.policy_digest)
     release_store = (
         ReleaseStore(
             active=Path(settings.release_active_path),
@@ -79,7 +86,15 @@ def make_components() -> Components:
         else None
     )
     if release_store is not None:
-        release_store.verify_active()
+        event("startup_stage", stage="release")
+        approval = release_store.verify_active()
+        event(
+            "release_verified",
+            release_id=approval["release_id"],
+            policy_digest=approval["payload"]["policy_digest"],
+            detector_digest=approval["payload"]["detector_digest"],
+        )
+    event("startup_stage", stage="detector")
     detector = PresidioDetector.create(
         manifest_path=settings.detector_manifest_path,
         archive_root=settings.detector_archive_path,
@@ -113,7 +128,27 @@ def make_components() -> Components:
 
 
 def create_app(components: Components | None = None) -> FastAPI:
-    deps = components or make_components()
+    configure_logging()
+    event("startup_started", stage="configuration")
+    try:
+        deps = components or make_components()
+    except Exception:
+        event("startup_failed", level=logging.ERROR, error_code="INITIALIZATION_FAILED")
+        raise
+    readiness_state = None
+
+    def readiness(state, stage):
+        nonlocal readiness_state
+        identity = (state, stage)
+        if identity != readiness_state:
+            event(
+                "readiness_changed",
+                level=logging.ERROR if state == "NOT_READY" else logging.INFO,
+                state=state,
+                stage=stage,
+            )
+            readiness_state = identity
+
     admission = InFlightAdmission(deps.settings.admission.max_inflight_requests)
     lag = LoopLagMonitor(
         interval_seconds=deps.settings.telemetry.loop_lag_interval_seconds,
@@ -123,9 +158,11 @@ def create_app(components: Components | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         lag.start()
+        event("service_started", stage="runtime")
         try:
             yield
         finally:
+            event("shutdown_started", stage="runtime")
             await lag.aclose()
             try:
                 if deps.detector_executor is not None:
@@ -137,6 +174,7 @@ def create_app(components: Components | None = None) -> FastAPI:
                 finally:
                     if deps.client is not None:
                         await deps.client.aclose()
+                    event("service_stopped", stage="runtime")
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
@@ -147,6 +185,7 @@ def create_app(components: Components | None = None) -> FastAPI:
     app.add_middleware(
         RequestBodyLimitMiddleware, max_bytes=deps.settings.limits.max_request_body_bytes
     )
+    app.add_middleware(RequestLoggingMiddleware)
     app.state.components = deps
     app.state.admission = admission
     app.state.loop_lag = lag
@@ -161,10 +200,12 @@ def create_app(components: Components | None = None) -> FastAPI:
     @app.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError):
         # FastAPI's default validation errors can contain submitted field values.
+        event("validation_rejected", error_code="INVALID_BODY", limited=True)
         return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
 
     @app.exception_handler(AuditUnavailable)
     async def audit_unavailable(request: Request, exc: AuditUnavailable):
+        event("audit_unavailable", level=logging.ERROR, error_code="AUDIT_UNAVAILABLE")
         return JSONResponse(
             status_code=503,
             content={"status": "ERROR", "reason_codes": ["AUDIT_UNAVAILABLE"]},
@@ -172,6 +213,12 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     def authenticate(api_key: str | None) -> Principal:
         if not api_key or not hmac.compare_digest(api_key, deps.settings.api_key):
+            event(
+                "authentication_rejected",
+                level=logging.WARNING,
+                limited=True,
+                error_code="UNAUTHORIZED",
+            )
             raise HTTPException(status_code=401, detail="Unauthorized")
         return Principal("local-tester", "local-tenant", ("tester",))
 
@@ -185,6 +232,7 @@ def create_app(components: Components | None = None) -> FastAPI:
             headers={"Cache-Control": "no-store"},
             content={
                 "scope": "process",
+                "logging": logging_snapshot(),
                 "admission": {
                     "limit": admission.limit,
                     "active": admission.active,
@@ -214,6 +262,7 @@ def create_app(components: Components | None = None) -> FastAPI:
         # A policy endpoint probe is stronger than merely checking that OPA is running.
         if deps.client is None:
             return {"status": "TEST_MODE"}
+        stage = "policy"
         try:
             response = await deps.client.post(
                 deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/decision",
@@ -234,15 +283,19 @@ def create_app(components: Components | None = None) -> FastAPI:
                     raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
+            stage = "detector"
             detector = deps.orchestrator.detector
             if hasattr(detector, "check_integrity"):
                 detector.check_integrity()
+            stage = "release"
             if deps.orchestrator.release_store is not None:
                 deps.orchestrator.release_store.verify_active()
+            stage = "audit"
             if deps.audit_executor is not None:
                 await deps.audit_executor.check_writable()
             else:
                 deps.audit.check_writable()
+            stage = "model"
             model = await deps.client.get(
                 deps.settings.model_url.rstrip("/") + "/health",
                 timeout=deps.settings.http.readiness,
@@ -257,7 +310,9 @@ def create_app(components: Components | None = None) -> FastAPI:
             SnapshotError,
             ReleaseIntegrityError,
         ):
+            readiness("NOT_READY", stage)
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
+        readiness("READY", "runtime")
         return {"status": "READY"}
 
     async def submit(
@@ -267,6 +322,12 @@ def create_app(components: Components | None = None) -> FastAPI:
     ):
         principal = authenticate(x_api_key)
         if not admission.try_enter():
+            event(
+                "admission_rejected",
+                level=logging.WARNING,
+                limited=True,
+                error_code="CAPACITY_EXCEEDED",
+            )
             return JSONResponse(
                 status_code=429,
                 headers={"Retry-After": "1"},
@@ -274,14 +335,25 @@ def create_app(components: Components | None = None) -> FastAPI:
             )
         try:
             request_id = str(uuid.uuid4())
+            log_context = context.get()
+            if log_context is not None:
+                log_context["request_id"] = request_id
             if idempotency_key is not None:
                 try:
                     validate_key(idempotency_key)
                 except ValueError:
+                    event(
+                        "idempotency_rejected", error_code="INVALID_IDEMPOTENCY_KEY", limited=True
+                    )
                     return JSONResponse(
                         status_code=400, content={"detail": "Invalid Idempotency-Key"}
                     )
                 if deps.idempotency is None:
+                    event(
+                        "idempotency_unavailable",
+                        level=logging.ERROR,
+                        error_code="IDEMPOTENCY_UNAVAILABLE",
+                    )
                     return JSONResponse(
                         status_code=503,
                         content={"status": "ERROR", "reason_codes": ["IDEMPOTENCY_UNAVAILABLE"]},
@@ -299,6 +371,9 @@ def create_app(components: Components | None = None) -> FastAPI:
                     )
                 )
                 if claimed.state == ClaimState.CONFLICT:
+                    event(
+                        "idempotency_conflict", error_code="IDEMPOTENCY_KEY_CONFLICT", limited=True
+                    )
                     return JSONResponse(
                         status_code=409,
                         headers={"Cache-Control": "no-store"},
@@ -308,6 +383,13 @@ def create_app(components: Components | None = None) -> FastAPI:
                         },
                     )
                 if claimed.state == ClaimState.EXISTING:
+                    if log_context is not None:
+                        log_context["request_id"] = claimed.request_id
+                    event(
+                        "idempotency_replay_prevented",
+                        error_code="IDEMPOTENCY_ALREADY_ACCEPTED",
+                        limited=True,
+                    )
                     return JSONResponse(
                         status_code=409,
                         headers={"Cache-Control": "no-store"},
