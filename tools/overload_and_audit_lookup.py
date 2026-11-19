@@ -19,7 +19,7 @@ from typing import Any
 
 import httpx
 
-from tools.m7_performance import (
+from tools.concurrency_performance import (
     benchmark_integrity,
     load_api_key,
     loopback_url,
@@ -304,7 +304,7 @@ def main(argv: list[str] | None = None) -> int:
         command = [
             sys.executable,
             "-m",
-            "tools.m7_performance",
+            "tools.concurrency_performance",
             "capture",
             "--label-prefix",
             args.label_prefix,
