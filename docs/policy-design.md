@@ -1,6 +1,6 @@
 # Policy design and release activation — Milestone 6
 
-**Current contract:** Direct Rego in `policies/decision.rego`, entry point `data.sovereign.authz.decision`. A policy source edit has no runtime effect until it becomes a verified snapshot within a **signed release approval**. For snapshot format see [ADR-0002](adr/0002-content-addressed-rego.md); for signer and rollout behavior see [Milestone 6](milestone-6.md).
+**Current contract:** Direct Rego in `policies/decision.rego`, entry point `data.sovereign.authz.decision`. A policy source edit has no runtime effect until it becomes a verified snapshot within a **signed release approval**. For snapshot format see [ADR-0002](adr/0002-content-addressed-rego.md); for signer and rollout behavior see [Milestone 6](signed-release-workflow.md).
 
 ## Inputs, outcomes and obligations
 
@@ -43,12 +43,12 @@ python -m tools.verify_policy_snapshot
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
 
 # Build and SIGN the exact policy/detector artifacts using the existing key.
-.\Initialize-Milestone6.ps1 -UseExistingKey
+.\Approve-And-ActivateRelease.ps1 -UseExistingKey
 
 # If the human Rego revision changed, update EXPECTED_POLICY_REVISION in .env.
 # Recreate the active containers WITHOUT rebuilding approved artifacts.
 podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
-.\Verify-Milestone6.ps1
+.\Verify-SignedReleaseWorkflow.ps1
 ~~~
 
 A rollback requires a **new signed successor generation** referencing archived older policy bytes. Do not reactivate an old signed approval or delete evidence archives. Activation is not atomic across hosts and does not include a quorum or hardware monotonic counter; treat release maintenance as an operator-controlled change window.

@@ -1,6 +1,6 @@
 # Audit integrity, provenance and independent review — Milestone 6
 
-**Current scope:** A single SQLite writer persists tamper-evident evidence for each admitted policy decision, before any model invocation. See [architecture](architecture.md), [policy design](policy-design.md) and [Milestone 6](milestone-6.md).
+**Current scope:** A single SQLite writer persists tamper-evident evidence for each admitted policy decision, before any model invocation. See [architecture](architecture.md), [policy design](policy-design.md) and [Milestone 6](signed-release-workflow.md).
 
 ## Commit order and failure semantics
 
@@ -67,7 +67,7 @@ Example reviewer CLI (paths must exist in reviewer environment):
 python -m tools.verify_evidence_package --bundle evidence.zip --trusted-public-key trusted-audit-key.pub.pem --trusted-checkpoint witnessed-checkpoint.json --trusted-release-public-key trusted-release-key.pub.pem
 ~~~
 
-The standard `Verify-Milestone6.ps1` intentionally pins only the **release** public key outside the bundle; its observed result remains `EVIDENCE_PACKAGE_SELF_CONSISTENT` with authenticated release approvals until independent audit anchors are provided.
+The standard `Verify-SignedReleaseWorkflow.ps1` intentionally pins only the **release** public key outside the bundle; its observed result remains `EVIDENCE_PACKAGE_SELF_CONSISTENT` with authenticated release approvals until independent audit anchors are provided.
 
 ## Replay limits and history compatibility
 

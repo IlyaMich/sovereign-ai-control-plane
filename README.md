@@ -73,12 +73,12 @@ python -m tools.verify_release
 
 # If a new release is necessary, use the EXISTING signer and sign an N+1 approval.
 # This rebuilds the intended image before signing:
-.\Initialize-Milestone6.ps1 -UseExistingKey
+.\Approve-And-ActivateRelease.ps1 -UseExistingKey
 
 # Run the EXACT approved image. Do not rebuild after signing:
 podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
-.\Verify-Milestone6.ps1
+.\Verify-SignedReleaseWorkflow.ps1
 ~~~
 
 For the optional simulated egress test, add `ENABLE_EXTERNAL_SIMULATOR=true` to `.env` and place `--profile egress-test` before `up`. Use **synthetic** inputs only.
@@ -144,7 +144,7 @@ podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policie
 
 A `Makefile` also provides `make test`, `make smoke`, `make test-policy` and other conveniences (requires Make). `make up` and `make restart` verify the image against the mounted signed release and start with `--no-build`. `make build` remains a separate operation; approve its resulting detector identity before starting it.
 
-If startup reports `Installed detector identity is not approved`, the rebuilt image differs from the active approval. For an intended change, approve that existing image with `.\Initialize-Milestone6.ps1 -UseExistingKey -SkipBuild -Python .\.venv\Scripts\python.exe`, then run `make up` and `make check-containers`. Omitting `-SkipBuild` builds the image before approval. The helper signs a successor generation with the existing key and preserves release archives.
+If startup reports `Installed detector identity is not approved`, the rebuilt image differs from the active approval. For an intended change, approve that existing image with `.\Approve-And-ActivateRelease.ps1 -UseExistingKey -SkipBuild -Python .\.venv\Scripts\python.exe`, then run `make up` and `make check-containers`. Omitting `-SkipBuild` builds the image before approval. The helper signs a successor generation with the existing key and preserves release archives.
 
 ### API smoke test (PowerShell)
 
@@ -162,15 +162,15 @@ Editing `policies/decision.rego` **does not activate** a new policy. The current
 
 1. Review the proposed policy and run tests; build and verify the snapshot with `python -m tools.build_policy_snapshot` and `python -m tools.verify_policy_snapshot`.
 2. Build the intended detector image and obtain the installed artifact digest.
-3. Use the existing out-of-runtime private signing key to sign a new generation (predecessor must match the currently active release), then run `tools.activate_release` / `tools.verify_release`. The operator helper `Initialize-Milestone6.ps1 -UseExistingKey` covers the normal next-generation workflow.
+3. Use the existing out-of-runtime private signing key to sign a new generation (predecessor must match the currently active release), then run `tools.activate_release` / `tools.verify_release`. The operator helper `Approve-And-ActivateRelease.ps1 -UseExistingKey` covers the normal next-generation workflow.
 4. If the Rego revision changed, update `EXPECTED_POLICY_REVISION` in `.env`.
-5. Recreate **OPA and control-plane** with the approved image, without rebuilding; run `Verify-Milestone6.ps1`.
+5. Recreate **OPA and control-plane** with the approved image, without rebuilding; run `Verify-SignedReleaseWorkflow.ps1`.
 
-A rollback to older policy bytes is **a new signed generation**, not reactivation of an earlier approval. Retain every policy/release archive needed for replay. See [Milestone 6](docs/milestone-6.md).
+A rollback to older policy bytes is **a new signed generation**, not reactivation of an earlier approval. Retain every policy/release archive needed for replay. See [Milestone 6](docs/signed-release-workflow.md).
 
 ## Evidence and trust
 
-The exporter (`python -m tools.export_evidence_package --out /var/lib/sovereign/evidence.zip` inside the control plane) packages a consistent read-only SQLite snapshot, audit public key, relevant Rego snapshots, detector manifests and signed release approvals. `Verify-Milestone6.ps1` tests export and verification in a **network-disabled** reviewer.
+The exporter (`python -m tools.export_evidence_package --out /var/lib/sovereign/evidence.zip` inside the control plane) packages a consistent read-only SQLite snapshot, audit public key, relevant Rego snapshots, detector manifests and signed release approvals. `Verify-SignedReleaseWorkflow.ps1` tests export and verification in a **network-disabled** reviewer.
 
 A result of `EVIDENCE_PACKAGE_SELF_CONSISTENT` with `REPLAY_VERIFIED` confirms the package's internal signatures, chain, manifests and eligible policy replays. It does **not** by itself authenticate the audit signing key or establish complete history. A separately provisioned release verification key authenticates release approvals only. Use separately retained `--trusted-public-key` and `--trusted-checkpoint` for stronger audit authentication. A checkpoint generated inside the same ZIP is not an independent witness.
 
@@ -184,11 +184,12 @@ The verifier cannot replay original NLP classifications: raw prompts and origina
 - [Policy authoring, signing and activation](docs/policy-design.md)
 - [Audit integrity, replay and evidence trust](docs/audit-design.md)
 - [Testing and release verification](docs/testing.md)
-- [Milestone 3: redaction and simulated egress](docs/milestone-3.md)
-- [Milestone 4: content-bound Rego](docs/milestone-4.md)
-- [Milestone 5: detector provenance](docs/milestone-5.md)
-- [Milestone 6: release approvals](docs/milestone-6.md)
-- [Architecture decisions (ADRs)](docs/adr/)
+- [Operational logging and privacy](docs/logging.md)
+- [Milestone 3: redaction and simulated egress](docs/history/redaction-and-egress.md)
+- [Milestone 4: content-bound Rego](docs/history/policy-snapshots-and-replay.md)
+- [Milestone 5: detector provenance](docs/history/detector-provenance-and-evidence.md)
+- [Milestone 6: release approvals](docs/signed-release-workflow.md)
+- [Architecture decisions (ADRs)](docs/adr)
 
 ## Deliberate limitations / next work
 

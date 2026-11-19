@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from typing import Any
 
 from app.application.detector_executor import (
@@ -27,6 +29,7 @@ from app.domain.contracts import (
 )
 from app.enforcement.gateway import EnforcementPlanner, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
+from app.infrastructure.logging import event
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
 
@@ -61,18 +64,53 @@ class RequestOrchestrator:
     async def _commit(
         self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]
     ) -> AuditReceipt:
-        if self.audit_executor is None:
-            # Legacy/test adapters remain supported. The production path
-            # uses the nonblocking bounded audit executor.
-            return self.audit.commit(request_id, tenant_id, event_type, payload)
-        return await self.audit_executor.commit(request_id, tenant_id, event_type, payload)
+        started = time.perf_counter()
+        try:
+            if self.audit_executor is None:
+                receipt = self.audit.commit(request_id, tenant_id, event_type, payload)
+            else:
+                receipt = await self.audit_executor.commit(
+                    request_id, tenant_id, event_type, payload
+                )
+        except Exception:
+            event(
+                "audit_commit_failed",
+                level=logging.ERROR,
+                request_id=request_id,
+                event_type=event_type,
+                error_code="AUDIT_COMMIT_FAILED",
+            )
+            raise
+        event(
+            "audit_committed",
+            level=logging.DEBUG,
+            request_id=request_id,
+            event_type=event_type,
+            sequence=receipt.sequence,
+            duration_ms=round((time.perf_counter() - started) * 1000, 3),
+        )
+        return receipt
 
     async def process(self, command: PromptCommand) -> ProcessedRequest:
         try:
             classification = await self._detect(command.prompt)
         except DetectorCapacityExceeded:
+            event(
+                "detector_capacity_exceeded",
+                level=logging.WARNING,
+                limited=True,
+                request_id=command.request_id,
+                error_code="DETECTION_CAPACITY_EXCEEDED",
+            )
             classification = DetectionResult.unknown("DETECTION_CAPACITY_EXCEEDED")
         except Exception:
+            event(
+                "detection_failed",
+                level=logging.ERROR,
+                request_id=command.request_id,
+                error_code="DETECTION_FAILED",
+                stage="detection",
+            )
             classification = DetectionResult.unknown()
 
         policy_input = PolicyContext(command, classification)
@@ -88,6 +126,12 @@ class RequestOrchestrator:
             except ReleaseIntegrityError:
                 release_untrusted = True
         if release_untrusted:
+            event(
+                "request_safety_failure",
+                level=logging.ERROR,
+                request_id=command.request_id,
+                error_code="UNTRUSTED_RELEASE",
+            )
             decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
         elif classification.status == DetectionStatus.UNKNOWN:
             decision = PolicyDecision.deny("DETECTION_UNKNOWN")
@@ -95,8 +139,20 @@ class RequestOrchestrator:
             try:
                 decision = await self.policy.evaluate(policy_input)
             except PolicyIntegrityError:
+                event(
+                    "request_safety_failure",
+                    level=logging.ERROR,
+                    request_id=command.request_id,
+                    error_code="POLICY_INTEGRITY_FAILURE",
+                )
                 decision = PolicyDecision.deny("POLICY_INTEGRITY_FAILURE")
             except Exception:
+                event(
+                    "request_safety_failure",
+                    level=logging.ERROR,
+                    request_id=command.request_id,
+                    error_code="POLICY_UNAVAILABLE",
+                )
                 decision = PolicyDecision.deny("POLICY_UNAVAILABLE")
 
         opa_decision = decision if decision.policy_digest else None
@@ -121,14 +177,32 @@ class RequestOrchestrator:
                     ):
                         raise RedactionError("Transformed prompt did not pass classification")
         except InvalidPlan:
+            event(
+                "request_safety_failure",
+                level=logging.ERROR,
+                request_id=command.request_id,
+                error_code="INVALID_POLICY_PLAN",
+            )
             decision = PolicyDecision.deny("INVALID_POLICY_PLAN")
             transformed = False
             forwarded_prompt = command.prompt
         except RedactionError:
+            event(
+                "request_safety_failure",
+                level=logging.ERROR,
+                request_id=command.request_id,
+                error_code="REDACTION_FAILED",
+            )
             decision = PolicyDecision.deny("REDACTION_FAILED")
             transformed = False
             forwarded_prompt = command.prompt
         except Exception:
+            event(
+                "request_safety_failure",
+                level=logging.ERROR,
+                request_id=command.request_id,
+                error_code="TRANSFORMATION_VERIFICATION_UNAVAILABLE",
+            )
             decision = PolicyDecision.deny("TRANSFORMATION_VERIFICATION_UNAVAILABLE")
             transformed = False
             forwarded_prompt = command.prompt
@@ -144,6 +218,12 @@ class RequestOrchestrator:
                 if rechecked["release_id"] != approved_release["release_id"]:
                     raise ReleaseIntegrityError("Active release changed during request")
             except ReleaseIntegrityError:
+                event(
+                    "request_safety_failure",
+                    level=logging.ERROR,
+                    request_id=command.request_id,
+                    error_code="UNTRUSTED_RELEASE",
+                )
                 decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
                 opa_decision = None  # An untrusted evaluation must not be used for replay.
                 forwarded_prompt = command.prompt
@@ -190,6 +270,14 @@ class RequestOrchestrator:
             command.request_id, command.principal.tenant_id, "DECISION", evidence
         )
 
+        event(
+            "decision_committed",
+            request_id=command.request_id,
+            effect=decision.effect.value,
+            transformed=transformed,
+            sequence=decision_receipt.sequence,
+        )
+
         if decision.effect == Effect.DENY:
             outcome_receipt = await self._commit(
                 command.request_id,
@@ -211,6 +299,13 @@ class RequestOrchestrator:
                 command.request_id, forwarded_prompt, command.destination_id
             )
         except Exception:
+            event(
+                "model_execution_unknown",
+                level=logging.ERROR,
+                request_id=command.request_id,
+                execution_status="UNKNOWN",
+                error_code="MODEL_EXECUTION_UNKNOWN",
+            )
             outcome_receipt = await self._commit(
                 command.request_id,
                 command.principal.tenant_id,

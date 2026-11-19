@@ -24,11 +24,11 @@ Key areas:
 | Detection normalization, unknown/overlap behavior | `tests/test_detection_aggregation.py`, `test_presidio_adapter.py`, `test_presidio_real_integration.py` |
 | API, authorization and sanitized errors | `tests/test_api.py` |
 | Audit sequencing, tamper/truncation | `tests/test_audit_integrity.py` |
-| Decision-before-forwarding and fail-closed orchestration | `tests/test_orchestrator.py`, `test_m3_enforcement.py` |
+| Decision-before-forwarding and fail-closed orchestration | `tests/test_orchestrator.py`, `test_redaction_and_egress.py` |
 | OPA parsing and Rego | `tests/test_policy_adapter.py`, `tests/rego/decision_test.rego` |
-| Policy integrity, archive replay | `tests/test_m4_policy_snapshots.py`, `test_m4_replay.py`, `test_m4_failclosed.py` |
-| Detector provenance and portable evidence | `tests/test_m5_provenance.py` |
-| Signed releases, anti-rollback workflow | `tests/test_m6_release_approvals.py` |
+| Policy integrity, archive replay | `tests/test_policy_snapshots.py`, `test_policy_replay.py`, `test_policy_integrity_enforcement.py` |
+| Detector provenance and portable evidence | `tests/test_provenance_and_evidence_packages.py` |
+| Signed releases, anti-rollback workflow | `tests/test_release_approvals.py` |
 
 ## Runtime and Rego checks
 
@@ -41,16 +41,16 @@ podman compose -f deploy/compose.yaml --env-file .env exec control-plane python 
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
 python -m tools.verify_policy_snapshot
 python -m tools.verify_release
-.\Verify-Milestone6.ps1
+.\Verify-SignedReleaseWorkflow.ps1
 ~~~
 
 The documented M6 validation on Windows produced `RELEASE_VERIFIED`, Rego `PASS: 14/14`, `READY`, an approved signed request, and an offline evidence report with `REPLAY_VERIFIED`. Test counts reflect that run and are not a hard-coded guarantee for future test additions.
 
-The additional historical `Verify-Milestone3.ps1`, `Verify-Milestone4.ps1` and `Verify-Milestone5.ps1` scripts cover redaction/network isolation, policy snapshot replay and detector provenance; they are useful regression checks, but **the current signed-release startup and activation procedure supersedes their older `up --build` commands**.
+The additional historical `Verify-RedactionAndEgress.ps1`, `Verify-PolicyEvidenceAndReplay.ps1` and `Verify-DetectorProvenanceAndEvidence.ps1` scripts cover redaction/network isolation, policy snapshot replay and detector provenance; they are useful regression checks, but **the current signed-release startup and activation procedure supersedes their older `up --build` commands**.
 
 ### Optional simulated external egress
 
-Set `ENABLE_EXTERNAL_SIMULATOR=true` and start the `egress-test` profile using an approved prebuilt image. `Verify-Milestone3.ps1` exercises redaction digest equivalence, blocked destinations, network separation, gateway outage and cryptographic audit verification. Use synthetic PII only. The gateway is not a real external cloud or proof of geographic residency.
+Set `ENABLE_EXTERNAL_SIMULATOR=true` and start the `egress-test` profile using an approved prebuilt image. `Verify-RedactionAndEgress.ps1` exercises redaction digest equivalence, blocked destinations, network separation, gateway outage and cryptographic audit verification. Use synthetic PII only. The gateway is not a real external cloud or proof of geographic residency.
 
 ## Offline evidence interpretation
 
@@ -68,4 +68,4 @@ For stronger audit authentication, supply independent `--trusted-public-key` and
 
 Real enterprise identity/tenant isolation, real local-model inference quality, external provider identity/residency, mTLS and authenticated egress, output DLP, distributed audit durability, load/performance testing, full supply-chain attestation, audit signer compromise recovery, and periodic external checkpoint witnessing.
 
-See [current architecture](architecture.md), [threat model](threat-model.md) and [Milestone 6](milestone-6.md).
+See [current architecture](architecture.md), [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).

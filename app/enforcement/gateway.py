@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -15,6 +17,7 @@ from app.domain.contracts import (
     PromptCommand,
 )
 from app.infrastructure.config import HTTPTimeouts
+from app.infrastructure.logging import event, failure_code
 
 
 class InvalidPlan(Exception):
@@ -118,7 +121,14 @@ class HTTPModelGateway:
     async def invoke(self, request_id: str, prompt: str, destination_id: str) -> ModelResult:
         destination = self.registry.get(destination_id)
         if destination is None:
+            event(
+                "model_destination_rejected",
+                level=logging.ERROR,
+                request_id=request_id,
+                error_code="DESTINATION_UNREGISTERED",
+            )
             raise ModelUnavailable("Destination not registered")
+        started = time.perf_counter()
         try:
             response = await self._client.post(
                 destination.url.rstrip("/") + "/generate",
@@ -132,6 +142,26 @@ class HTTPModelGateway:
                 or payload.get("model_id") != destination_id
             ):
                 raise ValueError("Invalid model response")
+            event(
+                "model_invocation_completed",
+                level=logging.DEBUG,
+                request_id=request_id,
+                destination_id=destination_id,
+                http_status=response.status_code,
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+            )
             return ModelResult(payload["model_id"], payload["output"])
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
+            event(
+                "model_invocation_failed",
+                level=logging.ERROR,
+                request_id=request_id,
+                destination_id=destination_id,
+                error_code=failure_code(exc, "MODEL"),
+                http_status=exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else None,
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+                execution_status="UNKNOWN",
+            )
             raise ModelUnavailable("Model invocation failed") from exc

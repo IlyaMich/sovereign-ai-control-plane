@@ -12,6 +12,7 @@ creating a decision without an outcome; reconciliation belongs to M7.4.
 from __future__ import annotations
 
 import asyncio
+import logging
 import math
 import time
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -20,6 +21,7 @@ from typing import Any, Callable, Protocol, TypeVar
 
 from app.audit.sqlite_store import AuditUnavailable
 from app.domain.contracts import AuditReceipt
+from app.infrastructure.logging import context, event
 from app.infrastructure.runtime_metrics import ExecutorMetrics
 
 T = TypeVar("T")
@@ -83,6 +85,12 @@ class BoundedAuditExecutor:
             await asyncio.wait_for(self._slots.acquire(), timeout=self._queue_wait_seconds)
         except TimeoutError as exc:
             self.metrics.refuse()
+            event(
+                "audit_capacity_exceeded",
+                level=logging.WARNING,
+                limited=True,
+                error_code="AUDIT_CAPACITY_EXCEEDED",
+            )
             raise AuditCapacityExceeded("Audit executor capacity exhausted") from exc
         finally:
             self.metrics.end_wait()
@@ -111,6 +119,9 @@ class BoundedAuditExecutor:
         self.metrics.submit(kind)
         loop = asyncio.get_running_loop()
 
+        captured_context = dict(context.get() or {})
+        caller_cancelled = False
+
         def after_real_completion(_: Future[T]) -> None:
             # Release only when the *thread-pool* future actually completes. An
             # asyncio caller may already have been cancelled at this point.
@@ -124,6 +135,21 @@ class BoundedAuditExecutor:
                     submitted.cancelled() or submitted.exception() is not None,
                 )
                 self._slots.release()
+                event(
+                    "audit_operation_finished",
+                    level=logging.ERROR
+                    if submitted.cancelled() or submitted.exception()
+                    else logging.DEBUG,
+                    correlation_id=captured_context.get("correlation_id"),
+                    request_id=captured_context.get("request_id"),
+                    event_type=kind,
+                    error_code="AUDIT_OPERATION_FAILED"
+                    if submitted.cancelled() or submitted.exception()
+                    else "NONE",
+                    state="CALLER_CANCELLED" if caller_cancelled else "CALLER_WAITING",
+                    queue_wait_ms=round((began - requested_at) * 1000, 3),
+                    processing_ms=round((ended - began) * 1000, 3),
+                )
 
             try:
                 loop.call_soon_threadsafe(finalize)
@@ -134,7 +160,18 @@ class BoundedAuditExecutor:
         submitted.add_done_callback(after_real_completion)
         # shield is crucial: cancellation of an awaiting request must NOT cancel
         # the queued concurrent.futures.Future (or forge an audit success).
-        return await asyncio.shield(asyncio.wrap_future(submitted))
+        try:
+            return await asyncio.shield(asyncio.wrap_future(submitted))
+        except asyncio.CancelledError:
+            caller_cancelled = True
+            event(
+                "audit_wait_cancelled",
+                level=logging.WARNING,
+                correlation_id=captured_context.get("correlation_id"),
+                request_id=captured_context.get("request_id"),
+                stage="audit",
+            )
+            raise
 
     async def run(self, operation: Callable[[], T]) -> T:
         """Run internal auxiliary SQLite operations in the existing bounded lane."""

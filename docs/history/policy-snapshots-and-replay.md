@@ -1,6 +1,6 @@
 # Milestone 4 — Content-bound policy evidence and offline OPA replay
 
-> **Historical M4 design:** Content-addressed policy snapshots and offline replay remain implemented. M6 additionally requires an independently signed policy+detector release. **Do not use the M4-only activation steps below on a current M6 deployment.** Follow [current policy design](policy-design.md) and [Milestone 6](milestone-6.md).
+> **Historical M4 design:** Content-addressed policy snapshots and offline replay remain implemented. M6 additionally requires an independently signed policy+detector release. **Do not use the M4-only activation steps below on a current M6 deployment.** Follow [current policy design](../policy-design.md) and [Milestone 6](../signed-release-workflow.md).
 
 ## Guarantee
 
@@ -40,7 +40,7 @@ the policy build pipeline are within the trust boundary for this local demo.
 
 ## Deployment (historical M4-only procedure)
 
-> Under M6, **snapshot verification and a new signed release generation are required before activation**; restarting OPA alone is insufficient. The following numbered sequence documents M4 behavior and must not be treated as the current operator runbook. See [Milestone 6](milestone-6.md).
+> Under M6, **snapshot verification and a new signed release generation are required before activation**; restarting OPA alone is insufficient. The following numbered sequence documents M4 behavior and must not be treated as the current operator runbook. See [Milestone 6](../signed-release-workflow.md).
 
 
 OPA reads `policy-active` read-only, never editable source. The API sees both

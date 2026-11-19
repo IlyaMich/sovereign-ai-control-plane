@@ -40,7 +40,7 @@ def main() -> int:
         print(f"Release preflight failed: {exc}", file=sys.stderr)
         print(
             "For an intended image change, approve it using the existing release signer:\n"
-            "  .\\Initialize-Milestone6.ps1 -UseExistingKey -SkipBuild\n"
+            "  .\\Approve-And-ActivateRelease.ps1 -UseExistingKey -SkipBuild\n"
             "Then run make up again. A missing image must be built before approval.",
             file=sys.stderr,
         )

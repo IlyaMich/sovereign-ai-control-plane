@@ -3,7 +3,7 @@ import pytest
 from app.domain.contracts import Effect, Obligation, PolicyDecision
 from app.policy.replay import ReplayError, replay_database
 from app.policy.snapshots import build_snapshot
-from tests.test_m4_policy_snapshots import SOURCE
+from tests.test_policy_snapshots import SOURCE
 
 
 def setup_record(tmp_path, audit):

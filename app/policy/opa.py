@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import logging
 import re
+import time
 from typing import Any
 
 import httpx
 
 from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision, ReleaseVerifier
 from app.infrastructure.config import HTTPTimeouts
+from app.infrastructure.logging import event, failure_code
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError
 
@@ -41,6 +44,7 @@ class OPAPolicyEvaluator:
         self.releases = releases
 
     async def evaluate(self, context: PolicyContext) -> PolicyDecision:
+        started = time.perf_counter()
         try:
             try:
                 pinned = self.snapshots.verify_active() if self.snapshots else None
@@ -74,9 +78,33 @@ class OPAPolicyEvaluator:
                 if verified_after["release_id"] != pinned_release["release_id"]:
                     raise ReleaseIntegrityError("Approved release changed during evaluation")
             return decision
+        except PolicyIntegrityError:
+            event(
+                "policy_integrity_failed",
+                level=logging.ERROR,
+                stage="policy",
+                error_code="POLICY_INTEGRITY_FAILED",
+            )
+            raise
         except ReleaseIntegrityError as exc:
+            event(
+                "policy_integrity_failed",
+                level=logging.ERROR,
+                stage="policy",
+                error_code="RELEASE_INTEGRITY_FAILED",
+            )
             raise PolicyIntegrityError("Release signature or artifact identity invalid") from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError, SnapshotError) as exc:
+            event(
+                "policy_evaluation_failed",
+                level=logging.ERROR,
+                stage="policy",
+                error_code=failure_code(exc, "OPA"),
+                http_status=exc.response.status_code
+                if isinstance(exc, httpx.HTTPStatusError)
+                else None,
+                duration_ms=round((time.perf_counter() - started) * 1000, 3),
+            )
             raise PolicyEvaluationError("OPA unavailable or returned an invalid decision") from exc
 
 

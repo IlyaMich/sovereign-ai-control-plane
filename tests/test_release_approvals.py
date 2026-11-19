@@ -18,7 +18,7 @@ from app.release.approvals import (
     verify_approval,
 )
 from app.release.evidence import verify_release_references
-from tests.test_m4_policy_snapshots import SOURCE
+from tests.test_policy_snapshots import SOURCE
 
 D = "d" * 64
 

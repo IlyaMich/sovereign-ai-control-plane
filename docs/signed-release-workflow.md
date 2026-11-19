@@ -43,24 +43,24 @@ Preserve `.env`, audit volume, and existing `policy-archive` and `policy-active`
 
 1. Install Python >=3.12 and `cryptography>=43,<47` on the operator host.
 2. Extract overlay, keep the original audit volume, and run
-   `./Initialize-Milestone6.ps1` from the checkout root. It creates a dev key
+   `./Approve-And-ActivateRelease.ps1` from the checkout root. It creates a dev key
    under `%USERPROFILE%\\.sovereign-ai-control-plane`, writes only its public
    key to `release-trust/`, builds the control-plane image, reads the actual
    installed detector manifest, signs and activates generation 1.
 3. Provision/protect the trusted public key separately on any reviewing host.
    Protect private key with OS ACLs and ideally encrypted storage/HSM.
 4. Start containers with `podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d`.
-5. Run `./Verify-Milestone6.ps1` to check actual runtime approval, signed
+5. Run `./Verify-SignedReleaseWorkflow.ps1` to check actual runtime approval, signed
    evidence, export and network-disabled offline release verification.
 
-`make up` and `make restart` run a release preflight and use `--no-build`, preserving the approved image. If `make build` was already run, `.\Initialize-Milestone6.ps1 -UseExistingKey -SkipBuild` approves the existing image as a new successor generation without rebuilding it.
+`make up` and `make restart` run a release preflight and use `--no-build`, preserving the approved image. If `make build` was already run, `.\Approve-And-ActivateRelease.ps1 -UseExistingKey -SkipBuild` approves the existing image as a new successor generation without rebuilding it.
 
 ### Subsequent policy rollouts / rollback
 
 For a new policy, first stop/recreate OPA around activation (to avoid modifying mounted files while serving): edit `policies/decision.rego`, run
 `python -m tools.build_policy_snapshot`, build the intended detector image,
 then sign a new approval with **generation N+1** and previous release ID.
-`Initialize-Milestone6.ps1 -UseExistingKey` handles the normal next generation.
+`Approve-And-ActivateRelease.ps1 -UseExistingKey` handles the normal next generation.
 If the Rego revision string changes, also update `EXPECTED_POLICY_REVISION`
 in `.env` and recreate the control-plane. Otherwise readiness fails closed.
 
@@ -72,7 +72,7 @@ Then recreate **both OPA and control-plane**; no hot reload of unsigned files.
 
 ### Independent public key & checkpoint validation
 
-`Verify-Milestone6.ps1` supplies `/release-trust/release-signing.pub.pem` from an
+`Verify-SignedReleaseWorkflow.ps1` supplies `/release-trust/release-signing.pub.pem` from an
 external mount relative to the evidence ZIP; the viewer can authenticate release
 approval signatures. For independently authenticated audit history, **also** pin
 `audit-key.pub.pem` and a witnessed checkpoint outside the audit volume, and

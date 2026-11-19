@@ -102,7 +102,7 @@ verifiable; changed detector source/rules require a newly built, signed, activat
 Do not edit generated manifests or historical approvals.
 
 To change detection behavior, edit the JSON, run the checks, then run
-`Initialize-Milestone6.ps1` (with the existing signing key) and recreate services using
+`Approve-And-ActivateRelease.ps1` (with the existing signing key) and recreate services using
 `--no-build`. Coordinate coverage/category changes with `policies/decision.rego`, regenerate
 the policy snapshot if needed, and obtain approval for both artifacts. The existing
 English/ASCII restriction remains in effect.
