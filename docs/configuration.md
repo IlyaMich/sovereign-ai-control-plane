@@ -14,6 +14,8 @@ variables; they do not automatically load `.env`.
 | `DETECTOR_QUEUE_WAIT_SECONDS` | 1 | Max wait to reserve a detector submission slot, not an NLP execution deadline |
 | `MAX_AUDIT_JOBS` | 16 | Max in-flight/queued SQLite audit operations per API process |
 | `AUDIT_QUEUE_WAIT_SECONDS` | 1 | Max wait for audit submission capacity, not a commit timeout |
+| `LOOP_LAG_INTERVAL_SECONDS` | 0.25 | Event-loop delay sampling interval, 0.05–5 seconds |
+| `METRICS_SAMPLE_WINDOW` | 512 | Recent queue/service/lag timings retained per process, 1–4096 |
 | `OPA_TIMEOUT_SECONDS` | 2 | OPA evaluation HTTP timeout |
 | `MODEL_TIMEOUT_SECONDS` | 10 | Model invocation HTTP timeout |
 | `READINESS_TIMEOUT_SECONDS` | 1 | Timeout for each readiness HTTP probe |
@@ -104,3 +106,24 @@ To change detection behavior, edit the JSON, run the checks, then run
 `--no-build`. Coordinate coverage/category changes with `policies/decision.rego`, regenerate
 the policy snapshot if needed, and obtain approval for both artifacts. The existing
 English/ASCII restriction remains in effect.
+
+## M7.5 — Process-local concurrency diagnostics
+
+`GET /v1/diagnostics/concurrency` requires the existing `X-API-Key` and returns
+`Cache-Control: no-store`. It reports active/rejected admissions, detector and
+audit queue wait/processing time distributions (p50/p95 and max), operation counts,
+and event-loop scheduling lag. All values are counters or aggregate durations: no
+raw prompts, keys, model outputs, request identifiers or tenant details are stored.
+
+Metrics start at zero when a control-plane worker starts. They are not shared across
+processes, and distributions are bounded rolling windows, not complete histories.
+`queue_wait` includes capacity waiting and pending time behind the executor worker;
+`processing` measures only work inside that worker. Job counts include cancelled
+requests until the underlying worker future really finishes.
+
+When comparing M7.2 and M7.3 throughput, collect diagnostics before and after each
+load scenario, ideally with an isolated single-worker deployment, unchanged
+Podman resources and a reproducible workload. Look for growing audit queue wait
+versus audit worker processing; this instrumentation does not itself determine
+the regression's cause. The diagnostics endpoint does not provide production
+monitoring, global admission accounting or external telemetry exports.
