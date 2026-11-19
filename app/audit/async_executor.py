@@ -106,6 +106,10 @@ class BoundedAuditExecutor:
         # the queued concurrent.futures.Future (or forge an audit success).
         return await asyncio.shield(asyncio.wrap_future(submitted))
 
+    async def run(self, operation: Callable[[], T]) -> T:
+        """Run internal auxiliary SQLite operations in the existing bounded lane."""
+        return await self._execute(operation)
+
     async def commit(
         self, request_id: str, tenant_id: str, event_type: str, payload: dict[str, Any]
     ) -> AuditReceipt:
