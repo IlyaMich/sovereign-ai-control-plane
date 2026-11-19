@@ -1,0 +1,17 @@
+{
+  "schema_version": 1,
+  "description": "Above-admission-limit diagnostic; 429s are expected but integrity remains mandatory.",
+  "levels": [
+    12,
+    16,
+    24,
+    32
+  ],
+  "duration_s": 30,
+  "runs": 3,
+  "interval_s": 0.75,
+  "scenarios": [
+    "local_permit"
+  ],
+  "allow_overload": true
+}

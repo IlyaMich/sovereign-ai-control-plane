@@ -1,0 +1,18 @@
+{
+  "schema_version": 1,
+  "description": "Sequential scenario catalog (NOT simultaneous mixed traffic). Requires optional simulator for external_redaction.",
+  "levels": [
+    4,
+    8
+  ],
+  "duration_s": 60,
+  "runs": 3,
+  "interval_s": 0.75,
+  "scenarios": [
+    "local_permit",
+    "credential_deny",
+    "unsupported_input",
+    "external_redaction"
+  ],
+  "allow_overload": false
+}

@@ -1,0 +1,19 @@
+{
+  "schema_version": 1,
+  "description": "Closed-loop baseline curve; scenarios run sequentially within each suite.",
+  "levels": [
+    1,
+    2,
+    4,
+    8
+  ],
+  "duration_s": 60,
+  "runs": 3,
+  "interval_s": 0.75,
+  "scenarios": [
+    "local_permit",
+    "credential_deny",
+    "unsupported_input"
+  ],
+  "allow_overload": false
+}
