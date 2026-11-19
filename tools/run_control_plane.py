@@ -5,6 +5,7 @@ from __future__ import annotations
 import uvicorn
 
 from app.infrastructure.config import positive_int
+from app.infrastructure.logging import configure_logging
 
 
 def server_limits() -> tuple[int, int]:
@@ -16,10 +17,12 @@ def server_limits() -> tuple[int, int]:
 
 
 def main() -> None:
+    configure_logging()
     concurrency, keepalive = server_limits()
     uvicorn.run(
         "app.api.main:create_app",
         factory=True,
+        log_config=None,
         host="0.0.0.0",
         port=8000,
         access_log=False,

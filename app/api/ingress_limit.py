@@ -6,9 +6,12 @@ connection/task boundary; the existing prompt admission remains independent.
 
 from __future__ import annotations
 
+import logging
+
 from starlette.responses import JSONResponse
 
 from app.api.admission import InFlightAdmission
+from app.infrastructure.logging import event
 
 
 class HTTPIngressLimitMiddleware:
@@ -20,6 +23,17 @@ class HTTPIngressLimitMiddleware:
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
         if not self.admission.try_enter():
+            scope.setdefault("state", {})["ingress_rejected"] = True
+            event(
+                "http_ingress_rejected",
+                level=logging.WARNING,
+                limited=True,
+                error_code="HTTP_INGRESS_CAPACITY_EXCEEDED",
+                stage="http_ingress",
+                http_status=503,
+                method=scope["method"],
+                route=scope.get("path", "UNMATCHED"),
+            )
             return await JSONResponse(
                 status_code=503,
                 headers={"Retry-After": "1", "Cache-Control": "no-store"},

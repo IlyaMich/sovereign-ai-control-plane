@@ -45,3 +45,43 @@ reconciliation or authorize retrying inference.
 Logging changes do not edit signed classifier source files. Follow the normal image
 build and runtime release verification procedure before deploying. Changes to signed
 detector files still require their existing manifest/release approval workflow.
+
+
+## Overload and integrity diagnostics
+
+HTTP ingress saturation emits `http_ingress_rejected` with
+`HTTP_INGRESS_CAPACITY_EXCEEDED`, including on health routes. This warning replaces
+the ordinary request summary for that rejection and is rate-limited per process.
+The HTTP correlation header is still returned. The outer Uvicorn connection limit
+emits `server_capacity_exceeded` with `UVICORN_CAPACITY_EXCEEDED`; this occurs before
+ASGI, so no application request/correlation ID is available. Only Uvicorn's exact
+known concurrency-warning message is mapped; other arbitrary text stays excluded.
+The supported launcher configures logging before Uvicorn and preserves that setup.
+
+Integrity queue rejection and shutdown are WARNING events with
+`INTEGRITY_CAPACITY_EXCEEDED` and `INTEGRITY_EXECUTOR_CLOSED`. These operational codes
+also appear in policy/orchestrator diagnostics instead of falsely identifying
+capacity as an invalid signature or untrusted artifact. Signed fail-closed decision
+reason codes remain unchanged. Integrity completion events retain the initiating
+request's correlation metadata and report actual queue/worker timing. Successes
+use DEBUG, and failures use ERROR. Normal readiness scan failures use DEBUG because
+the readiness transition already reports the failure at ERROR. Failure after a
+cancelled readiness waiter still emits ERROR so late failures remain visible.
+For a shared readiness scan, `CALLER_CANCELLED` means at least one waiter cancelled;
+completion belongs to the request that initiated the scan. Each cancellation has
+its own correlation metadata. Full scans remain fresh and overlapping scans still
+coalesce; logging does not cache approvals.
+
+Readiness transitions identify policy, detector, release, audit or model failures
+with fixed component/error codes. Repeating the same failure does not emit another
+ERROR transition; DEBUG scan diagnostics can still be enabled when needed.
+
+## Offline release activation
+
+`python -m tools.activate_release` sends operational JSON logs to stderr while
+preserving its existing stdout result. Events cover activation start, successful
+activation with verified artifact digests, lock timeout/unavailability, validation
+and publication failure, and rollback completion or failure. `RECOVERY_REQUIRED`
+means automatic rollback failed and the operator must inspect retained artifacts.
+No private keys, file contents, candidate paths or exception messages are logged.
+These are diagnostic events, not additional signed audit evidence.

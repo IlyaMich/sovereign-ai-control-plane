@@ -9,6 +9,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 import os
 import re
 import shutil
@@ -29,6 +30,7 @@ from app.infrastructure.atomic_files import (
     publish_new_bytes,
     read_regular_bytes,
 )
+from app.infrastructure.logging import event
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 
 RELEASE_DOMAIN = b"sovereign-release-approval-v1\x00"
@@ -320,11 +322,47 @@ class ReleaseStore:
         The two active entries cannot be changed in one filesystem transaction;
         any intervening mismatch remains fail-closed until operator recovery.
         """
+        event("release_activation_started", stage="release")
+        acquired = False
         try:
             with interprocess_lock(self.active.parent / ".release-activation.lock"):
-                return self._activate_locked(candidate, detector_digest=detector_digest)
+                acquired = True
+                event("release_activation_lock_acquired", level=logging.DEBUG, stage="release")
+                result = self._activate_locked(candidate, detector_digest=detector_digest)
+                event(
+                    "release_activated",
+                    stage="release",
+                    release_id=result["release_id"],
+                    policy_digest=result["payload"]["policy_digest"],
+                    detector_digest=result["payload"]["detector_digest"],
+                )
+                return result
         except (TimeoutError, ValueError) as exc:
+            event(
+                "release_activation_failed",
+                level=logging.ERROR,
+                stage="release",
+                error_code="RELEASE_VALIDATION_FAILED"
+                if acquired
+                else "RELEASE_ACTIVATION_LOCK_TIMEOUT"
+                if isinstance(exc, TimeoutError)
+                else "RELEASE_ACTIVATION_LOCK_UNAVAILABLE",
+            )
             raise ReleaseIntegrityError("Release activation lock unavailable") from exc
+        except Exception as exc:
+            event(
+                "release_activation_failed",
+                level=logging.ERROR,
+                stage="release",
+                error_code="RELEASE_ACTIVATION_LOCK_UNAVAILABLE"
+                if not acquired
+                else "RELEASE_PUBLICATION_FAILED"
+                if isinstance(exc, OSError)
+                else "RELEASE_VALIDATION_FAILED"
+                if isinstance(exc, ReleaseIntegrityError)
+                else "RELEASE_ACTIVATION_FAILED",
+            )
+            raise
 
     def _activate_locked(
         self, candidate: Path | str, *, detector_digest: str | None = None
@@ -417,13 +455,39 @@ class ReleaseStore:
             # On ordinary I/O failure restore prior active policy if possible.
             # On an abrupt process death, retained .policy-backup-* and archive
             # enable explicit operator review; runtime release checks fail closed.
-            if new_installed and active_policy.exists():
-                os.replace(active_policy, failed)
-            if old_moved and backup.exists():
-                os.replace(backup, active_policy)
-            if failed.exists():
-                shutil.rmtree(failed)
-            fsync_directory(active_policy.parent)
+            event(
+                "release_publication_failed",
+                level=logging.ERROR,
+                stage="release",
+                error_code="RELEASE_PUBLICATION_FAILED",
+            )
+            try:
+                if new_installed and active_policy.exists():
+                    os.replace(active_policy, failed)
+                if old_moved and backup.exists():
+                    os.replace(backup, active_policy)
+                if failed.exists():
+                    shutil.rmtree(failed)
+                fsync_directory(active_policy.parent)
+            except BaseException:
+                event(
+                    "release_rollback_failed",
+                    level=logging.ERROR,
+                    stage="release",
+                    error_code="RELEASE_ROLLBACK_FAILED",
+                    state="RECOVERY_REQUIRED",
+                )
+                raise
+            event(
+                "release_rollback_completed",
+                level=logging.WARNING,
+                stage="release",
+                state="PRIOR_POLICY_RESTORED"
+                if old_moved
+                else "PRIOR_POLICY_UNCHANGED"
+                if active_policy.exists()
+                else "NO_PRIOR_POLICY",
+            )
             raise
         finally:
             shutil.rmtree(stage, ignore_errors=True)

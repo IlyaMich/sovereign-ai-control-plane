@@ -30,7 +30,10 @@ from app.domain.contracts import (
 )
 from app.enforcement.gateway import EnforcementPlanner, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
-from app.infrastructure.integrity_executor import BoundedIntegrityExecutor
+from app.infrastructure.integrity_executor import (
+    BoundedIntegrityExecutor,
+    integrity_unavailable_code,
+)
 from app.infrastructure.logging import event
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
@@ -130,6 +133,7 @@ class RequestOrchestrator:
         policy_input = PolicyContext(command, classification)
         approved_release = None
         release_untrusted = False
+        release_error_code = "UNTRUSTED_RELEASE"
         if self.release_store is not None:
             try:
                 approved_release = await self._verify_release(
@@ -137,14 +141,22 @@ class RequestOrchestrator:
                     if classification.artifact_digest
                     else None
                 )
-            except Exception:
+            except Exception as exc:
                 release_untrusted = True
+                release_error_code = integrity_unavailable_code(exc) or (
+                    "UNTRUSTED_RELEASE"
+                    if isinstance(exc, ReleaseIntegrityError)
+                    else "RELEASE_VERIFICATION_FAILED"
+                )
         if release_untrusted:
             event(
                 "request_safety_failure",
-                level=logging.ERROR,
+                level=logging.WARNING
+                if release_error_code.startswith("INTEGRITY_")
+                else logging.ERROR,
+                limited=release_error_code.startswith("INTEGRITY_"),
                 request_id=command.request_id,
-                error_code="UNTRUSTED_RELEASE",
+                error_code=release_error_code,
             )
             decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
         elif classification.status == DetectionStatus.UNKNOWN:
@@ -152,12 +164,14 @@ class RequestOrchestrator:
         else:
             try:
                 decision = await self.policy.evaluate(policy_input)
-            except PolicyIntegrityError:
+            except PolicyIntegrityError as exc:
+                unavailable = integrity_unavailable_code(exc)
                 event(
                     "request_safety_failure",
-                    level=logging.ERROR,
+                    level=logging.WARNING if unavailable else logging.ERROR,
+                    limited=unavailable is not None,
                     request_id=command.request_id,
-                    error_code="POLICY_INTEGRITY_FAILURE",
+                    error_code=unavailable or "POLICY_INTEGRITY_FAILURE",
                 )
                 decision = PolicyDecision.deny("POLICY_INTEGRITY_FAILURE")
             except Exception:
@@ -231,12 +245,19 @@ class RequestOrchestrator:
                 )
                 if rechecked["release_id"] != approved_release["release_id"]:
                     raise ReleaseIntegrityError("Active release changed during request")
-            except Exception:
+            except Exception as exc:
+                unavailable = integrity_unavailable_code(exc)
                 event(
                     "request_safety_failure",
-                    level=logging.ERROR,
+                    level=logging.WARNING if unavailable else logging.ERROR,
+                    limited=unavailable is not None,
                     request_id=command.request_id,
-                    error_code="UNTRUSTED_RELEASE",
+                    error_code=unavailable
+                    or (
+                        "UNTRUSTED_RELEASE"
+                        if isinstance(exc, ReleaseIntegrityError)
+                        else "RELEASE_VERIFICATION_FAILED"
+                    ),
                 )
                 decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
                 opa_decision = None  # An untrusted evaluation must not be used for replay.
