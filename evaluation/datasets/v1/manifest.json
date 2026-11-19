@@ -1,0 +1,22 @@
+{
+  "case_count": 1200,
+  "cases_sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+  "dataset_version": "1.0.0",
+  "distribution": {
+    "adversarial": 150,
+    "clean": 250,
+    "hard_negative": 200,
+    "mixed_entities": 150,
+    "standard_sensitive": 350,
+    "unsupported": 100
+  },
+  "generator_revision": "deterministic-templates-20261119-v1",
+  "name": "sovereign-synthetic-v1",
+  "notes": "Synthetic only; no real credentials, personal records, or model outputs.",
+  "schema_version": 1,
+  "split_counts": {
+    "development": 240,
+    "evaluation": 720,
+    "validation": 240
+  }
+}
