@@ -1,5 +1,4 @@
 """Startup failure diagnosis must be actionable without exposing prompt data."""
-
 from __future__ import annotations
 
 from importlib import metadata

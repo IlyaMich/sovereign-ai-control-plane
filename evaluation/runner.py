@@ -1,5 +1,4 @@
 """Run a detector against immutable ground truth without changing production code."""
-
 from __future__ import annotations
 
 import hashlib
@@ -8,10 +7,10 @@ import math
 import platform
 import subprocess
 import sys
+from importlib import metadata
 import time
 import uuid
 from datetime import datetime, timezone
-from importlib import metadata
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -27,14 +26,8 @@ class DetectorAdapter(Protocol):
 
 def _git_head(repo_root: Path) -> str | None:
     try:
-        proc = subprocess.run(
-            ["git", "rev-parse", "HEAD"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            timeout=3,
-            check=True,
-        )
+        proc = subprocess.run(["git", "rev-parse", "HEAD"], cwd=repo_root,
+                              capture_output=True, text=True, timeout=3, check=True)
     except (OSError, subprocess.SubprocessError):
         return None
     value = proc.stdout.strip()
@@ -59,13 +52,8 @@ def _parse_prediction(cid: str, raw: Any, latency_ms: float, text: str) -> Predi
         if not isinstance(item, dict):
             raise ValueError("Invalid finding")
         cat, start, end = item.get("category"), item.get("start"), item.get("end")
-        if not (
-            isinstance(cat, str)
-            and cat
-            and type(start) is int
-            and type(end) is int
-            and 0 <= start < end <= len(text)
-        ):
+        if not (isinstance(cat, str) and cat and type(start) is int and type(end) is int
+                and 0 <= start < end <= len(text)):
             raise ValueError("Invalid finding span")
         entities.append(Entity(cat, start, end))
     if status == "NO_PRIVATE_DETECTED" and entities or status == "PRIVATE" and not entities:
@@ -90,9 +78,8 @@ def _percentile(values: list[float], p: float) -> float | None:
     return round(interpolated, 4)
 
 
-def evaluate(
-    dataset: Dataset, adapter: DetectorAdapter, *, split: str = "all", repo_root: Path | None = None
-) -> tuple[dict[str, Any], list[Prediction]]:
+def evaluate(dataset: Dataset, adapter: DetectorAdapter, *, split: str = "all",
+             repo_root: Path | None = None) -> tuple[dict[str, Any], list[Prediction]]:
     """Errors are counted as ERROR, never silently converted to negative/UNKNOWN."""
     cases = dataset.select(split)
     predictions: list[Prediction] = []
@@ -102,27 +89,25 @@ def evaluate(
         tick = time.perf_counter()
         try:
             raw = adapter.detect(case.text)
-            result = _parse_prediction(case.id, raw, (time.perf_counter() - tick) * 1000, case.text)
+            result = _parse_prediction(case.id, raw, (time.perf_counter() - tick) * 1000,
+                                       case.text)
             if result.status != "UNKNOWN":
-                identity = (
-                    str(raw.get("detector_version", "")),
-                    str(raw.get("config_digest", "")),
-                    str(raw.get("artifact_digest", "")),
-                )
+                identity = (str(raw.get("detector_version", "")),
+                            str(raw.get("config_digest", "")),
+                            str(raw.get("artifact_digest", "")))
                 if verified_identity is not None and identity != verified_identity:
                     raise RuntimeError("Detector identity changed during evaluation")
                 verified_identity = identity
         except Exception as exc:
             # Never serialize exception messages: they might contain submitted text.
-            result = Prediction(
-                case.id, "ERROR", (), (time.perf_counter() - tick) * 1000, (), type(exc).__name__
-            )
+            result = Prediction(case.id, "ERROR", (),
+                                (time.perf_counter() - tick) * 1000,
+                                (), type(exc).__name__)
         predictions.append(result)
     elapsed = time.perf_counter() - started
     latency = [p.latency_ms for p in predictions]
     repo_root = repo_root or Path(__file__).resolve().parent.parent
     rules = repo_root / "app" / "detection" / "rules.json"
-
     def package_version(name: str) -> str | None:
         try:
             return metadata.version(name)
@@ -151,51 +136,35 @@ def evaluate(
         "aggregator_source_sha256": _file_digest(
             repo_root / "app" / "detection" / "aggregation.py"
         ),
-        "runtime": {
-            "python": sys.version.split()[0],
-            "platform": platform.platform(),
-            "presidio_analyzer": package_version("presidio-analyzer"),
-            "spacy": package_version("spacy"),
-            "spacy_model": package_version("en_core_web_sm"),
-        },
+        "runtime": {"python": sys.version.split()[0], "platform": platform.platform(),
+                    "presidio_analyzer": package_version("presidio-analyzer"),
+                    "spacy": package_version("spacy"),
+                    "spacy_model": package_version("en_core_web_sm")},
         "scoring_spec": "strict-and-overlap-v1",
         "metrics": score(cases, predictions),
-        "timing": {
-            "total_seconds": round(elapsed, 4),
-            "cases_per_second": round(len(cases) / elapsed, 3) if elapsed else None,
-            "detector_call_p50_ms": _percentile(latency, 0.50),
-            "detector_call_p95_ms": _percentile(latency, 0.95),
-            "detector_call_p99_ms": _percentile(latency, 0.99),
-            "note": "Sequential detection calls only; includes Python adapter overhead.",
-        },
+        "timing": {"total_seconds": round(elapsed, 4),
+                   "cases_per_second": round(len(cases) / elapsed, 3) if elapsed else None,
+                   "detector_call_p50_ms": _percentile(latency, 0.50),
+                   "detector_call_p95_ms": _percentile(latency, 0.95),
+                   "detector_call_p99_ms": _percentile(latency, 0.99),
+                   "note": "Sequential detection calls only; includes Python adapter overhead."},
     }
     return run, predictions
 
 
-def save_run(
-    outdir: Path, run: dict[str, Any], cases: tuple[Case, ...], predictions: list[Prediction]
-) -> None:
+def save_run(outdir: Path, run: dict[str, Any], cases: tuple[Case, ...],
+             predictions: list[Prediction]) -> None:
     from evaluation.reporting import write_reports
 
     outdir.mkdir(parents=True, exist_ok=False)
-    (outdir / "run.json").write_text(
-        json.dumps(run, indent=2, sort_keys=True) + "\n", encoding="utf-8"
-    )
+    (outdir / "run.json").write_text(json.dumps(run, indent=2, sort_keys=True) + "\n",
+                                      encoding="utf-8")
     with (outdir / "predictions.jsonl").open("w", encoding="utf-8", newline="\n") as f:
         for item in predictions:
-            f.write(
-                json.dumps(
-                    {
-                        "case_id": item.case_id,
-                        "status": item.status,
-                        "entities": [vars(entity) for entity in item.entities],
-                        "latency_ms": round(item.latency_ms, 5),
-                        "reason_codes": item.reason_codes,
-                        "error_type": item.error_type,
-                    },
-                    sort_keys=True,
-                    separators=(",", ":"),
-                )
-                + "\n"
-            )
+            f.write(json.dumps({"case_id": item.case_id, "status": item.status,
+                                "entities": [vars(entity) for entity in item.entities],
+                                "latency_ms": round(item.latency_ms, 5),
+                                "reason_codes": item.reason_codes,
+                                "error_type": item.error_type},
+                               sort_keys=True, separators=(",", ":")) + "\n")
     write_reports(outdir, run, cases, predictions)

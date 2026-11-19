@@ -1,5 +1,4 @@
 """Abstentions/errors, exact span boundaries, category errors, and metrics."""
-
 from __future__ import annotations
 
 from evaluation.dataset import Case, Entity
@@ -7,16 +6,8 @@ from evaluation.scoring import Prediction, _matched, score
 
 
 def _case(name, text, spans=(), status="NO_PRIVATE_DETECTED", in_scope=True):
-    return Case(
-        name,
-        text,
-        tuple(spans),
-        status,
-        in_scope,
-        "standard_sensitive" if spans else "clean",
-        ("test",),
-        "evaluation",
-    )
+    return Case(name, text, tuple(spans), status, in_scope,
+                "standard_sensitive" if spans else "clean", ("test",), "evaluation")
 
 
 def _outcome(name, status, spans=(), reasons=()):
