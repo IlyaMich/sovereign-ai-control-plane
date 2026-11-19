@@ -9,6 +9,7 @@ variables; they do not automatically load `.env`.
 | `MAX_PROMPT_BYTES` | 8192 | Maximum ingress prompt size in UTF-8 bytes |
 | `MAX_REQUEST_BODY_BYTES` | 16384 | Maximum complete ingress request, including JSON overhead |
 | `MAX_FORWARDED_PROMPT_BYTES` | 8192 | Maximum prompt accepted by all model simulators and egress gateway |
+| `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
 | `OPA_TIMEOUT_SECONDS` | 2 | OPA evaluation HTTP timeout |
 | `MODEL_TIMEOUT_SECONDS` | 10 | Model invocation HTTP timeout |
 | `READINESS_TIMEOUT_SECONDS` | 1 | Timeout for each readiness HTTP probe |
@@ -18,6 +19,12 @@ variables; they do not automatically load `.env`.
 | `SIMULATOR_UPSTREAM_URL` | http://external-simulator:9000 | Operator-controlled HTTP(S) origin; gateway appends `/generate` |
 
 Limits must be positive integers. The body limit must exceed the ingress prompt limit.
+Admission uses a separate 1-1024 integer limit and rejects with a sanitized HTTP 429
+(`Retry-After: 1`) after authentication and request validation, but before any
+detection, audit or model work. Rejected requests have no audit receipt because
+they were never admitted; client retries must use backoff. This limit applies
+per Uvicorn worker, not globally across multiple processes. It does not cap
+HTTP body buffering, event-loop CPU work or the model server's queue.
 Timeouts must be positive and finite; HTTPX applies them to individual network operations,
 not to the entire request lifecycle. Invalid values fail startup. Character counts in
 OpenAPI are a preliminary bound; UTF-8 byte validation also applies. Each API app instance
