@@ -286,9 +286,7 @@ def test_readiness_logs_only_state_transitions(audit, events):
         if not healthy[0]:
             raise httpx.ReadTimeout(SECRET, request=request)
         if request.method == "POST":
-            return httpx.Response(
-                200, json={"result": {"policy_revision": expected_revision}}
-            )
+            return httpx.Response(200, json={"result": {"policy_revision": expected_revision}})
         return httpx.Response(200, json={"status": "UP"})
 
     with TestClient(app) as client:

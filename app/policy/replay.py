@@ -186,9 +186,7 @@ def replay_database(
             payload = outcome_event["payload"]
             if "output_dlp" not in payload:
                 continue  # Historical outcomes precede output DLP v1.
-            original = signed_inputs.get(
-                (outcome_event["request_id"], outcome_event["tenant_id"])
-            )
+            original = signed_inputs.get((outcome_event["request_id"], outcome_event["tenant_id"]))
             if original is None or original.get("decision", {}).get("effect") != "PERMIT":
                 raise ReplayError(f"Output evidence without input permit at sequence {sequence}")
             dlp = payload["output_dlp"]
@@ -230,7 +228,8 @@ def replay_database(
             expected = parse_decision(recorded)
             digest = expected.policy_digest
             if not digest or dlp["policy_snapshot"] != {
-                "sha256": digest, "revision": expected.policy_revision
+                "sha256": digest,
+                "revision": expected.policy_revision,
             }:
                 raise ReplayError(f"Invalid output policy snapshot at sequence {sequence}")
             approved = original.get("release_snapshot")
@@ -257,7 +256,8 @@ def replay_database(
             if final.to_dict() != expected.to_dict() and (
                 final.effect != "DENY"
                 or expected.effect != "PERMIT"
-                or final.reason_codes not in (
+                or final.reason_codes
+                not in (
                     ("OUTPUT_INVALID_POLICY_PLAN",),
                     ("OUTPUT_UNTRUSTED_RELEASE",),
                 )

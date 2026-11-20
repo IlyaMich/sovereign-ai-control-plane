@@ -33,16 +33,11 @@ def test_api_reports_output_blocked_without_leaking_generated_pii(audit):
         assert "jane@example.com" not in response.text
         assert model.calls == 1
 
-        evidence = client.get(
-            f"/v1/requests/{body['request_id']}", headers={"X-API-Key": api_key}
-        )
+        evidence = client.get(f"/v1/requests/{body['request_id']}", headers={"X-API-Key": api_key})
         assert evidence.status_code == 200
         assert "jane@example.com" not in evidence.text
         assert evidence.json()["events"][-1]["event"]["payload"]["model_invoked"] is True
-        assert (
-            evidence.json()["events"][-1]["event"]["payload"]["output_dlp"]["released"]
-            is False
-        )
+        assert evidence.json()["events"][-1]["event"]["payload"]["output_dlp"]["released"] is False
 
 
 def test_api_returns_clean_output_with_output_decision(audit):

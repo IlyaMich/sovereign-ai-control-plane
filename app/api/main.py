@@ -387,8 +387,7 @@ def create_app(components: Components | None = None) -> FastAPI:
             # must not appear READY when the output entrypoint is missing.
             if deps.orchestrator.output_policy is not None:
                 output_response = await deps.client.post(
-                    deps.settings.opa_url.rstrip("/")
-                    + "/v1/data/sovereign/authz/output_decision",
+                    deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/output_decision",
                     json={"input": {"stage": "OUTPUT"}},
                     timeout=deps.settings.http.readiness,
                 )

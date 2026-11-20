@@ -428,14 +428,11 @@ class RequestOrchestrator:
                         output_decision = PolicyDecision.deny("OUTPUT_POLICY_UNAVAILABLE")
 
             assert output_classification is not None and output_decision is not None
-            if (
-                output_decision.effect == Effect.PERMIT
-                and (
-                    output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
-                    or output_classification.findings
-                    or output_decision.obligations
-                    or output_context is None
-                )
+            if output_decision.effect == Effect.PERMIT and (
+                output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
+                or output_classification.findings
+                or output_decision.obligations
+                or output_context is None
             ):
                 output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
 

@@ -53,12 +53,18 @@ class OutputPolicy:
             raise RuntimeError("do not leak confidential output here")
         if context.classification.status == DetectionStatus.PRIVATE and not self.permit_private:
             return PolicyDecision(
-                Effect.DENY, (), ("OUTPUT_PRIVATE_DATA_BLOCKED",),
-                "redaction-response-dlp-v4", self.digest,
+                Effect.DENY,
+                (),
+                ("OUTPUT_PRIVATE_DATA_BLOCKED",),
+                "redaction-response-dlp-v4",
+                self.digest,
             )
         return PolicyDecision(
-            Effect.PERMIT, (), ("OUTPUT_CONTENT_CLEARED",),
-            "redaction-response-dlp-v4", self.digest,
+            Effect.PERMIT,
+            (),
+            ("OUTPUT_CONTENT_CLEARED",),
+            "redaction-response-dlp-v4",
+            self.digest,
         )
 
 
@@ -76,7 +82,13 @@ class LocalModel:
 
 
 def make_service(
-    audit, output, *, detector=None, output_policy=None, max_output_bytes=8192, digest="",
+    audit,
+    output,
+    *,
+    detector=None,
+    output_policy=None,
+    max_output_bytes=8192,
+    digest="",
     tenant_id="tenant",
 ):
     detector = detector or DemoPatternDetector()
@@ -220,8 +232,12 @@ async def test_output_audit_failure_never_releases_text(audit):
 
     model = LocalModel("model result", audit)
     svc = RequestOrchestrator(
-        DemoPatternDetector(), InputPermit(), BrokenOutcomeAudit(), model,
-        EnforcementPlanner(), output_policy=OutputPolicy(),
+        DemoPatternDetector(),
+        InputPermit(),
+        BrokenOutcomeAudit(),
+        model,
+        EnforcementPlanner(),
+        output_policy=OutputPolicy(),
     )
     with pytest.raises(AuditUnavailable):
         await svc.process(command())
@@ -255,8 +271,11 @@ async def test_output_policy_is_replayed_from_exported_signed_evidence(tmp_path,
         assert folder.name == info.policy_digest
         assert "stage" not in policy_input
         return PolicyDecision(
-            Effect.PERMIT, (Obligation("ROUTE", "sovereign-model"),),
-            ("INPUT_OK",), info.policy_revision, info.policy_digest
+            Effect.PERMIT,
+            (Obligation("ROUTE", "sovereign-model"),),
+            ("INPUT_OK",),
+            info.policy_revision,
+            info.policy_digest,
         ).to_dict()
 
     def output_replay(folder, policy_input):
@@ -264,13 +283,10 @@ async def test_output_policy_is_replayed_from_exported_signed_evidence(tmp_path,
         assert policy_input["stage"] == "OUTPUT"
         assert policy_input["classification"]["status"] == "NO_PRIVATE_DETECTED"
         return PolicyDecision(
-            Effect.PERMIT, (), ("OUTPUT_CONTENT_CLEARED",),
-            info.policy_revision, info.policy_digest
+            Effect.PERMIT, (), ("OUTPUT_CONTENT_CLEARED",), info.policy_revision, info.policy_digest
         ).to_dict()
 
-    verified = verify_package(
-        str(bundle), evaluator=input_replay, output_evaluator=output_replay
-    )
+    verified = verify_package(str(bundle), evaluator=input_replay, output_evaluator=output_replay)
     assert verified["status"] == "EVIDENCE_PACKAGE_SELF_CONSISTENT"
     assert verified["audit"]["verified_events"] == 2
     assert verified["audit"]["policy_decisions_replayed"] == 1
