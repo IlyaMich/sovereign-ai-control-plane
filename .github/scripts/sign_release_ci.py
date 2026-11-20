@@ -24,8 +24,9 @@ from urllib import request as urllib_request
 from app.policy.snapshots import PolicySnapshotStore, build_snapshot
 from app.release.approvals import ReleaseStore
 
-
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
+
+
 def required_path(name: str, *, directory: bool = False) -> Path:
     value = os.environ.get(name, "")
     if not value or not Path(value).is_absolute():

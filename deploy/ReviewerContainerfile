@@ -1,6 +1,8 @@
 FROM docker.io/openpolicyagent/opa:1.8.0 AS opa-cli
 FROM docker.io/library/python:3.12.16-alpine3.23
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+# Apply Alpine security package updates before installing reviewer dependencies.
+RUN apk upgrade --no-cache
 WORKDIR /service
 COPY --from=opa-cli /opa /usr/local/bin/opa
 RUN pip install --no-cache-dir 'cryptography>=50.0.2,<51' 'httpx>=0.27,<1'
