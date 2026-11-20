@@ -26,13 +26,13 @@ Allowed purposes: `GENERAL`, `SUMMARIZATION` and `INTERNAL_ANALYSIS`. The policy
 
 ## Policy identity and signed authorization
 
-1. `tools.build_policy_snapshot` captures the exact Rego/JSON source bytes in `policy-archive/<sha256>/` and activates a verified copy under `policy-active/`.
-2. OPA loads only `policy-active/`. Its answer includes the exact `policy_digest` as well as the human `policy_revision`.
+1. The host-side `tools.build_policy_snapshot` captures the exact Rego/JSON source bytes in `.runtime/policy-archive/<sha256>/` and activates a verified copy under `.runtime/policy-active/`; the container mounts that state at `/policy-active`.
+2. The OPA service loads its read-only `/policies` mount, while the API mounts the same host snapshot at `/policy-active`. Its answer includes the exact `policy_digest` as well as the human `policy_revision`.
 3. The control plane validates OPA's digest against the archived snapshot and against the active signed release approval.
 4. An Ed25519 release signer, **distinct from the audit signer**, approves a tuple of policy digest/revision, detector artifact digest, deployment generation and previous release ID.
 5. The signed `DECISION` evidence contains both the original OPA evaluation and any stricter local denial; a replay reviewer re-evaluates the archived policy on the recorded structured inputs.
 
-A Rego revision name is not itself an authorization, and a source hash alone is not a release signature.
+A Rego revision name is not itself an authorization, and a source hash alone is not a release signature. The tracked example approval is generation 7 with a v3 policy and is **not** a host's active release; consult [release status](release-status.md).
 
 ## Safe change procedure
 

@@ -2,7 +2,7 @@
 
 **Status:** API version `0.6.0`, including M6 signed releases and implemented M7 operational features. Performance acceptance remains subject to the [profiling criteria](concurrency-performance-profiling.md). The original M1 modular-monolith decision remains in [ADR-0001](adr/0001-modular-monolith.md); M4 policy snapshot decision in [ADR-0002](adr/0002-content-addressed-rego.md).
 
-Response-side allow/block DLP is implemented (approved v4); [response-side DLP](response-side-dlp.md) documents the signed release boundary. Source v5 adds optional masking and must receive a new signed successor approval before use.
+Response-side allow/block DLP and optional masking are implemented in source. Whether output inspection/masking is installed depends on the host's **verified** signed policy and detector artifacts. The tracked generation-7 sample is a historical v3 release, not the running approval; see [release status](release-status.md) and [response-side DLP](response-side-dlp.md).
 
 ## Intent and deployment
 
@@ -12,7 +12,7 @@ A local, fail-closed AI request security gateway intended to demonstrate policy-
 | --- | --- |
 | Untrusted | API client and supplied prompt, purpose, requested destination ID |
 | Local application | FastAPI ingress, `RequestOrchestrator`, Presidio/spaCy, deterministic redactor, plan validation |
-| Local policy | OPA 1.8.0 serving the read-only `policy-active/` snapshot |
+| Local policy | Locally built, pinned patched OPA v1.22.4 loading `/policies` from operator-owned `.runtime/policy-active/`; the API separately mounts the same host files at `/policy-active` |
 | Local execution | `sovereign-model` simulator |
 | Optional simulated egress | `egress-gateway` and `external-simulator` on a second private Podman network |
 | Durable evidence | SQLite `audit-data` volume, append chain and Ed25519 audit receipts |
@@ -62,8 +62,8 @@ The diagram is logical. The Docker/Podman simulation is not an internet egress i
 - `app/audit/*`: one local SQLite audit sequencer, HMAC input fingerprint, Ed25519 signed event chain, durable idempotency claims, bounded audit executor, exporter and disconnected verifier. The auxiliary claim registry is not independently signed.
 
 Detection uses one worker thread, SQLite operations use one audit worker thread,
-and request-time policy/release verification uses a bounded two-worker pool per
-API process. Readiness performs full live-file verification in a separate
+and request-time policy/release verification uses a two-worker thread pool with
+bounded outstanding submissions (default `MAX_INTEGRITY_JOBS=8`) per API process. Readiness performs full live-file verification in a separate
 single-worker lane; overlapping probes share the in-progress scan. Worker slots
 remain occupied until underlying work completes, even if the HTTP caller cancels.
 HTTP ingress capacity is bounded before body buffering; prompt admission follows
@@ -114,7 +114,8 @@ automatic execution recovery. See [request lifecycle](idempotency-and-request-li
 - `POST /v1/prompts`: `{"prompt":"...","destination_id":"sovereign-model","purpose":"GENERAL"}` with `X-API-Key` and optional `Idempotency-Key`. JSON fields are strictly validated; default prompt limit is 8,192 UTF-8 bytes and default request-body limit is 16,384 bytes, configurable per deployment.
 - `GET /v1/requests/{request_id}`: query signed decision/outcome evidence using authenticated local-tenant scope.
 - `GET /v1/idempotency/status`: authenticated lookup using `Idempotency-Key` in a header; reports `request_id`, `audit_state` and `execution_status`, without recovering model output.
-- `GET /v1/diagnostics/concurrency`: authenticated process-local admission, worker, logging and event-loop diagnostics. Metrics use bounded rolling windows and reset on worker restart.
+- `GET /v1/diagnostics/concurrency`: authenticated process-local admission, worker, logging and event-loop diagnostics.
+- `GET /v1/diagnostics/dlp`: authenticated process-local input/output DLP counters and sampled output inspection latency; not a durable audit or cross-process total. Metrics use bounded rolling windows and reset on worker restart.
 - `GET /health/live`: process status only.
 - `GET /health/ready`: authenticated with X-API-Key, coalesced and briefly cached; checks OPA digest/revision, detector integrity, active signed release, audit writability and local model health; failures return 503.
 

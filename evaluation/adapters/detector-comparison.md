@@ -106,4 +106,6 @@ metadata. The `adapter_metadata` for stock Presidio records category coverage,
 threshold, dependency/model version, and configuration digest. Historical
 control-plane runs may lack `adapter_metadata` or a detector artifact digest.
 They are valid developer comparisons but not evidence of a signed deployed
-release. Stage 4 will add CI and benchmark automation separately.
+release. A separate [performance framework](../../performance/README.md) and
+[CI workflows](../../docs/ci-and-reproducibility.md) now exist; they do not
+turn the Stage 3 detector comparison into a live deployment or capacity test.

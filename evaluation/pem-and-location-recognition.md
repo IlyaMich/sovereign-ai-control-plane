@@ -1,5 +1,7 @@
 # Detector recall candidate: complete PEM and US city/state spans
 
+> **Historical candidate design note.** The source tree may contain these recognizers, but this document does not verify the exact live signed detector digest or establish that any operator deployed them. Consult [release status](../docs/release-status.md) and the [evaluation evidence matrix](../docs/submission-evidence.md).
+
 This candidate adds **two narrow, high-confidence custom Presidio patterns**.
 It does not change policy, scoring thresholds, detection coverage requirements,
 fail-closed handling, or runtime egress behavior.

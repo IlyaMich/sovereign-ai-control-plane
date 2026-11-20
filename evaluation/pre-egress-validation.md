@@ -1,5 +1,7 @@
 # Known-violation external egress remediation (candidate)
 
+> **Historical remediation rationale.** The reported unsafe-forward cases are synthetic and dated; this file does not attest a live signing-authority upgrade, prove production-safe egress, or replace the [current evidence requirements](../docs/submission-evidence.md).
+
 The 2026-11-20 isolated Rego-backed 1,200-case replay reported 24 unsafe
 external forwards: 14 SSN-shaped samples missed completely, six newline-split
 names missed completely, and four newline-split names only partially redacted.
