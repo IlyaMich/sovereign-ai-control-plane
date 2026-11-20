@@ -10,7 +10,6 @@ import argparse
 import asyncio
 import json
 import re
-import subprocess
 import sys
 import uuid
 from collections import Counter
@@ -25,6 +24,9 @@ from tools.concurrency_performance import (
     loopback_url,
     safe_snapshot,
     save_json,
+)
+from tools.concurrency_performance import (
+    main as capture_main,
 )
 
 SCENARIO = "local_permit"
@@ -302,9 +304,6 @@ def main(argv: list[str] | None = None) -> int:
         if run_dir.exists():
             parser.error("Existing results directory; choose a new label prefix")
         command = [
-            sys.executable,
-            "-m",
-            "tools.concurrency_performance",
             "capture",
             "--label-prefix",
             args.label_prefix,
@@ -326,7 +325,7 @@ def main(argv: list[str] | None = None) -> int:
             "--scenarios",
             SCENARIO,
         ]
-        if subprocess.run(command, check=False).returncode != 0:
+        if capture_main(command) != 0:
             print("FAIL: Signed-audit benchmark or diagnostics capture failed", file=sys.stderr)
             return 1
     overload = check_overload(run_dir)

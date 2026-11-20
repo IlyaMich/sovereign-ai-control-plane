@@ -3,8 +3,7 @@
 import asyncio
 import math
 
-from starlette.responses import JSONResponse
-
+from app.api.errors import error_response
 from app.infrastructure.config import IngressLimits, RequestLimits
 
 
@@ -34,13 +33,9 @@ class RequestBodyLimitMiddleware:
         if length is not None:
             try:
                 if int(length) > self.max_bytes or int(length) < 0:
-                    return await JSONResponse({"detail": "Request too large"}, status_code=413)(
-                        scope, receive, send
-                    )
+                    return await error_response(413)(scope, receive, send)
             except ValueError:
-                return await JSONResponse({"detail": "Invalid content length"}, status_code=400)(
-                    scope, receive, send
-                )
+                return await error_response(400, "INVALID_CONTENT_LENGTH")(scope, receive, send)
 
         # Read at most the configured limit before invoking FastAPI. FastAPI can
         # otherwise turn receive-time limiter exceptions into a generic HTTP 400.
@@ -71,14 +66,10 @@ class RequestBodyLimitMiddleware:
                 if scope.get("http_version", "1.1") in {"1.0", "1.1"}
                 else {}
             )
-            return await JSONResponse(
-                {"detail": "Request body timed out"}, status_code=408, headers=headers
-            )(scope, receive, send)
+            return await error_response(408, headers=headers)(scope, receive, send)
 
         if oversized:
-            return await JSONResponse({"detail": "Request too large"}, status_code=413)(
-                scope, receive, send
-            )
+            return await error_response(413)(scope, receive, send)
 
         delivered = False
 

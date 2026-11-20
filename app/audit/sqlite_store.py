@@ -206,6 +206,34 @@ class SQLiteAuditStore:
         except (sqlite3.Error, OSError, ValueError) as exc:
             raise AuditUnavailable("Durable audit commit failed") from exc
 
+    def count_unresolved(self) -> int:
+        """Aggregate only; includes durable claims that crashed before DECISION."""
+        try:
+            with closing(self._connect()) as conn, conn:
+                conn.execute("BEGIN")
+                has_claims = conn.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name='request_idempotency'"
+                ).fetchone()
+                if has_claims:
+                    query = (
+                        "SELECT COUNT(*) FROM ("
+                        "SELECT request_id FROM events WHERE event_type='DECISION' "
+                        "UNION SELECT request_id FROM request_idempotency"
+                        ") AS pending WHERE NOT EXISTS ("
+                        "SELECT 1 FROM events AS outcome WHERE "
+                        "outcome.request_id=pending.request_id AND outcome.event_type='OUTCOME')"
+                    )
+                else:
+                    query = (
+                        "SELECT COUNT(DISTINCT pending.request_id) FROM events AS pending "
+                        "WHERE pending.event_type='DECISION' AND NOT EXISTS ("
+                        "SELECT 1 FROM events AS outcome WHERE "
+                        "outcome.request_id=pending.request_id AND outcome.event_type='OUTCOME')"
+                    )
+                return int(conn.execute(query).fetchone()[0])
+        except (sqlite3.Error, OSError) as exc:
+            raise AuditUnavailable("Unresolved request metrics unavailable") from exc
+
     def get_events(self, request_id: str, tenant_id: str) -> list[dict[str, Any]]:
         with closing(self._connect()) as conn, conn:
             rows = conn.execute(

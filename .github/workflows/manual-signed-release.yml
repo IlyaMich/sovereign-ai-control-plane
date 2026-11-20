@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -67,37 +67,16 @@ jobs:
               raise SystemExit('Image version must match pyproject.toml [project].version')
           PYCODE
           fi
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
       - name: Install tools, project, and pinned spaCy model
         run: |
-          python -m pip install -e '.[dev]' 'bandit>=1.8,<2'
+          python -m pip install '.[dev]' 'bandit>=1.8,<2'
           python -m pip install \
             'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
-          python -m pip freeze > requirements-ci.txt
-      - name: Quality and complete test suite
-        run: |
-          python -m ruff check .
-          python -m ruff check .github/scripts
-          python -m py_compile .github/scripts/sign_release_ci.py
-          python -m ruff format --check .
-          python -m mypy
-          python -m pytest -q
-          python -m evaluation.cli validate
-      - name: Bandit — block High severity
-        run: python -m bandit -r app simulator tools .github/scripts -lll
-      - name: Trivy filesystem — block High/Critical
-        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
-        with:
-          version: 'v0.76.2'
-          scan-type: fs
-          scan-ref: .
-          scanners: vuln,secret,misconfig
-          severity: HIGH,CRITICAL
-          exit-code: '1'
-          ignore-unfixed: 'false'
+          python -m pip freeze > requirements.txt
       - name: Build patched OPA image for release
         env:
           IMAGE: sovereign-opa:manual-${{ github.sha }}
@@ -106,6 +85,39 @@ jobs:
             --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
             --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
             -t "$IMAGE" .
+      - name: Install patched OPA CLI for signed-runtime tests
+        run: |
+          docker create --name release-test-opa "sovereign-opa:manual-${GITHUB_SHA}" version
+          docker cp release-test-opa:/opa "$RUNNER_TEMP/opa"
+          docker rm release-test-opa
+          chmod +x "$RUNNER_TEMP/opa"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
+      - name: Quality and complete test suite
+        run: |
+          python -m ruff check .
+          python -m ruff check .github/scripts
+          python -m py_compile .github/scripts/sign_release_ci.py
+          python -m ruff format --check .
+          python -m mypy
+          python -m pytest -q -ra -W error
+          python -m evaluation.cli validate
+      - name: Bandit — block unreviewed findings
+        run: |
+          python -m bandit -r app simulator tools .github/scripts --severity-level all
+      - name: Trivy filesystem — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: fs
+          scan-ref: .
+          format: json
+          output: trivy-filesystem.json
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+      - name: Verify Python dependency scan coverage
+        run: python -m tools.verify_dependency_scan trivy-filesystem.json
       - name: Validate and test proposed policy without activating it
         run: |
           python -m tools.build_policy_snapshot \
@@ -118,7 +130,7 @@ jobs:
           docker run --rm \
             -v "$RUNNER_TEMP/proposed-policy:/policies:ro" \
             -v "$PWD/tests/rego:/policy-tests:ro" \
-            -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
+            -v "$PWD/tests/rego_output:/output-policy-tests:ro" \
             --entrypoint /opa "sovereign-opa:manual-${GITHUB_SHA}" \
             test /policies /policy-tests /output-policy-tests -v
       - name: Build exact image intended for approval
@@ -206,7 +218,7 @@ jobs:
           (cd "$RUNNER_TEMP/release-image" && \
             sha256sum application-image.tar.gz reviewer-image.tar.gz opa-image.tar.gz > image.sha256)
       - name: Transfer frozen image to protected signing job
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: scanned-image-${{ github.sha }}
           path: ${{ runner.temp }}/release-image/
@@ -226,7 +238,7 @@ jobs:
       generation: ${{ steps.approve.outputs.generation }}
       release_id: ${{ steps.approve.outputs.release_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
@@ -242,7 +254,7 @@ jobs:
           main_head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
           test "$main_head" = "$REQUESTED_SHA"
       - name: Download approved image from this workflow run
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: scanned-image-${{ github.sha }}
           path: release-input
@@ -285,7 +297,7 @@ jobs:
           # A fresh Git checkout must never supply the predecessor generation.
           python .github/scripts/sign_release_ci.py
       - name: Export verified, signed release package
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: signed-release-g${{ steps.approve.outputs.generation }}
           path: signed-package/
@@ -302,17 +314,17 @@ jobs:
       contents: write
       packages: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           ref: ${{ github.sha }}
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - name: Install release verifier dependency
-        run: python -m pip install 'cryptography>=43,<47'
+        run: python -m pip install 'cryptography>=50.0.2,<51'
       - name: Download the verified signed release package
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
         with:
           name: signed-release-g${{ needs.sign.outputs.generation }}
           path: signed-package

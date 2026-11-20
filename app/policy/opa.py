@@ -26,6 +26,7 @@ from app.infrastructure.integrity_executor import (
     integrity_unavailable_code,
 )
 from app.infrastructure.logging import event, failure_code
+from app.infrastructure.resilience import CircuitOpen, ResilientHTTP
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError
 
@@ -49,10 +50,12 @@ class OPAPolicyEvaluator:
         snapshots: PolicySnapshotStore | None = None,
         releases: ReleaseVerifier | None = None,
         *,
+        resilient_http: ResilientHTTP | None = None,
         timeout: float = HTTPTimeouts.opa,
         integrity_executor: BoundedIntegrityExecutor | None = None,
     ):
         self._client = client
+        self._http = resilient_http
         self._timeout = timeout
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
         self._output_url = base_url.rstrip("/") + "/v1/data/sovereign/authz/output_decision"
@@ -70,13 +73,13 @@ class OPAPolicyEvaluator:
         return operation()
 
     async def evaluate(self, context: PolicyContext) -> PolicyDecision:
-        return await self._evaluate(context, self._url)
+        return await self._evaluate(context, self._url, stage="input_policy")
 
     async def evaluate_output(self, context: OutputPolicyContext) -> PolicyDecision:
-        return await self._evaluate(context, self._output_url)
+        return await self._evaluate(context, self._output_url, stage="output_policy")
 
     async def _evaluate(
-        self, context: PolicyContext | OutputPolicyContext, url: str
+        self, context: PolicyContext | OutputPolicyContext, url: str, *, stage: str
     ) -> PolicyDecision:
         started = time.perf_counter()
         try:
@@ -98,9 +101,19 @@ class OPAPolicyEvaluator:
                 if releases is not None
                 else None
             )
-            response = await self._client.post(
-                url, json={"input": context.to_dict()}, timeout=self._timeout
-            )
+            if self._http is None:
+                response = await self._client.post(
+                    url, json={"input": context.to_dict()}, timeout=self._timeout
+                )
+            else:
+                response = await self._http.request(
+                    self._client,
+                    "opa",
+                    "POST",
+                    url,
+                    json={"input": context.to_dict()},
+                    timeout=self._timeout,
+                )
             response.raise_for_status()
             data = response.json()
             raw = data["result"]
@@ -127,7 +140,7 @@ class OPAPolicyEvaluator:
                 "policy_verification_unavailable" if unavailable else "policy_integrity_failed",
                 level=logging.WARNING if unavailable else logging.ERROR,
                 limited=unavailable is not None,
-                stage="policy",
+                stage=stage,
                 error_code=unavailable or "POLICY_INTEGRITY_FAILED",
             )
             raise
@@ -135,15 +148,16 @@ class OPAPolicyEvaluator:
             event(
                 "policy_integrity_failed",
                 level=logging.ERROR,
-                stage="policy",
+                stage=stage,
                 error_code="RELEASE_INTEGRITY_FAILED",
             )
             raise PolicyIntegrityError("Release signature or artifact identity invalid") from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError, SnapshotError) as exc:
             event(
                 "policy_evaluation_failed",
-                level=logging.ERROR,
-                stage="policy",
+                level=logging.WARNING if isinstance(exc, CircuitOpen) else logging.ERROR,
+                limited=isinstance(exc, CircuitOpen),
+                stage=stage,
                 error_code=failure_code(exc, "OPA"),
                 http_status=exc.response.status_code
                 if isinstance(exc, httpx.HTTPStatusError)

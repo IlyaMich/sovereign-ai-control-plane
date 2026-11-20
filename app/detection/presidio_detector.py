@@ -84,7 +84,11 @@ class PresidioDetector:
         # Replace the wrapped default with an offline callable of the same interface.
         tldextract.extract = tldextract.TLDExtract(suffix_list_urls=(), cache_dir=None)  # type: ignore[assignment]
         from presidio_analyzer import AnalyzerEngine, Pattern, PatternRecognizer
-        from presidio_analyzer.nlp_engine import NlpEngineProvider
+        from presidio_analyzer.nlp_engine import NerModelConfiguration, NlpEngineProvider
+        from presidio_analyzer.recognizer_registry import RecognizerRegistryProvider
+        from presidio_analyzer.recognizer_registry.recognizers_loader_utils import (
+            RecognizerConfigurationLoader,
+        )
 
         try:
             model = spacy.load(MODEL_NAME)
@@ -100,10 +104,47 @@ class PresidioDetector:
             nlp_configuration={
                 "nlp_engine_name": "spacy",
                 "models": [{"lang_code": "en", "model_name": MODEL_NAME}],
+                # Unmapped model labels never belonged to the audited taxonomy.
+                "ner_model_configuration": {
+                    "labels_to_ignore": sorted(
+                        set(model.pipe_labels["ner"])
+                        - set(NerModelConfiguration().model_to_presidio_entity_mapping or {})
+                    ),
+                },
             }
         )
         nlp_engine = provider.create_engine()
-        analyzer = AnalyzerEngine(nlp_engine=nlp_engine, supported_languages=["en"])
+        # Filter the bundled multilingual configuration before constructing the
+        # registry, rather than constructing and rejecting other-language entries.
+        registry_config = RecognizerConfigurationLoader.get()
+        registry_config["supported_languages"] = ["en"]
+        for recognizer_config in registry_config["recognizers"]:
+            languages = recognizer_config.get("supported_languages")
+            if languages is not None:
+                recognizer_config["supported_languages"] = [
+                    language
+                    for language in languages
+                    if (language if isinstance(language, str) else language["language"]) == "en"
+                ]
+        registry_config["recognizers"] = [
+            entry
+            for entry in registry_config["recognizers"]
+            if entry.get("supported_languages") != []
+        ]
+        registry_config["recognizers"].append(
+            {
+                "name": "SpacyRecognizer",
+                "type": "predefined",
+                "supported_languages": ["en"],
+                "supported_entities": nlp_engine.get_supported_entities(),
+            }
+        )
+        registry = RecognizerRegistryProvider(
+            registry_configuration=registry_config, nlp_engine=nlp_engine
+        ).create_recognizer_registry()
+        analyzer = AnalyzerEngine(
+            registry=registry, nlp_engine=nlp_engine, supported_languages=["en"]
+        )
         for category, patterns in dict(config.patterns).items():
             recognizer = PatternRecognizer(
                 supported_entity=category,

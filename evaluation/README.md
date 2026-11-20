@@ -18,7 +18,7 @@ audit keys; they do not change the running deployment or signed operational
 state. The evaluation-signed audit evidence is distinct from production-signed
 approval. The **Stage 1 detector CLI** below is a developer-only benchmark; it
 does not exercise enforcement or live egress. Those have their own documented
-[Stage 2](STAGE2.md), [Stage 3](adapters/STAGE3.md), [response evaluation](OUTPUT_DLP.md)
+[Stage 2](enforcement-evaluation.md), [Stage 3](adapters/detector-comparison.md), [response evaluation](OUTPUT_DLP.md)
 and [performance suite](../performance/README.md), none of which proves
 production approval.
 
@@ -156,7 +156,7 @@ entity scores; their expected `UNKNOWN` frequency is reported separately.
 
 `unsafe_negative_rate` here means **known-sensitive input classified
 `NO_PRIVATE_DETECTED`**, not a confirmed external data leak. The existing
-[Stage 2 in-memory simulated egress harness](STAGE2.md) separately evaluates
+[Stage 2 in-memory simulated egress harness](enforcement-evaluation.md) separately evaluates
 OPA and unsafe external forwarding; it does not contact real providers.
 
 Latency is a sequential per-call diagnostic in Stage 1, **not a throughput or

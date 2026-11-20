@@ -6,7 +6,7 @@ This index separates **current operational instructions** from historical milest
 
 | Need | Source of truth |
 | --- | --- |
-| Architecture, components and request flow | [Architecture](architecture.md) | 
+| Architecture, components and request flow | [Architecture](architecture.md) |
 | Source vs active signed release identity | [Release status](release-status.md) |
 | Threat boundaries and limitations | [Threat model](threat-model.md) |
 | Environment options | [Configuration](configuration.md) and [`.env.example`](../.env.example) |
@@ -25,9 +25,9 @@ This index separates **current operational instructions** from historical milest
 
 ## Evaluation and performance
 
-- [Detection evaluation](../evaluation/README.md), [enforcement replay](../evaluation/STAGE2.md), [stock Presidio comparison](../evaluation/adapters/STAGE3.md), and [response-side DLP evaluation](../evaluation/OUTPUT_DLP.md).
+- [Detection evaluation](../evaluation/README.md), [enforcement replay](../evaluation/enforcement-evaluation.md), [stock Presidio comparison](../evaluation/adapters/detector-comparison.md), and [response-side DLP evaluation](../evaluation/OUTPUT_DLP.md).
 - [Performance framework](../performance/README.md), [concurrency profiling](concurrency-performance-profiling.md), and [overload/evidence lookup](overload-and-audit-lookup.md).
-- [Detector and policy candidate notes](../evaluation/RECALL_CANDIDATE.md), [phone recall](../evaluation/PHONE_RECALL_CANDIDATE.md), and [egress remediation](../evaluation/REMEDIATION.md) preserve change rationale; they are **not** a substitute for a signed release and current evaluation results.
+- [Detector and policy candidate notes](../evaluation/pem-and-location-recognition.md), [phone recall](../evaluation/phone-recognition.md), and [egress remediation](../evaluation/pre-egress-validation.md) preserve change rationale; they are **not** a substitute for a signed release and current evaluation results.
 
 ## Architectural history
 

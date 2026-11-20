@@ -43,7 +43,8 @@ For either kind of **correctly activated** installation:
 ```powershell
 python -m tools.verify_policy_snapshot
 python -m tools.verify_release
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
+$key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
+Invoke-RestMethod http://127.0.0.1:8000/health/ready -Headers @{'X-API-Key'=$key}
 .\Verify-SignedReleaseWorkflow.ps1
 ```
 
@@ -58,14 +59,14 @@ $body = @{prompt='Summarize a fictional sunny day';destination_id='sovereign-mod
 Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method Post -Headers $headers -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body))
 ```
 
-For a **denial** and signed evidence, use only an obviously fictitious private-key marker in the synthetic test harness (see `Verify-SignedReleaseWorkflow.ps1` and `tests/test_output_dlp_api.py`). The API may return HTTP 403 by design; capture the response without treating it as a failed deployment. **Do not paste actual credentials or regulated personal data into demonstration requests.** `GET /v1/requests/{request_id}` and the idempotency-status endpoint expose signed metadata, never cached model output.
+For a **denial** and signed evidence, use only an obviously fictitious private-key marker in the synthetic test harness (see `Verify-SignedReleaseWorkflow.ps1` and `tests/api/test_output_dlp_api.py`). The API may return HTTP 403 by design; capture the response without treating it as a failed deployment. **Do not paste actual credentials or regulated personal data into demonstration requests.** `GET /v1/requests/{request_id}` and the idempotency-status endpoint expose signed metadata, never cached model output.
 
 ## 3. Demonstrate output DLP and simulated external egress
 
 Output DLP requires a **verified source policy with the output entrypoint and matching signed detector image**. The historical tracked generation-7 Rego example does **not** meet this condition. For source-level, network-free demonstrations run:
 
 ```powershell
-python -m pytest -q tests/test_output_dlp.py tests/test_output_dlp_api.py tests/test_dlp_signed_runtime_integration.py
+python -m pytest -q tests/enforcement/test_output_dlp.py tests/api/test_output_dlp_api.py tests/integration/test_dlp_signed_runtime_integration.py
 python -m evaluation.output.cli --mode controlled
 python -m evaluation.output.cli --mode dataset --split development --limit 20
 ```

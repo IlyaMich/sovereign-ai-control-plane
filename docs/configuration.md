@@ -24,12 +24,13 @@ variables; they do not automatically load `.env`.
 | `MAX_AUDIT_WAITERS` | 8 | Additional coroutines waiting for audit submission capacity; excess fails fast |
 | `MAX_AUDIT_AUXILIARY_JOBS` | 4 | Bound outstanding status/read/probe/idempotency jobs separately |
 | `AUDIT_QUEUE_WAIT_SECONDS` | 1 | Max wait for audit submission capacity, not a commit timeout |
-| `LOOP_LAG_INTERVAL_SECONDS` | 0.25 | Event-loop delay sampling interval, 0.05–5 seconds |
-| `METRICS_SAMPLE_WINDOW` | 512 | Recent queue/service/lag timings retained per process, 1–4096 |
+| `LOOP_LAG_INTERVAL_SECONDS` | 0.25 | Event-loop delay sampling interval, 0.05â€“5 seconds |
+| `METRICS_SAMPLE_WINDOW` | 512 | Recent queue/service/lag timings retained per process, 1â€“4096 |
 | `OPA_TIMEOUT_SECONDS` | 2 | OPA evaluation HTTP timeout |
 | `MODEL_TIMEOUT_SECONDS` | 10 | Model invocation HTTP timeout |
 | `READINESS_TIMEOUT_SECONDS` | 1 | Timeout for each readiness HTTP probe |
 | `SIMULATOR_EGRESS_TIMEOUT_SECONDS` | 5 | Gateway-to-external-simulator HTTP timeout |
+| `CONTROL_PLANE_LISTEN_HOST` | 127.0.0.1 locally; 0.0.0.0 in Compose | Validated literal IP for the API listener inside the process; host publication remains controlled by `API_HOST` |
 | `API_HOST` | 127.0.0.1 | Published API host address |
 | `API_PORT` | 8000 | Published API host port; container port stays 8000 |
 | `SIMULATOR_UPSTREAM_URL` | http://external-simulator:9000 | Operator-controlled HTTP(S) origin; gateway appends `/generate` |
@@ -119,7 +120,7 @@ To change detection behavior, edit the JSON, run the checks, then run
 the policy snapshot if needed, and obtain approval for both artifacts. The existing
 English/ASCII restriction remains in effect.
 
-## M7.5 — Process-local concurrency diagnostics
+## M7.5 â€” Process-local concurrency diagnostics
 
 `GET /v1/diagnostics/concurrency` requires the existing `X-API-Key` and returns
 `Cache-Control: no-store`. It reports active/rejected admissions, detector and
@@ -152,7 +153,7 @@ The deadline ends when the body is buffered; it does not limit policy/model proc
 or response transmission. It does not cover time spent receiving HTTP headers.
 Recreate the control-plane service to apply changes.
 
-## M7.6 — HTTP ingress and audit waiter limits
+## M7.6 â€” HTTP ingress and audit waiter limits
 
 The original `MAX_INFLIGHT_REQUESTS` admission (429) still applies *after*
 authentication and JSON validation. An outer ASGI middleware now caps active
@@ -181,7 +182,7 @@ be interpreted accordingly. Neither the audit event schema nor signed-release
 verification is changed. Blocking filesystem checks and release activation
 races are handled in the subsequent M7.7 and M7.8 increments.
 
-## M7.7 — Nonblocking integrity verification
+## M7.7 â€” Nonblocking integrity verification
 
 Policy snapshot and signed release checks performed during request processing
 run in a dedicated bounded two-worker thread pool. The original checks still
@@ -226,3 +227,115 @@ second detector result is clean, the detector identity stays unchanged and
 signed OUTCOME evidence is committed. An existing valid signed v4 installation can remain on its own approved image;
 this source repository cannot attest the operator's actual `.runtime` state.
 See [release status](release-status.md) before reporting deployed capabilities.
+
+## API contracts and operations
+
+Both REQUIRE_SIGNED_RELEASE and ENABLE_EXTERNAL_SIMULATOR accept only true/false
+(case-insensitive, with surrounding whitespace ignored). Empty values, typos, yes/no,
+and 1/0 fail startup. Signed release verification defaults to true.
+
+Application responses carry Cache-Control: no-store and a server-generated
+X-Correlation-ID, including body-limit errors, authentication errors, unknown routes,
+and unexpected exceptions. Uvicorn or an upstream proxy can generate its own errors
+outside this middleware; configure the edge consistently if deployed.
+
+Transport errors share the existing JSON family rather than migrating clients to
+RFC 9457: status, reason_codes, detail, correlation_id, and optionally request_id.
+Audited prompt failures also retain classification, decision, receipts and output
+inspection metadata. Responses never include exception text or submitted values.
+Successful schemas and documented error schemas are available in /openapi.json;
+protected routes use the ApiKeyAuth header security scheme.
+
+HTTP 403 represents policy/content denial. Dependency, integrity, detector and
+transformation failures return 503 and status ERROR; model invocation failure or
+invalid model output returns 502. Output remains withheld. Signed DECISION/OUTCOME
+records retain their existing BLOCKED/COMPLETED/UNKNOWN execution semantics: an API
+service error does not rewrite evidence or imply that inference can safely be retried.
+A model timeout remains ambiguous. Reuse Idempotency-Key and inspect status; do not
+automatically repeat inference.
+
+### Health checks
+
+GET /health/live is unauthenticated and performs no dependency or database work.
+GET /health/ready now requires X-API-Key. Configure health clients to supply it from
+secret storage. Readiness checks OPA input/output entrypoints, artifact/release integrity,
+audit writability and model health. Complete overlapping probes share one in-progress
+task; completed successes AND failures are cached for READINESS_CACHE_SECONDS.
+The default maximum cache age is 5 seconds. Request-time integrity checks are never
+cached by this mechanism.
+
+| Setting | Default | Scope |
+| --- | --- | --- |
+| MAX_OPERATIONS_REQUESTS | 4 | Separate process-local HTTP slots for readiness and metrics |
+| READINESS_CACHE_SECONDS | 5 | Completed readiness cache duration; positive, maximum 60 |
+| PROBE_ATTEMPTS | 2 | Total attempts per safe dependency probe; range 1-3 |
+| PROBE_BACKOFF_SECONDS | 0.1 | Base exponential jittered probe delay; positive, maximum 5 |
+| CIRCUIT_FAILURE_THRESHOLD | 5 | Failed logical calls before opening; range 1-100 |
+| CIRCUIT_RESET_SECONDS | 30 | Open interval before one recovery call; positive, maximum 3600 |
+
+Prompt saturation cannot consume the separate management lane. Liveness bypasses
+application admission; Uvicorn's outer connection/task cap still covers all routes.
+Use readiness failures to remove traffic, not restart a busy process. Size liveness
+failure thresholds and startup grace to tolerate server-level 503s. Probe no faster
+than the cache interval; bound health-client timeouts and allow startup artifact scans.
+Operations-lane saturation returns 503 with Retry-After: 1.
+
+### Prometheus monitoring
+
+GET /metrics requires X-API-Key and exports Prometheus text from a private registry.
+Use one API worker per scrape target. Multiple instances must be scraped separately;
+counters, histograms and circuits are process-local. Unresolved request counts come
+from the shared durable database, so do not sum that gauge across workers sharing
+one database. No metrics are sent to an external service by the application.
+
+Exports include HTTP request/error counts and latency histograms, capacity/active/
+rejection gauges for HTTP, prompt, management, detector, audit and integrity lanes,
+dependency HTTP failure counts, circuit rejection counts/state, event-loop lag, and
+sovereign_unresolved_requests. The latter counts durable claims or DECISION records
+without an OUTCOME, including claims that crashed before a decision. An OUTCOME
+recording UNKNOWN is not included; consult lifecycle evidence for ambiguous execution.
+
+Routes are templates from a fixed allowlist or UNMATCHED. Methods and status classes
+are bounded. Dependency labels are only opa/model; capacity components are fixed.
+Prompts, outputs, URLs, keys, tenant/principal identifiers and request IDs are never
+metric labels. Each scrape obtains the durable unresolved aggregate through the
+bounded audit auxiliary lane; database failures produce a sanitized 503. Schedule
+scrapes at 15 seconds or slower and monitor query cost as audit history grows.
+
+Example Prometheus scrape configuration (the example assumes the scraper can
+reach the loopback-published API from the same host):
+
+    scrape_configs:
+      - job_name: sovereign-control-plane
+        scrape_interval: 15s
+        scrape_timeout: 5s
+        metrics_path: /metrics
+        http_headers:
+          X-API-Key:
+            files: [/run/secrets/control-plane-api-key]
+        static_configs:
+          - targets: ["127.0.0.1:8000"]
+
+Use TLS when the scraper reaches a remotely exposed API. Alert on sustained 5xx
+rates, high p95 latency, capacity rejections, open circuits and aged/increasing
+unresolved requests. Configure the scraper and alert receiver in your environment.
+
+### Dependency failure protection
+
+Managed application components share separate OPA and model circuits. Model
+destinations share the model circuit. Normal prompt evaluation and model generation
+always make at most one HTTP attempt. Only readiness's side-effect-free OPA probes
+and model GET /health may retry transport errors or HTTP 502/503/504.
+Other HTTP failures and malformed responses are not retried. Delays use bounded
+exponential backoff with jitter. Each final HTTP failure contributes to its circuit;
+after the open interval, one call tests recovery while others fail fast. A successful
+HTTP response closes the circuit; adapter schema/integrity validation still applies
+afterward and fails closed. Semantic validation failures do not trip this HTTP circuit.
+
+Circuit breaking neither deletes idempotency claims nor retries model execution.
+Cancellation releases the recovery gate conservatively. Model-side effects may remain
+unknown after network failure. No audit commit is retried by this feature.
+
+Changes to approved orchestrator/gateway/domain source require rebuilding the image,
+then the existing signed release approval/activation workflow. Do not reuse an old
+detector manifest or edit historical release envelopes to bypass verification.

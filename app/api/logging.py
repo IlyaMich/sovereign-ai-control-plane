@@ -5,12 +5,14 @@ import logging
 import time
 import uuid
 
+from app.api.errors import error_response
 from app.infrastructure.logging import context, event
 
 
 class RequestLoggingMiddleware:
-    def __init__(self, app):
+    def __init__(self, app, metrics=None):
         self.app = app
+        self.metrics = metrics
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
@@ -19,14 +21,21 @@ class RequestLoggingMiddleware:
         token = context.set({"correlation_id": correlation_id})
         started = time.perf_counter()
         status = 499
+        response_started = False
 
         async def observed_send(message):
-            nonlocal status
+            nonlocal status, response_started
             if message["type"] == "http.response.start":
+                response_started = True
                 status = message["status"]
                 message = dict(message)
                 message["headers"] = [
-                    *message.get("headers", []),
+                    *(
+                        (key, value)
+                        for key, value in message.get("headers", [])
+                        if key.lower() not in {b"cache-control", b"x-correlation-id"}
+                    ),
+                    (b"cache-control", b"no-store"),
                     (b"x-correlation-id", correlation_id.encode("ascii")),
                 ]
             await send(message)
@@ -39,7 +48,9 @@ class RequestLoggingMiddleware:
         except Exception:
             status = 500
             event("request_failed", level=logging.ERROR, stage="http", error_code="UNHANDLED_ERROR")
-            raise
+            if response_started:
+                raise
+            await error_response(500)(scope, receive, observed_send)
         finally:
             route = getattr(scope.get("route"), "path", scope.get("path", "UNMATCHED"))
             if route not in {"/health/live", "/health/ready"} and not scope.get("state", {}).get(
@@ -53,4 +64,6 @@ class RequestLoggingMiddleware:
                     duration_ms=round((time.perf_counter() - started) * 1000, 3),
                     limited=status in {401, 429},
                 )
+            if self.metrics is not None:
+                self.metrics.observe(route, scope["method"], status, time.perf_counter() - started)
             context.reset(token)

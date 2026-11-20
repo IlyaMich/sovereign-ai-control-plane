@@ -206,6 +206,7 @@ class ProcessedRequest:
     model_id: str | None = None
     output_classification: DetectionResult | None = None
     output_decision: PolicyDecision | None = None
+    service_error: str | None = None
 
 
 class ReleaseVerifier(Protocol):

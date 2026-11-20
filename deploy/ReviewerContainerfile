@@ -3,7 +3,7 @@ RUN apk add --no-cache git ca-certificates
 COPY deploy/build_patched_opa.sh /build-patched-opa.sh
 RUN sh /build-patched-opa.sh
 FROM docker.io/library/python:3.12.16-alpine3.23
-ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_ROOT_USER_ACTION=ignore
 # Apply Alpine security package updates before installing reviewer dependencies.
 RUN apk upgrade --no-cache
 WORKDIR /service

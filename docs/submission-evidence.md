@@ -5,7 +5,7 @@ A submission claim must link to an exact commit, environment, command, and prese
 | Claim | Reproduction/evidence source | What it can establish | Remaining boundary |
 | --- | --- | --- | --- |
 | Python quality and behavior | `.github/workflows/ci.yml` jobs, `pytest` logs at exact SHA | Static checks and unit/integration suite for candidate source | Not a deployed signed image |
-| Policy semantics | CI disposable policy build, `tests/rego/`, `tests/rego_output_candidate/`, patched OPA binary | Current candidate policy behavior for fixtures | Not live activation of the candidate |
+| Policy semantics | CI disposable policy build, `tests/rego/`, `tests/rego_output/`, patched OPA binary | Current candidate policy behavior for fixtures | Not live activation of the candidate |
 | Detector integrity | `tools.verify_detector_manifest`, Container CI | Matching installed classifier/model bytes in tested image | No assertion of perfect recall |
 | Signed activation | `tools.verify_release`, `tools.verify_runtime_release`, `Verify-SignedReleaseWorkflow.ps1` | Authenticated approval of exact policy/detector tuple when independently trusted public key provided | Local host/key compromise, real-world residency and remote attestation |
 | Input detection | `evaluation.cli validate/detect/compare`, 1,200-case frozen v1 dataset and run artifacts | Synthetic exact/overlap scores and false negatives | Not production prevalence; safe external forwarding is separate |

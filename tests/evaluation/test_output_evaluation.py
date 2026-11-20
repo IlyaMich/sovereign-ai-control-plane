@@ -8,6 +8,7 @@ from __future__ import annotations
 import asyncio
 import json
 import sqlite3
+from contextlib import closing
 from pathlib import Path
 
 import pytest
@@ -159,7 +160,7 @@ def test_tampering_a_signed_output_event_is_rejected(tmp_path: Path):
     )
     public = str(tmp_path / "audit-key.pub.pem")
     assert verify_database(str(store.db_path), public)["verified_events"] == 2
-    with sqlite3.connect(store.db_path) as connection:
+    with closing(sqlite3.connect(store.db_path)) as connection, connection:
         connection.execute(
             "UPDATE events SET event_json = REPLACE(event_json, 'false', 'true') "
             "WHERE event_type = 'OUTCOME'"

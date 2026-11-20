@@ -38,8 +38,20 @@ from app.infrastructure.integrity_executor import (
     integrity_unavailable_code,
 )
 from app.infrastructure.logging import event
+from app.infrastructure.resilience import circuit_unavailable_code
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
+
+
+def detection_service_error(result: DetectionResult) -> str | None:
+    """Unsupported input/low confidence are policy denials; broken detection is a service error."""
+    failures = {
+        "DETECTION_UNAVAILABLE",
+        "DETECTION_CAPACITY_EXCEEDED",
+        "RECOGNIZER_COVERAGE_INCOMPLETE",
+        "DETECTION_RESULT_INVALID",
+    }
+    return next((code for code in result.reason_codes if code in failures), None)
 
 
 class RequestOrchestrator:
@@ -126,9 +138,11 @@ class RequestOrchestrator:
         return verify()
 
     async def process(self, command: PromptCommand) -> ProcessedRequest:
+        service_error = None
         try:
             classification = await self._detect(command.prompt)
         except DetectorCapacityExceeded:
+            service_error = "DETECTION_CAPACITY_EXCEEDED"
             event(
                 "detector_capacity_exceeded",
                 level=logging.WARNING,
@@ -146,8 +160,10 @@ class RequestOrchestrator:
                 stage="detection",
             )
             classification = DetectionResult.unknown()
+            service_error = "DETECTION_UNAVAILABLE"
 
         self.dlp_metrics.input_detection(classification.status)
+        service_error = service_error or detection_service_error(classification)
         policy_input = PolicyContext(command, classification)
         approved_release = None
         release_untrusted = False
@@ -167,6 +183,7 @@ class RequestOrchestrator:
                     else "RELEASE_VERIFICATION_FAILED"
                 )
         if release_untrusted:
+            service_error = release_error_code
             event(
                 "request_safety_failure",
                 level=logging.WARNING
@@ -184,6 +201,7 @@ class RequestOrchestrator:
                 decision = await self.policy.evaluate(policy_input)
             except PolicyIntegrityError as exc:
                 unavailable = integrity_unavailable_code(exc)
+                service_error = unavailable or "POLICY_INTEGRITY_FAILURE"
                 event(
                     "request_safety_failure",
                     level=logging.WARNING if unavailable else logging.ERROR,
@@ -192,14 +210,18 @@ class RequestOrchestrator:
                     error_code=unavailable or "POLICY_INTEGRITY_FAILURE",
                 )
                 decision = PolicyDecision.deny("POLICY_INTEGRITY_FAILURE")
-            except Exception:
+            except Exception as exc:
+                circuit_code = circuit_unavailable_code(exc, "OPA")
                 event(
                     "request_safety_failure",
-                    level=logging.ERROR,
+                    level=logging.WARNING if circuit_code else logging.ERROR,
+                    limited=circuit_code is not None,
+                    stage="input_policy",
                     request_id=command.request_id,
-                    error_code="POLICY_UNAVAILABLE",
+                    error_code=circuit_code or "POLICY_UNAVAILABLE",
                 )
                 decision = PolicyDecision.deny("POLICY_UNAVAILABLE")
+                service_error = "POLICY_UNAVAILABLE"
 
         opa_decision = decision if decision.policy_digest else None
         forwarded_prompt = command.prompt
@@ -241,6 +263,7 @@ class RequestOrchestrator:
                 error_code="INVALID_POLICY_PLAN",
             )
             decision = PolicyDecision.deny("INVALID_POLICY_PLAN")
+            service_error = "INVALID_POLICY_PLAN"
             transformed = False
             forwarded_prompt = command.prompt
         except RedactionError:
@@ -251,6 +274,7 @@ class RequestOrchestrator:
                 error_code="REDACTION_FAILED",
             )
             decision = PolicyDecision.deny("REDACTION_FAILED")
+            service_error = "REDACTION_FAILED"
             transformed = False
             forwarded_prompt = command.prompt
         except Exception:
@@ -261,6 +285,7 @@ class RequestOrchestrator:
                 error_code="TRANSFORMATION_VERIFICATION_UNAVAILABLE",
             )
             decision = PolicyDecision.deny("TRANSFORMATION_VERIFICATION_UNAVAILABLE")
+            service_error = "TRANSFORMATION_VERIFICATION_UNAVAILABLE"
             transformed = False
             forwarded_prompt = command.prompt
 
@@ -289,6 +314,7 @@ class RequestOrchestrator:
                     ),
                 )
                 decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
+                service_error = unavailable or "UNTRUSTED_RELEASE"
                 opa_decision = None  # An untrusted evaluation must not be used for replay.
                 forwarded_prompt = command.prompt
                 transformed = False
@@ -357,19 +383,22 @@ class RequestOrchestrator:
                 decision,
                 decision_receipt,
                 outcome_receipt,
+                service_error=service_error,
             )
 
         try:
             model_result = await self.model.invoke(
                 command.request_id, forwarded_prompt, command.destination_id
             )
-        except Exception:
+        except Exception as exc:
+            circuit_code = circuit_unavailable_code(exc, "MODEL")
             event(
                 "model_execution_unknown",
-                level=logging.ERROR,
+                level=logging.WARNING if circuit_code else logging.ERROR,
+                limited=circuit_code is not None,
                 request_id=command.request_id,
                 execution_status="UNKNOWN",
-                error_code="MODEL_EXECUTION_UNKNOWN",
+                error_code=circuit_code or "MODEL_EXECUTION_UNKNOWN",
             )
             outcome_receipt = await self._commit(
                 command.request_id,
@@ -390,6 +419,7 @@ class RequestOrchestrator:
                 decision,
                 decision_receipt,
                 outcome_receipt,
+                service_error="MODEL_UNAVAILABLE",
             )
 
         # Legacy fixture adapters may omit output_policy. The managed application
@@ -404,6 +434,7 @@ class RequestOrchestrator:
             mask_applied = False
             mask_verification = None
             output_detection_ms = 0.0
+            output_error_code = None
             try:
                 valid_content = (
                     isinstance(content, str)
@@ -413,8 +444,16 @@ class RequestOrchestrator:
             except UnicodeError:
                 valid_content = False
             if not valid_content:
+                event(
+                    "output_content_invalid",
+                    level=logging.ERROR,
+                    stage="output_content",
+                    request_id=command.request_id,
+                    error_code="OUTPUT_INVALID_CONTENT",
+                )
                 output_classification = DetectionResult.unknown("OUTPUT_INVALID_CONTENT")
                 output_decision = PolicyDecision.deny("OUTPUT_INVALID_CONTENT")
+                service_error = "OUTPUT_INVALID_CONTENT"
             else:
                 detection_started = time.perf_counter()
                 try:
@@ -428,10 +467,20 @@ class RequestOrchestrator:
                     )
                     self.dlp_metrics.failure("OUTPUT_DETECTOR_UNAVAILABLE")
                     output_classification = DetectionResult.unknown("OUTPUT_DETECTION_UNAVAILABLE")
+                    service_error = "OUTPUT_DETECTION_UNAVAILABLE"
                 finally:
                     output_detection_ms = 1000.0 * (time.perf_counter() - detection_started)
 
                 if output_classification.status == DetectionStatus.UNKNOWN:
+                    if detection_service_error(output_classification):
+                        event(
+                            "output_detection_failed",
+                            level=logging.ERROR,
+                            stage="output_detection",
+                            request_id=command.request_id,
+                            error_code="OUTPUT_DETECTION_UNAVAILABLE",
+                        )
+                        service_error = "OUTPUT_DETECTION_UNAVAILABLE"
                     output_decision = PolicyDecision.deny("OUTPUT_DETECTION_UNKNOWN")
                 else:
                     output_context = OutputPolicyContext(
@@ -440,17 +489,27 @@ class RequestOrchestrator:
                     try:
                         output_decision = await self.output_policy.evaluate_output(output_context)
                         output_evaluation = output_decision
-                    except Exception:
+                    except Exception as exc:
+                        unavailable = integrity_unavailable_code(exc) or circuit_unavailable_code(
+                            exc, "OPA"
+                        )
+                        output_error_code = unavailable or "OUTPUT_POLICY_UNAVAILABLE"
                         event(
                             "output_policy_failed",
-                            level=logging.ERROR,
+                            level=logging.WARNING if unavailable else logging.ERROR,
+                            limited=unavailable is not None,
+                            stage="output_policy",
                             request_id=command.request_id,
-                            error_code="OUTPUT_POLICY_UNAVAILABLE",
+                            error_code=output_error_code,
                         )
                         self.dlp_metrics.failure("OUTPUT_POLICY_UNAVAILABLE")
                         output_decision = PolicyDecision.deny("OUTPUT_POLICY_UNAVAILABLE")
+                        service_error = "OUTPUT_POLICY_UNAVAILABLE"
 
-            assert output_classification is not None and output_decision is not None
+            if output_classification is None or output_decision is None:
+                raise RuntimeError(
+                    "Output inspection did not produce a classification and decision"
+                )
             self.dlp_metrics.output_detection(
                 output_classification.status,
                 output_detection_ms,
@@ -476,6 +535,7 @@ class RequestOrchestrator:
                     )
                     if not valid_mask:
                         output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+                        service_error = "OUTPUT_INVALID_POLICY_PLAN"
                     else:
                         try:
                             released_content = redact(
@@ -495,14 +555,32 @@ class RequestOrchestrator:
                                 raise RedactionError("Output masking verification was not clean")
                             mask_applied = True
                         except Exception:
+                            event(
+                                "output_mask_verification_failed",
+                                level=logging.ERROR,
+                                stage="output_mask",
+                                request_id=command.request_id,
+                                error_code="OUTPUT_MASK_VERIFICATION_FAILED",
+                            )
                             self.dlp_metrics.failure("OUTPUT_MASK_VERIFY_FAILED")
                             output_decision = PolicyDecision.deny("OUTPUT_MASK_VERIFICATION_FAILED")
+                            service_error = "OUTPUT_MASK_VERIFICATION_FAILED"
                 elif (
                     output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
                     or output_classification.findings
                     or output_context is None
                 ):
                     output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+                    service_error = "OUTPUT_INVALID_POLICY_PLAN"
+
+            if service_error == "OUTPUT_INVALID_POLICY_PLAN":
+                event(
+                    "output_policy_plan_invalid",
+                    level=logging.ERROR,
+                    stage="output_policy",
+                    request_id=command.request_id,
+                    error_code="OUTPUT_INVALID_POLICY_PLAN",
+                )
 
             # A signed release must remain trusted *after* model execution.
             # No output is released against a changed or unavailable authority.
@@ -521,14 +599,27 @@ class RequestOrchestrator:
                     )
                     if checked["release_id"] != approved_release["release_id"]:
                         raise ReleaseIntegrityError("Release changed during output inspection")
-                except Exception:
+                except Exception as exc:
+                    unavailable = integrity_unavailable_code(exc)
+                    output_error_code = unavailable or (
+                        "OUTPUT_UNTRUSTED_RELEASE"
+                        if isinstance(exc, ReleaseIntegrityError)
+                        else "OUTPUT_RELEASE_VERIFICATION_FAILED"
+                    )
                     event(
-                        "output_release_untrusted",
-                        level=logging.ERROR,
+                        "output_release_unavailable"
+                        if unavailable
+                        else "output_release_untrusted"
+                        if isinstance(exc, ReleaseIntegrityError)
+                        else "output_release_verification_failed",
+                        level=logging.WARNING if unavailable else logging.ERROR,
+                        limited=unavailable is not None,
+                        stage="output_release",
                         request_id=command.request_id,
-                        error_code="OUTPUT_UNTRUSTED_RELEASE",
+                        error_code=output_error_code,
                     )
                     output_decision = PolicyDecision.deny("OUTPUT_UNTRUSTED_RELEASE")
+                    service_error = "OUTPUT_UNTRUSTED_RELEASE"
 
             released = output_decision.effect == Effect.PERMIT
             # Output evidence contains *only* structure, identities, and a keyed
@@ -596,6 +687,18 @@ class RequestOrchestrator:
                     "output_dlp": output_evidence,
                 },
             )
+            event(
+                "output_decision_committed",
+                request_id=command.request_id,
+                stage="output_policy",
+                effect=output_decision.effect.value,
+                sequence=outcome_receipt.sequence,
+                execution_status="COMPLETED" if released else "OUTPUT_BLOCKED",
+                transformed=mask_applied,
+                error_code=output_error_code
+                or service_error
+                or ("OUTPUT_ALLOWED" if released else "OUTPUT_POLICY_DENIED"),
+            )
             self.dlp_metrics.outcome(
                 RequestStatus.COMPLETED if released else RequestStatus.OUTPUT_BLOCKED,
                 masked=mask_applied and released,
@@ -611,6 +714,7 @@ class RequestOrchestrator:
                 model_id=model_result.model_id,
                 output_classification=output_classification,
                 output_decision=output_decision,
+                service_error=service_error,
             )
 
         outcome_receipt = await self._commit(

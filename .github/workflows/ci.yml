@@ -20,14 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip install '.[dev]'
       - name: Ruff lint
         run: |
           python -m ruff check .
@@ -47,14 +47,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 40
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip install '.[dev]'
       - name: Install pinned spaCy model
         run: |
           python -m pip install \
@@ -62,22 +62,30 @@ jobs:
       - name: Verify model
         run: |
           python -c "import spacy; m=spacy.load('en_core_web_sm'); assert m.meta['version']=='3.8.0'"
+      - name: Install patched OPA CLI for signed-runtime integration tests
+        run: |
+          docker build -f deploy/OPAContainerfile -t sovereign-opa:tests .
+          docker create --name test-opa-bin sovereign-opa:tests version
+          docker cp test-opa-bin:/opa "$RUNNER_TEMP/opa"
+          docker rm test-opa-bin
+          chmod +x "$RUNNER_TEMP/opa"
+          echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Run complete pytest suite
-        run: python -m pytest -q
+        run: python -m pytest -q -ra -W error
 
   policy:
     name: Policy verification
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip install '.[dev]'
       - name: Build and verify candidate policy in temporary state
         run: |
           python -m tools.build_policy_snapshot \
@@ -100,7 +108,7 @@ jobs:
           docker run --rm \
             -v "$RUNNER_TEMP/proposed-policy:/policies:ro" \
             -v "$PWD/tests/rego:/policy-tests:ro" \
-            -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
+            -v "$PWD/tests/rego_output:/output-policy-tests:ro" \
             --entrypoint /opa \
             sovereign-opa:ci \
             test /policies /policy-tests /output-policy-tests -v
@@ -110,14 +118,14 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
-      - run: python -m pip install -e '.[dev]'
+      - run: python -m pip install '.[dev]'
       - run: python -m evaluation.cli validate
 
   code-security:
@@ -125,27 +133,39 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           persist-credentials: false
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
           cache: pip
       - name: Install runtime dependencies and Bandit
         run: |
           python -m pip install . 'bandit>=1.8,<2'
-          python -m pip freeze > requirements-ci.txt
-      - name: SAST — block High severity
-        run: python -m bandit -r app simulator tools .github/scripts -lll
+          python -m pip freeze > requirements.txt
+      - name: SAST — block unreviewed findings
+        run: |
+          python -m bandit -r app simulator tools .github/scripts --severity-level all
       - name: Dependency, source secret and config security — block High/Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
           version: 'v0.76.2'
           scan-type: fs
           scan-ref: .
+          format: json
+          output: trivy-filesystem.json
           scanners: vuln,secret,misconfig
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: 'false'
-          format: table
+      - name: Verify Python dependency scan coverage
+        if: always()
+        run: python -m tools.verify_dependency_scan trivy-filesystem.json
+      - name: Retain filesystem security report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: filesystem-security-report
+          path: trivy-filesystem.json
+          if-no-files-found: error

@@ -19,7 +19,7 @@ def positive_int(name: str, default: int) -> int:
 
 
 def strict_bool(name: str, default: bool = False) -> bool:
-    value = os.environ.get(name, "true" if default else "false").lower()
+    value = os.environ.get(name, "true" if default else "false").strip().lower()
     if value not in {"true", "false"}:
         raise ValueError(f"{name} must be true or false")
     return value == "true"
@@ -33,6 +33,59 @@ def positive_float(name: str, default: float) -> float:
     if not math.isfinite(value) or value <= 0:
         raise ValueError(f"{name} must be a finite positive number")
     return value
+
+
+@dataclass(frozen=True)
+class APIOperations:
+    """Bounded management traffic and per-process dependency protection."""
+
+    max_operations_requests: int = 4
+    readiness_cache_seconds: float = 5.0
+    probe_attempts: int = 2
+    probe_backoff_seconds: float = 0.1
+    circuit_failure_threshold: int = 5
+    circuit_reset_seconds: float = 30.0
+
+    def __post_init__(self) -> None:
+        for name, value, maximum in (
+            ("MAX_OPERATIONS_REQUESTS", self.max_operations_requests, 64),
+            ("PROBE_ATTEMPTS", self.probe_attempts, 3),
+            ("CIRCUIT_FAILURE_THRESHOLD", self.circuit_failure_threshold, 100),
+        ):
+            if type(value) is not int or not 1 <= value <= maximum:
+                raise ValueError(f"{name} must be an integer from 1 to {maximum}")
+        for name, seconds, maximum_seconds in (
+            ("READINESS_CACHE_SECONDS", self.readiness_cache_seconds, 60),
+            ("PROBE_BACKOFF_SECONDS", self.probe_backoff_seconds, 5),
+            ("CIRCUIT_RESET_SECONDS", self.circuit_reset_seconds, 3600),
+        ):
+            if (
+                isinstance(seconds, bool)
+                or not math.isfinite(seconds)
+                or not 0 < seconds <= maximum_seconds
+            ):
+                raise ValueError(f"{name} must be positive, finite and at most {maximum_seconds}")
+
+    @classmethod
+    def from_env(cls) -> APIOperations:
+        return cls(
+            max_operations_requests=positive_int(
+                "MAX_OPERATIONS_REQUESTS", cls.max_operations_requests
+            ),
+            readiness_cache_seconds=positive_float(
+                "READINESS_CACHE_SECONDS", cls.readiness_cache_seconds
+            ),
+            probe_attempts=positive_int("PROBE_ATTEMPTS", cls.probe_attempts),
+            probe_backoff_seconds=positive_float(
+                "PROBE_BACKOFF_SECONDS", cls.probe_backoff_seconds
+            ),
+            circuit_failure_threshold=positive_int(
+                "CIRCUIT_FAILURE_THRESHOLD", cls.circuit_failure_threshold
+            ),
+            circuit_reset_seconds=positive_float(
+                "CIRCUIT_RESET_SECONDS", cls.circuit_reset_seconds
+            ),
+        )
 
 
 @dataclass(frozen=True)
@@ -307,6 +360,7 @@ class Settings:
     release_active_path: str = "/release-active/release.json"
     release_archive_path: str = "/release-archive"
     release_trust_path: str = "/release-trust"
+    operations: APIOperations = field(default_factory=APIOperations)
     limits: RequestLimits = field(default_factory=RequestLimits)
     http: HTTPTimeouts = field(default_factory=HTTPTimeouts)
     admission: AdmissionLimits = field(default_factory=AdmissionLimits)
@@ -325,6 +379,7 @@ class Settings:
             )
         return cls(
             api_key=key,
+            operations=APIOperations.from_env(),
             limits=RequestLimits.from_env(),
             http=HTTPTimeouts.from_env(),
             admission=AdmissionLimits.from_env(),
@@ -340,8 +395,7 @@ class Settings:
                 "AUDIT_SIGNING_KEY_PATH", "/var/lib/sovereign/audit-key.pem"
             ),
             output_masking_enabled=strict_bool("OUTPUT_MASKING_ENABLED"),
-            enable_external_simulator=os.environ.get("ENABLE_EXTERNAL_SIMULATOR", "false").lower()
-            == "true",
+            enable_external_simulator=strict_bool("ENABLE_EXTERNAL_SIMULATOR", False),
             egress_gateway_url=os.environ.get("EGRESS_GATEWAY_URL", "http://egress-gateway:9010"),
             expected_policy_revision=os.environ.get(
                 "EXPECTED_POLICY_REVISION", "redaction-response-dlp-v5"
@@ -354,8 +408,7 @@ class Settings:
             detector_archive_path=os.environ.get(
                 "DETECTOR_ARCHIVE_PATH", "/var/lib/sovereign/detector-archive"
             ),
-            require_signed_release=os.environ.get("REQUIRE_SIGNED_RELEASE", "true").lower()
-            == "true",
+            require_signed_release=strict_bool("REQUIRE_SIGNED_RELEASE", True),
             release_active_path=os.environ.get(
                 "RELEASE_ACTIVE_PATH", "/release-active/release.json"
             ),

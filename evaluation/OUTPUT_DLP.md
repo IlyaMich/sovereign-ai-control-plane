@@ -240,7 +240,7 @@ before accepting a new benchmark definition.
 
 The v5 source includes isolated FastAPI/OPA CLI/model-gateway integration
 scenarios using test-only signed release approvals and audit evidence
-(`tests/test_dlp_signed_runtime_integration.py`). They are not a full
+(`tests/integration/test_dlp_signed_runtime_integration.py`). They are not a full
 production approved-image test: before declaring production-representative
 assurance, verify an actually installed detector manifest in the approved
 container image and expand negative controls for altered detector digests,

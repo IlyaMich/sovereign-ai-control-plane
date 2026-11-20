@@ -40,14 +40,17 @@ _FIELDS = {
     "detector_digest",
     "state",
     "suppressed",
+    "attempt",
 }
 _ROUTES = {
     "/v1/prompts",
     "/v1/requests/{request_id}",
     "/v1/idempotency/status",
     "/v1/diagnostics/concurrency",
+    "/v1/diagnostics/dlp",
     "/health/live",
     "/health/ready",
+    "/metrics",
 }
 _lock = threading.Lock()
 _listener: QueueListener | None = None
@@ -97,7 +100,9 @@ class JSONFormatter(logging.Formatter):
         if not record.name.startswith("sovereign."):
             source = record.name.split(".", 1)[0]
             fields["stage"] = (
-                source if source in {"uvicorn", "httpx", "httpcore", "spacy"} else "dependency"
+                ("presidio" if source == "presidio-analyzer" else source)
+                if source in {"uvicorn", "httpx", "httpcore", "spacy", "presidio-analyzer"}
+                else "dependency"
             )
         event = getattr(record, "event", "runtime_message")
         if not isinstance(event, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", event):
@@ -249,6 +254,11 @@ def failure_code(exc: Exception, prefix: str) -> str:
     """Classify without copying exception messages, URLs or response content."""
     import httpx
 
+    from app.infrastructure.resilience import circuit_unavailable_code
+
+    circuit_code = circuit_unavailable_code(exc, prefix)
+    if circuit_code is not None:
+        return circuit_code
     if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
         return prefix + "_TIMEOUT"
     if isinstance(exc, httpx.HTTPStatusError):

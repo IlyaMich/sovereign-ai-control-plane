@@ -8,21 +8,32 @@ from __future__ import annotations
 
 import logging
 
-from starlette.responses import JSONResponse
-
 from app.api.admission import InFlightAdmission
+from app.api.errors import error_response
 from app.infrastructure.logging import event
 
 
 class HTTPIngressLimitMiddleware:
-    def __init__(self, app, admission: InFlightAdmission):
+    def __init__(self, app, admission: InFlightAdmission, operations=None):
         self.app = app
         self.admission = admission
+        self.operations = operations
 
     async def __call__(self, scope, receive, send):
         if scope["type"] != "http":
             return await self.app(scope, receive, send)
-        if not self.admission.try_enter():
+        # Dedicated bounded management lane; liveness performs no dependency work.
+        if self.operations is not None and scope["method"] == "GET":
+            if scope.get("path") == "/health/live":
+                return await self.app(scope, receive, send)
+            admission = (
+                self.operations
+                if scope.get("path") in {"/health/ready", "/metrics"}
+                else self.admission
+            )
+        else:
+            admission = self.admission
+        if not admission.try_enter():
             scope.setdefault("state", {})["ingress_rejected"] = True
             event(
                 "http_ingress_rejected",
@@ -34,15 +45,13 @@ class HTTPIngressLimitMiddleware:
                 method=scope["method"],
                 route=scope.get("path", "UNMATCHED"),
             )
-            return await JSONResponse(
-                status_code=503,
-                headers={"Retry-After": "1", "Cache-Control": "no-store"},
-                content={
-                    "status": "OVERLOADED",
-                    "reason_codes": ["HTTP_INGRESS_CAPACITY_EXCEEDED"],
-                },
+            return await error_response(
+                503,
+                "HTTP_INGRESS_CAPACITY_EXCEEDED",
+                status="OVERLOADED",
+                headers={"Retry-After": "1"},
             )(scope, receive, send)
         try:
             await self.app(scope, receive, send)
         finally:
-            self.admission.leave()
+            admission.leave()

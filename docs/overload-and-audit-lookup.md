@@ -12,7 +12,7 @@ Keep other benchmark clients and audit-producing processes idle. From the repo
 root, with the approved stack running and `.env` configured:
 
 ```powershell
-python -m pytest -q tests/test_overload_and_audit_lookup.py
+python -m pytest -q tests/tools/test_overload_and_audit_lookup.py
 python -m tools.overload_and_audit_lookup --label-prefix m7-9-overload-16 --clients 16 --duration 20 --lookup-rounds 12
 ```
 

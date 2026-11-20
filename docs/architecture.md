@@ -117,7 +117,7 @@ automatic execution recovery. See [request lifecycle](idempotency-and-request-li
 - `GET /v1/diagnostics/concurrency`: authenticated process-local admission, worker, logging and event-loop diagnostics.
 - `GET /v1/diagnostics/dlp`: authenticated process-local input/output DLP counters and sampled output inspection latency; not a durable audit or cross-process total. Metrics use bounded rolling windows and reset on worker restart.
 - `GET /health/live`: process status only.
-- `GET /health/ready`: checks OPA digest/revision, detector integrity, active signed release, audit writability and local model health; failures return 503.
+- `GET /health/ready`: authenticated with X-API-Key, coalesced and briefly cached; checks OPA digest/revision, detector integrity, active signed release, audit writability and local model health; failures return 503.
 
 HTTP permit returns `COMPLETED` with output; policy denies return 403 `BLOCKED`; model failures return 502 `ERROR` with potentially unknown invocation status. An unavailable audit writer returns 503. Other ingress and lifecycle responses include:
 
@@ -138,3 +138,5 @@ capacity rejection occurs before application middleware. These limits are per
 process; they do not provide a deployment-wide rate limit. See [configuration](configuration.md).
 
 **Not implemented:** arbitrary model providers, streaming, attachments/RAG DLP, tenant OIDC/JWT, admin policy API, independent egress attestation, multi-host audit consensus. See [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).
+
+Operational API contracts, metrics export and dependency circuits are documented in [configuration](configuration.md#api-contracts-and-operations).
