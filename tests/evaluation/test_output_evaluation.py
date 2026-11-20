@@ -182,6 +182,17 @@ def test_cli_controlled_smoke_and_failure_exit(tmp_path: Path, monkeypatch):
     ]) == 1
 
 
+def test_missing_host_opa_cli_reports_actionable_error(tmp_path: Path, capsys):
+    missing = tmp_path / "absent-opa.exe"
+    code = main([
+        "--mode", "controlled",
+        "--policy", "opa-cli",
+        "--opa-bin", str(missing),
+    ])
+    assert code == 2
+    assert "Local OPA CLI not found" in capsys.readouterr().err
+
+
 def test_ground_truth_entity_offsets_are_exact():
     case = _make_case(
         "OUTPUT-SPAN", "Email alice@example.com",
