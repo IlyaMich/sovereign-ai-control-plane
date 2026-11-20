@@ -63,22 +63,24 @@ class OutputPolicy:
 
 
 class LocalModel:
-    def __init__(self, output: str, audit):
+    def __init__(self, output: str, audit, tenant_id: str = "tenant"):
         self.output = output
         self.audit = audit
+        self.tenant_id = tenant_id
         self.calls = 0
 
     async def invoke(self, request_id, prompt, destination_id):
         self.calls += 1
-        assert len(self.audit.get_events(request_id, "tenant")) == 1
+        assert len(self.audit.get_events(request_id, self.tenant_id)) == 1
         return ModelResult(destination_id, self.output)
 
 
 def make_service(
-    audit, output, *, detector=None, output_policy=None, max_output_bytes=8192, digest=""
+    audit, output, *, detector=None, output_policy=None, max_output_bytes=8192, digest="",
+    tenant_id="tenant",
 ):
     detector = detector or DemoPatternDetector()
-    model = LocalModel(output, audit)
+    model = LocalModel(output, audit, tenant_id=tenant_id)
     orchestrator = RequestOrchestrator(
         detector=detector,
         policy=InputPermit(digest),
@@ -246,9 +248,6 @@ async def test_output_policy_is_replayed_from_exported_signed_evidence(tmp_path,
         str(tmp_path / "unused-detectors"),
         str(bundle),
     )
-
-    def original_policy(_folder, _input):
-        return InputPermit(info.policy_digest).digest  # overwritten by evaluator below
 
     def input_replay(folder, policy_input):
         assert folder.name == info.policy_digest
