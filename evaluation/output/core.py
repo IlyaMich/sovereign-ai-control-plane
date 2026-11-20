@@ -8,6 +8,7 @@ response is supplied by the synthetic test case, never generated remotely.
 from __future__ import annotations
 
 import json
+import subprocess
 import tempfile
 import time
 import uuid
@@ -429,6 +430,18 @@ async def evaluate_scenarios(
         raise ValueError("Response-side evaluation requires at least one case")
     if len({s.case.id for s in scenarios}) != len(scenarios):
         raise ValueError("Duplicate response-side case ID")
+    if opa_bin is not None:
+        # A missing OPA CLI is a setup error, not a measured fail-closed
+        # response scenario or an inaccurate detection regression finding.
+        probe = subprocess.run(
+            [opa_bin, "version"],
+            capture_output=True,
+            text=True,
+            check=True,
+            timeout=10,
+        )
+        if not probe.stdout:
+            raise RuntimeError("OPA version probe returned no output")
     real = None
     if detector_mode == "presidio":
         from app.detection.presidio_detector import PresidioDetector
