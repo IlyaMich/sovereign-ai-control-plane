@@ -22,6 +22,7 @@ SOURCE_PATHS = (
     "app/detection/config.py",
     "app/detection/rules.json",
     "app/detection/aggregation.py",
+    "app/detection/precision.py",
     "app/detection/presidio_detector.py",
     "app/detection/provenance.py",
     "app/domain/contracts.py",
