@@ -204,7 +204,8 @@ def replay_database(
                 or payload.get("model_invoked") is not True
                 or payload.get("execution_status") != "COMPLETED"
                 or policy_input.get("request") != original.get("policy_input", {}).get("request")
-                or policy_input.get("principal") != original.get("policy_input", {}).get("principal")
+                or policy_input.get("principal")
+                != original.get("policy_input", {}).get("principal")
                 or policy_input.get("request", {}).get("destination_id")
                 != payload.get("destination_id")
                 or final.obligations
@@ -237,7 +238,9 @@ def replay_database(
                 approved.get("policy_digest") != digest
                 or approved.get("detector_digest") != classified.get("artifact_digest")
             ):
-                raise ReplayError(f"Output artifacts diverge from signed release at sequence {sequence}")
+                raise ReplayError(
+                    f"Output artifacts diverge from signed release at sequence {sequence}"
+                )
             snapshot = archive.find(digest)
             answer = (
                 output_evaluator(snapshot, policy_input)
