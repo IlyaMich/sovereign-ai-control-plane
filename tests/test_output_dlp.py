@@ -398,7 +398,6 @@ async def test_masked_output_growth_over_limit_blocks(audit):
 
 @pytest.mark.asyncio
 async def test_signed_masking_output_policy_is_replayed_without_plaintext(tmp_path, audit):
-    source = tmp_path / "policy"
     archive = tmp_path / "archive"
     active = tmp_path / "active"
     info = build_snapshot(Path("policies"), archive, active)
