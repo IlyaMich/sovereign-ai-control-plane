@@ -1,6 +1,6 @@
 # ADR / Milestone 6: Signed releases, controlled activation and verification
 
-**Implementation status:** M6 is implemented and the Windows Podman operator verification passed (signature-backed policy and detector identities, 14/14 Rego tests, signed decision evidence, portable export, and disconnected replay with an out-of-bundle release public key). This validates the tested workflow; it does **not** establish independent audit-key/checkpoint trust, live host attestation or real-world residency. See [current architecture](architecture.md) and [threat model](threat-model.md).
+**Implementation status:** M6 is implemented and the Windows Podman operator verification passed (signature-backed policy and detector identities, 14/14 Rego tests, signed decision evidence, portable export, and disconnected replay with an out-of-bundle release public key). This validates the tested workflow; it does **not** establish independent audit-key/checkpoint trust, live host attestation or real-world residency. See [current architecture](architecture.md), [release status](release-status.md) and [threat model](threat-model.md).
 
 ## Why this milestone exists
 
@@ -56,7 +56,7 @@ Preserve `.env`, the audit volume, and the ignored `.runtime` policy and release
 **Do not use `podman compose down -v`.** The signer key is independent of
 `/var/lib/sovereign/audit-key.pem`.
 
-1. Install Python >=3.12 and `cryptography>=43,<47` on the operator host.
+1. Install Python >=3.12 and the current application verifier dependency (`cryptography>=50.0.2,<51`) on the operator host, preferably via `python -m pip install -e .` in a virtual environment. The isolated CI release-verifier job currently pins an older compatible range; do not downgrade the installed application to match that job.
 2. Verify the active policy and release with `python -m tools.verify_policy_snapshot`
    and `python -m tools.verify_release`. Preserve the trusted private signing key
    outside the checkout and the corresponding public key in `.runtime/release-trust/`.
@@ -113,7 +113,7 @@ in `.env` and recreate the control-plane. Otherwise readiness fails closed.
 
 Rollback is **not** activation of the old approval: sign a new generation
 pointing to the *older archived policy digest*, and activate the new release.
-For manual signing use `python -m tools.sign_release --policy-snapshot policy-archive/<OLD_DIGEST> ...`.
+For manual signing use `python -m tools.sign_release --policy-snapshot .runtime/policy-archive/<OLD_DIGEST> ...` with the required explicit signer and generation arguments.
 The activation utility copies that verified archived policy into `.runtime/policy-active`.
 Then recreate **both OPA and control-plane**; no hot reload of unsigned files.
 
