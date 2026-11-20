@@ -53,7 +53,9 @@ def verify_database(
             signature,
         ) in records:
             if sequence != expected_sequence or previous != previous_hash:
-                raise VerificationError(f"Chain gap or incorrect predecessor at sequence {sequence}")
+                raise VerificationError(
+                    f"Chain gap or incorrect predecessor at sequence {sequence}"
+                )
             try:
                 event = json.loads(raw_event)
                 if (
@@ -80,7 +82,8 @@ def verify_database(
     }
     if checkpoint_path is not None:
         checkpoint = json.loads(Path(checkpoint_path).read_text(encoding="utf-8"))
-        # Checkpoint is an independently retained full-chain head. Event signatures cover the head hash.
+        # Checkpoint is an independently retained full-chain head.
+        # Event signatures cover the head hash.
         if checkpoint != result:
             raise VerificationError(
                 "Database does not match the trusted checkpoint (truncation/rewrite?)"
