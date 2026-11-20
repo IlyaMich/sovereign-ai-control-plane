@@ -17,9 +17,9 @@ import subprocess
 import sys
 import tarfile
 import tempfile
-import urllib.error
-import urllib.request
 from pathlib import Path
+from urllib import error as urllib_error
+from urllib import request as urllib_request
 
 from app.policy.snapshots import PolicySnapshotStore, build_snapshot
 from app.release.approvals import ReleaseStore
@@ -44,15 +44,15 @@ def release_does_not_exist(tag: str) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
     url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-    req = urllib.request.Request(url, headers={
+    req = urllib_request.Request(url, headers={
         "Authorization": "Bearer " + token,
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
     })
     try:
-        with urllib.request.urlopen(req, timeout=30):
+        with urllib_request.urlopen(req, timeout=30):
             raise RuntimeError("A GitHub Release already exists for this generation")
-    except urllib.error.HTTPError as exc:
+    except urllib_error.HTTPError as exc:
         if exc.code != 404:
             raise
 

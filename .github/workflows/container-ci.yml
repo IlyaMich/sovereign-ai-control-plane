@@ -33,6 +33,8 @@ jobs:
           docker run --rm --entrypoint python sovereign-control-plane:ci \
             -m tools.verify_detector_manifest \
             --manifest /service/detector-active/manifest.json
+      - name: Assert application image runs as non-root
+        run: test "$(docker run --rm --entrypoint id sovereign-control-plane:ci -u)" = "10001"
       - name: Scan application image — block High/Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -46,6 +48,10 @@ jobs:
           format: table
       - name: Build reviewer image
         run: docker build -f deploy/ReviewerContainerfile -t sovereign-reviewer:ci .
+      - name: Assert reviewer image runs as non-root
+        run: test "$(docker run --rm --entrypoint id sovereign-reviewer:ci -u)" = "10001"
+      - name: Verify reviewer OPA executable
+        run: docker run --rm --entrypoint /usr/local/bin/opa sovereign-reviewer:ci version
       - name: Scan reviewer image — block High/Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

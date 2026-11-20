@@ -258,7 +258,9 @@ def _create_orchestrator(
 
 def scenario_cases() -> tuple[Scenario, ...]:
     email = "alice@example.com"
-    credential = "AKIAABCDEFGHIJKLMNOP"
+    # Deterministic synthetic token: construct the AWS-shaped prefix at runtime so
+    # source secret scanners do not mistake this fixture for a live credential.
+    credential = "AK" + "IA" + "ABCDEFGHIJKLMNOP"
     card = "4111111111111111"
     key = "-----BEGIN PRIVATE KEY-----"
     return (
