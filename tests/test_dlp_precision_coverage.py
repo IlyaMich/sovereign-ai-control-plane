@@ -9,6 +9,9 @@ import pytest
 from app.detection.aggregation import RawFinding
 from app.detection.config import DEFAULT_CONFIG
 from app.detection.precision import refine_person_technical_markers
+from app.detection.presidio_detector import PresidioDetector
+from app.domain.contracts import DetectionStatus
+from evaluation.dataset import load_dataset
 
 
 def _spacy_person(text: str, term: str) -> RawFinding:
@@ -57,3 +60,32 @@ def test_new_credential_patterns_require_full_token_shape():
     for text in ("glpat-", "glpat-short", "xoxb-", "xoxb-123-456-abc", "glpat-example"):
         assert not compiled["gitlab-personal-access-token"].search(text)
         assert not compiled["slack-bot-and-user-token"].search(text)
+
+
+@pytest.fixture(scope="module")
+def real_presidio():
+    pytest.importorskip("en_core_web_sm")
+    return PresidioDetector.create()
+
+
+def test_full_presidio_no_longer_marks_literal_begin_key_as_person(real_presidio):
+    target = next(
+        case for case in load_dataset().cases
+        if case.id == "HARD_NEGATIVE-0009"
+    )
+    prediction = real_presidio.detect(target.text)
+    assert prediction.status == DetectionStatus.NO_PRIVATE_DETECTED
+    assert not prediction.findings
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        "glpat-" + "A1b2C3d4E5f6G7h8I9j0",
+        "xoxb-" + "1234567890-" + "1234567890-" + "aBcD1eFgH2iJkL3mN4oP",
+    ],
+)
+def test_full_presidio_detects_new_high_confidence_credentials(real_presidio, token):
+    result = real_presidio.detect("Synthetic token: " + token)
+    assert result.status == DetectionStatus.PRIVATE
+    assert "API_CREDENTIAL" in {finding.category for finding in result.findings}
