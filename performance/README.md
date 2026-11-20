@@ -16,12 +16,13 @@ Leave competing writers idle for the kit's exclusive audit-delta assertions.
 
 ```powershell
 python -m performance.cli list
+python -m performance.cli run --profile smoke --environment-tag my-host-fixed-config
 python -m performance.cli run --profile baseline --environment-tag my-host-fixed-config
 python -m performance.cli run --profile saturation --environment-tag my-host-fixed-config
 python -m performance.cli run --profile scenario-catalog --environment-tag my-host-fixed-config
 ```
 
-`scenario-catalog` is a **sequential** set of scenarios, *not simultaneous mixed
+`smoke` is a brief end-to-end file-retention and correctness check (one client, 15 seconds per scenario); it is not a capacity benchmark.\n\n`scenario-catalog` is a **sequential** set of scenarios, *not simultaneous mixed
 traffic*. Its `external_redaction` scenario requires the existing enabled
 simulated-egress profile. The benchmark client itself is closed-loop. Saturation
 rejections are expected and checked by the underlying reviewer; saturation is
