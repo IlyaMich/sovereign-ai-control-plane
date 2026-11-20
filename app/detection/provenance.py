@@ -25,6 +25,12 @@ SOURCE_PATHS = (
     "app/detection/presidio_detector.py",
     "app/detection/provenance.py",
     "app/domain/contracts.py",
+    # Selected enforcement code is part of the approved detector/policy
+    # release tuple; the manifest still does NOT attest the full image.
+    "app/application/orchestrator.py",
+    "app/enforcement/gateway.py",
+    "app/enforcement/pre_egress.py",
+    "app/enforcement/redaction.py",
 )
 PACKAGES = (
     "presidio-analyzer",

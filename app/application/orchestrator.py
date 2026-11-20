@@ -28,7 +28,7 @@ from app.domain.contracts import (
     ReleaseVerifier,
     RequestStatus,
 )
-from app.enforcement.gateway import EnforcementPlanner, InvalidPlan
+from app.enforcement.gateway import EnforcementPlanner, ExternalContentUnverified, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
 from app.infrastructure.integrity_executor import (
     BoundedIntegrityExecutor,
@@ -204,6 +204,17 @@ class RequestOrchestrator:
                         != approved_release["payload"]["detector_digest"]
                     ):
                         raise RedactionError("Transformed prompt did not pass classification")
+        except ExternalContentUnverified:
+            event(
+                "request_safety_failure",
+                level=logging.WARNING,
+                request_id=command.request_id,
+                error_code="EXTERNAL_CONTENT_UNVERIFIED",
+            )
+            decision = PolicyDecision.deny("EXTERNAL_CONTENT_UNVERIFIED")
+            transformed = False
+            forwarded_prompt = command.prompt
+            verification = None
         except InvalidPlan:
             event(
                 "request_safety_failure",
