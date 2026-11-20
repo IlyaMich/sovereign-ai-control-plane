@@ -15,7 +15,7 @@ import time
 from contextvars import ContextVar
 from datetime import datetime, timezone
 from logging.handlers import QueueHandler, QueueListener
-from typing import Any
+from typing import Any, TextIO
 
 context: ContextVar[dict[str, str] | None] = ContextVar("log_context", default=None)
 _FIELDS = {
@@ -115,7 +115,40 @@ class JSONFormatter(logging.Formatter):
         )
 
 
+def _rate_limit(name: str) -> int | None:
+    """Return suppressed count when emitting; None while the fixed event is limited."""
+    now = time.monotonic()
+    with _lock:
+        last, count = _limits.get(name, (float("-inf"), 0))
+        if now - last < 10:
+            _limits[name] = (last, count + 1)
+            return None
+        _limits[name] = (now, 0)
+    return count
+
+
 class SafeQueueHandler(QueueHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        # Match a fixed server message without formatting arbitrary arguments.
+        # This rejection happens before ASGI and has no request correlation ID.
+        if (
+            record.name == "uvicorn.error"
+            and record.msg == "Exceeded concurrency limit."
+            and not record.args
+        ):
+            suppressed = _rate_limit("server_capacity_exceeded")
+            if suppressed is None:
+                return
+            record = logging.makeLogRecord(record.__dict__.copy())
+            record.event = "server_capacity_exceeded"
+            record.fields = {
+                "stage": "uvicorn",
+                "error_code": "UVICORN_CAPACITY_EXCEEDED",
+                "http_status": 503,
+                "suppressed": suppressed,
+            }
+        super().emit(record)
+
     def prepare(self, record: logging.LogRecord) -> logging.LogRecord:
         # Only the sanitized JSON crosses the queue boundary.
         clean = logging.LogRecord(record.name, record.levelno, "", 0, self.format(record), (), None)
@@ -156,7 +189,7 @@ def shutdown_logging() -> None:
             thread.join(timeout=1)
 
 
-def configure_logging() -> None:
+def configure_logging(*, stream: TextIO | None = None) -> None:
     global _listener
     if _listener is not None:
         return
@@ -165,7 +198,7 @@ def configure_logging() -> None:
         raise ValueError("LOG_LEVEL must be DEBUG, INFO, WARNING, ERROR or CRITICAL")
     handler = SafeQueueHandler(queue.Queue(maxsize=2048))
     handler.setFormatter(JSONFormatter())
-    sink = SafeStreamHandler(sys.stdout)
+    sink = SafeStreamHandler(sys.stdout if stream is None else stream)
     _listener = QueueListener(handler.queue, sink)
     _listener.start()
     logger = logging.getLogger("sovereign")
@@ -199,14 +232,9 @@ def event(name: str, *, level: int = logging.INFO, limited: bool = False, **fiel
     """Call with constant event names/codes and explicitly selected metadata only."""
     try:
         if limited:
-            now = time.monotonic()
-            with _lock:
-                last, count = _limits.get(name, (float("-inf"), 0))
-                if now - last < 10:
-                    _limits[name] = (last, count + 1)
-                    return
-                # All call sites use a fixed, small set of event names.
-                _limits[name] = (now, 0)
+            count = _rate_limit(name)
+            if count is None:
+                return
             fields["suppressed"] = count
         safe = _safe({**(context.get() or {}), **fields})
         logging.getLogger("sovereign.events").log(level, "", extra={"event": name, "fields": safe})

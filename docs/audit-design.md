@@ -1,4 +1,4 @@
-# Audit integrity, provenance and independent review — Milestone 6
+# Audit integrity, provenance and independent review - signed releases and M7 operations
 
 **Current scope:** A single SQLite writer persists tamper-evident evidence for each admitted policy decision, before any model invocation. See [architecture](architecture.md), [policy design](policy-design.md) and [Milestone 6](signed-release-workflow.md).
 
@@ -11,7 +11,7 @@
 5. A denial appends `OUTCOME` with `BLOCKED` and `model_invoked=false`; a successful call appends `COMPLETED`. A model exception appends `UNKNOWN` execution status because the request could have reached the destination.
 6. An outcome-write failure or process crash can leave an unresolved/pending decision. Missing outcomes are **not** evidence that the model was never invoked.
 
-This guarantee covers **admitted policy decisions**. Rejected authentication, malformed pre-validation HTTP traffic or audit-store outages may prevent durable entry creation. The system does not currently reconcile unresolved executions using an idempotency protocol.
+This guarantee covers **admitted policy decisions**. Rejected authentication, malformed pre-validation HTTP traffic or audit-store outages may prevent durable entry creation. Opt-in durable idempotency claims prevent a second gateway admission for the same key, and status lookup plus a read-only inspector support operator reconciliation. They do not repair missing outcomes, recover output or retry inference. Claims live in the same SQLite database but are not independently signed; signed events remain the historical authority. See [idempotency and request lifecycle](idempotency-and-request-lifecycle.md).
 
 ## Event fields and privacy
 
@@ -81,3 +81,15 @@ The release authority is **separate from** the audit signer. Host compromise rem
 ## Next security work
 
 Independent audit public-key pinning, periodic checkpoint witnessing to a separate trust domain, protected audit signing (KMS/HSM), recovery/rotation, audited evidence export access controls and an explicit unresolved-request reconciliation workflow. Do not imply GDPR/PCI certification or forensic completeness beyond the tested scope.
+
+## M7.8 — Signing key initialization
+
+The runtime audit signing key is now written and synced to a private same-volume
+staging file, then atomically published without replacement. Concurrent startup
+on the same SQLite volume adopts and validates the winning complete key;
+existing history without its private signer remains a startup failure.
+The derived audit public PEM is independently published and checked against
+the private key, including restarts after interrupted public-file creation.
+This improves initialization crash safety but does not provide an HSM,
+externally trusted audit key, cross-host distributed storage, or protection
+against a privileged administrator who can replace the entire audit volume.

@@ -18,6 +18,7 @@ from fastapi.responses import JSONResponse
 
 from app.api.admission import InFlightAdmission
 from app.api.body_limit import RequestBodyLimitMiddleware
+from app.api.ingress_limit import HTTPIngressLimitMiddleware
 from app.api.logging import RequestLoggingMiddleware
 from app.api.schemas import PromptInput, prompt_input_model
 from app.application.detector_executor import BoundedDetectorExecutor
@@ -39,11 +40,23 @@ from app.enforcement.gateway import (
     HTTPModelGateway,
 )
 from app.infrastructure.config import Settings
+from app.infrastructure.integrity_executor import (
+    BoundedIntegrityExecutor,
+    integrity_unavailable_code,
+)
 from app.infrastructure.logging import configure_logging, context, event, logging_snapshot
 from app.infrastructure.runtime_metrics import LoopLagMonitor
 from app.policy.opa import OPAPolicyEvaluator
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError, ReleaseStore
+
+
+class ReadinessCheckFailed(RuntimeError):
+    """Carry a controlled component name across a shared off-loop scan."""
+
+    def __init__(self, component: str):
+        super().__init__("Readiness verification failed")
+        self.component = component
 
 
 @dataclass
@@ -55,6 +68,7 @@ class Components:
     detector_executor: BoundedDetectorExecutor | None = None
     audit_executor: BoundedAuditExecutor | None = None
     idempotency: IdempotencyStore | None = None
+    integrity_executor: BoundedIntegrityExecutor | None = None
 
 
 def make_components() -> Components:
@@ -110,12 +124,24 @@ def make_components() -> Components:
         audit,
         max_jobs=settings.audit_execution.max_jobs,
         queue_wait_seconds=settings.audit_execution.queue_wait_seconds,
+        max_waiters=settings.audit_execution.max_waiters,
+        max_auxiliary_jobs=settings.audit_execution.max_auxiliary_jobs,
         sample_window=settings.telemetry.sample_window,
+    )
+    integrity_executor = BoundedIntegrityExecutor(
+        max_jobs=settings.integrity_execution.max_jobs,
+        max_waiters=settings.integrity_execution.max_waiters,
+        queue_wait_seconds=settings.integrity_execution.queue_wait_seconds,
     )
     orchestrator = RequestOrchestrator(
         detector=detector,
         policy=OPAPolicyEvaluator(
-            client, settings.opa_url, snapshot_store, release_store, timeout=settings.http.opa
+            client,
+            settings.opa_url,
+            snapshot_store,
+            release_store,
+            timeout=settings.http.opa,
+            integrity_executor=integrity_executor,
         ),
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
@@ -123,8 +149,18 @@ def make_components() -> Components:
         release_store=release_store,
         detection_executor=executor,
         audit_executor=audit_executor,
+        integrity_executor=integrity_executor,
     )
-    return Components(settings, orchestrator, audit, client, executor, audit_executor, idempotency)
+    return Components(
+        settings,
+        orchestrator,
+        audit,
+        client,
+        executor,
+        audit_executor,
+        idempotency,
+        integrity_executor,
+    )
 
 
 def create_app(components: Components | None = None) -> FastAPI:
@@ -137,19 +173,21 @@ def create_app(components: Components | None = None) -> FastAPI:
         raise
     readiness_state = None
 
-    def readiness(state, stage):
+    def readiness(state, stage, error_code=None):
         nonlocal readiness_state
-        identity = (state, stage)
+        identity = (state, stage, error_code)
         if identity != readiness_state:
             event(
                 "readiness_changed",
                 level=logging.ERROR if state == "NOT_READY" else logging.INFO,
                 state=state,
                 stage=stage,
+                error_code=error_code,
             )
             readiness_state = identity
 
     admission = InFlightAdmission(deps.settings.admission.max_inflight_requests)
+    http_admission = InFlightAdmission(deps.settings.ingress.max_active_http_requests)
     lag = LoopLagMonitor(
         interval_seconds=deps.settings.telemetry.loop_lag_interval_seconds,
         sample_window=deps.settings.telemetry.sample_window,
@@ -165,16 +203,20 @@ def create_app(components: Components | None = None) -> FastAPI:
             event("shutdown_started", stage="runtime")
             await lag.aclose()
             try:
-                if deps.detector_executor is not None:
-                    await deps.detector_executor.aclose()
+                if deps.integrity_executor is not None:
+                    await deps.integrity_executor.aclose()
             finally:
                 try:
-                    if deps.audit_executor is not None:
-                        await deps.audit_executor.aclose()
+                    if deps.detector_executor is not None:
+                        await deps.detector_executor.aclose()
                 finally:
-                    if deps.client is not None:
-                        await deps.client.aclose()
-                    event("service_stopped", stage="runtime")
+                    try:
+                        if deps.audit_executor is not None:
+                            await deps.audit_executor.aclose()
+                    finally:
+                        if deps.client is not None:
+                            await deps.client.aclose()
+                        event("service_stopped", stage="runtime")
 
     app = FastAPI(
         title="Sovereign AI Control Plane",
@@ -183,11 +225,16 @@ def create_app(components: Components | None = None) -> FastAPI:
         lifespan=lifespan,
     )
     app.add_middleware(
-        RequestBodyLimitMiddleware, max_bytes=deps.settings.limits.max_request_body_bytes
+        RequestBodyLimitMiddleware,
+        max_bytes=deps.settings.limits.max_request_body_bytes,
+        body_read_timeout_seconds=deps.settings.ingress.body_read_timeout_seconds,
     )
+    # Logging wraps ingress; ingress wraps body buffering and FastAPI routing.
+    app.add_middleware(HTTPIngressLimitMiddleware, admission=http_admission)
     app.add_middleware(RequestLoggingMiddleware)
     app.state.components = deps
     app.state.admission = admission
+    app.state.http_admission = http_admission
     app.state.loop_lag = lag
 
     async def idempotency_io(operation):
@@ -233,6 +280,12 @@ def create_app(components: Components | None = None) -> FastAPI:
             content={
                 "scope": "process",
                 "logging": logging_snapshot(),
+                "http_ingress": {
+                    "limit": http_admission.limit,
+                    "active": http_admission.active,
+                    "peak_active": http_admission.peak_active,
+                    "rejected": http_admission.rejected,
+                },
                 "admission": {
                     "limit": admission.limit,
                     "active": admission.active,
@@ -249,7 +302,17 @@ def create_app(components: Components | None = None) -> FastAPI:
                     if deps.audit_executor is not None
                     else None
                 ),
+                "audit_limits": (
+                    deps.audit_executor.capacity_snapshot()
+                    if deps.audit_executor is not None
+                    else None
+                ),
                 "event_loop": lag.snapshot(),
+                "integrity": (
+                    deps.integrity_executor.snapshot()
+                    if deps.integrity_executor is not None
+                    else None
+                ),
             },
         )
 
@@ -273,23 +336,50 @@ def create_app(components: Components | None = None) -> FastAPI:
             result = response.json().get("result")
             if not isinstance(result, dict):
                 raise ValueError("OPA policy result missing")
+            stage = "integrity"
+            # All filesystem reads, signatures, and the full installed-model
+            # byte scan run off-loop. Overlapping readiness probes coalesce,
+            # but each subsequent probe performs a fresh live verification.
             policy = deps.orchestrator.policy
-            if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None:
-                info = policy.snapshots.verify_active()
-                if (
-                    result.get("policy_digest") != info.policy_digest
-                    or result.get("policy_revision") != info.policy_revision
-                ):
-                    raise ValueError("OPA policy does not match active archived snapshot")
+            detector = deps.orchestrator.detector
+
+            def check_files():
+                component = "policy"
+                try:
+                    info = (
+                        policy.snapshots.verify_active()
+                        if isinstance(policy, OPAPolicyEvaluator) and policy.snapshots is not None
+                        else None
+                    )
+                    component = "detector"
+                    if hasattr(detector, "check_integrity"):
+                        detector.check_integrity()
+                    component = "release"
+                    if deps.orchestrator.release_store is not None:
+                        deps.orchestrator.release_store.verify_active()
+                    return info
+                except (
+                    ValueError,
+                    RuntimeError,
+                    OSError,
+                    SnapshotError,
+                    ReleaseIntegrityError,
+                ) as exc:
+                    raise ReadinessCheckFailed(component) from exc
+
+            if deps.integrity_executor is not None:
+                info = await deps.integrity_executor.check_readiness(check_files)
+            else:
+                # Injected developer/test components also avoid blocking the loop.
+                info = await asyncio.to_thread(check_files)
+            stage = "policy"
+            if info is not None and (
+                result.get("policy_digest") != info.policy_digest
+                or result.get("policy_revision") != info.policy_revision
+            ):
+                raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
-            stage = "detector"
-            detector = deps.orchestrator.detector
-            if hasattr(detector, "check_integrity"):
-                detector.check_integrity()
-            stage = "release"
-            if deps.orchestrator.release_store is not None:
-                deps.orchestrator.release_store.verify_active()
             stage = "audit"
             if deps.audit_executor is not None:
                 await deps.audit_executor.check_writable()
@@ -309,8 +399,17 @@ def create_app(components: Components | None = None) -> FastAPI:
             AuditUnavailable,
             SnapshotError,
             ReleaseIntegrityError,
-        ):
-            readiness("NOT_READY", stage)
+        ) as exc:
+            if isinstance(exc, ReadinessCheckFailed):
+                stage = exc.component
+            code = integrity_unavailable_code(exc) or {
+                "policy": "POLICY_READINESS_FAILED",
+                "detector": "DETECTOR_READINESS_FAILED",
+                "release": "RELEASE_READINESS_FAILED",
+                "audit": "AUDIT_READINESS_FAILED",
+                "model": "MODEL_READINESS_FAILED",
+            }.get(stage, "INTEGRITY_READINESS_FAILED")
+            readiness("NOT_READY", stage, code)
             return JSONResponse(status_code=503, content={"status": "NOT_READY"})
         readiness("READY", "runtime")
         return {"status": "READY"}

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import logging
 import time
+from functools import partial
 from typing import Any
 
 from app.application.detector_executor import (
@@ -29,6 +30,10 @@ from app.domain.contracts import (
 )
 from app.enforcement.gateway import EnforcementPlanner, ExternalContentUnverified, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
+from app.infrastructure.integrity_executor import (
+    BoundedIntegrityExecutor,
+    integrity_unavailable_code,
+)
 from app.infrastructure.logging import event
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
@@ -45,6 +50,7 @@ class RequestOrchestrator:
         release_store: ReleaseVerifier | None = None,
         detection_executor: BoundedDetectorExecutor | None = None,
         audit_executor: BoundedAuditExecutor | None = None,
+        integrity_executor: BoundedIntegrityExecutor | None = None,
     ):
         self.detector = detector
         self.policy = policy
@@ -54,6 +60,7 @@ class RequestOrchestrator:
         self.release_store = release_store
         self.detection_executor = detection_executor
         self.audit_executor = audit_executor
+        self.integrity_executor = integrity_executor
 
     async def _detect(self, prompt: str) -> DetectionResult:
         if self.detection_executor is None:
@@ -91,6 +98,16 @@ class RequestOrchestrator:
         )
         return receipt
 
+    async def _verify_release(self, **checks: Any) -> dict[str, Any]:
+        verifier = self.release_store
+        if verifier is None:
+            raise ReleaseIntegrityError("Release verifier unavailable")
+        verify = partial(verifier.verify_active, **checks)
+        if self.integrity_executor is not None:
+            return await self.integrity_executor.run(verify)
+        # Keep existing injected test adapters usable without an executor.
+        return verify()
+
     async def process(self, command: PromptCommand) -> ProcessedRequest:
         try:
             classification = await self._detect(command.prompt)
@@ -116,21 +133,30 @@ class RequestOrchestrator:
         policy_input = PolicyContext(command, classification)
         approved_release = None
         release_untrusted = False
+        release_error_code = "UNTRUSTED_RELEASE"
         if self.release_store is not None:
             try:
-                approved_release = self.release_store.verify_active(
+                approved_release = await self._verify_release(
                     detector_digest=classification.artifact_digest
                     if classification.artifact_digest
                     else None
                 )
-            except ReleaseIntegrityError:
+            except Exception as exc:
                 release_untrusted = True
+                release_error_code = integrity_unavailable_code(exc) or (
+                    "UNTRUSTED_RELEASE"
+                    if isinstance(exc, ReleaseIntegrityError)
+                    else "RELEASE_VERIFICATION_FAILED"
+                )
         if release_untrusted:
             event(
                 "request_safety_failure",
-                level=logging.ERROR,
+                level=logging.WARNING
+                if release_error_code.startswith("INTEGRITY_")
+                else logging.ERROR,
+                limited=release_error_code.startswith("INTEGRITY_"),
                 request_id=command.request_id,
-                error_code="UNTRUSTED_RELEASE",
+                error_code=release_error_code,
             )
             decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
         elif classification.status == DetectionStatus.UNKNOWN:
@@ -138,12 +164,14 @@ class RequestOrchestrator:
         else:
             try:
                 decision = await self.policy.evaluate(policy_input)
-            except PolicyIntegrityError:
+            except PolicyIntegrityError as exc:
+                unavailable = integrity_unavailable_code(exc)
                 event(
                     "request_safety_failure",
-                    level=logging.ERROR,
+                    level=logging.WARNING if unavailable else logging.ERROR,
+                    limited=unavailable is not None,
                     request_id=command.request_id,
-                    error_code="POLICY_INTEGRITY_FAILURE",
+                    error_code=unavailable or "POLICY_INTEGRITY_FAILURE",
                 )
                 decision = PolicyDecision.deny("POLICY_INTEGRITY_FAILURE")
             except Exception:
@@ -220,7 +248,7 @@ class RequestOrchestrator:
 
         if approved_release is not None and self.release_store is not None:
             try:
-                rechecked = self.release_store.verify_active(
+                rechecked = await self._verify_release(
                     detector_digest=classification.artifact_digest
                     if classification.artifact_digest
                     else None,
@@ -228,12 +256,19 @@ class RequestOrchestrator:
                 )
                 if rechecked["release_id"] != approved_release["release_id"]:
                     raise ReleaseIntegrityError("Active release changed during request")
-            except ReleaseIntegrityError:
+            except Exception as exc:
+                unavailable = integrity_unavailable_code(exc)
                 event(
                     "request_safety_failure",
-                    level=logging.ERROR,
+                    level=logging.WARNING if unavailable else logging.ERROR,
+                    limited=unavailable is not None,
                     request_id=command.request_id,
-                    error_code="UNTRUSTED_RELEASE",
+                    error_code=unavailable
+                    or (
+                        "UNTRUSTED_RELEASE"
+                        if isinstance(exc, ReleaseIntegrityError)
+                        else "RELEASE_VERIFICATION_FAILED"
+                    ),
                 )
                 decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
                 opa_decision = None  # An untrusted evaluation must not be used for replay.

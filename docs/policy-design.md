@@ -38,6 +38,8 @@ A Rego revision name is not itself an authorization, and a source hash alone is 
 
 ~~~powershell
 # In the existing operator checkout, with policy reviewed:
+# Stop serving before modifying active policy/release artifacts.
+podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane
 python -m tools.build_policy_snapshot
 python -m tools.verify_policy_snapshot
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests

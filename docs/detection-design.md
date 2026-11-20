@@ -1,4 +1,4 @@
-# Sensitive-data detection and artifact provenance — Milestones 2–6
+# Sensitive-data detection, provenance and evaluation
 
 **Current detector:** Local Microsoft Presidio Analyzer `2.2.366`, spaCy `en_core_web_sm` `3.8.0`, built-in recognizers and custom patterns. The control plane does **not** call an external detection API. Model installation occurs at container build time, not on prompt processing.
 
@@ -50,4 +50,14 @@ podman compose -f deploy/compose.yaml --env-file .env exec control-plane python 
 podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.verify_detector_manifest
 ~~~
 
-Future improvements: non-English language coverage and quantitative detection benchmarks, model-image/SBOM signing, adversarial false-negative evaluation and consented encrypted forensic input retention where explicitly justified. See [testing](testing.md), [threat model](threat-model.md) and [Milestone 5](history/detector-provenance-and-evidence.md).
+A developer-only [Stage 1 evaluation framework](../evaluation/README.md) includes
+1,200 deterministic synthetic cases, dataset integrity validation, exact/overlap
+entity scoring, abstention and unsafe-negative metrics, adversarial ASCII cases,
+and HTML/CSV/JSON reports. It runs the standalone detector without modifying
+operational policy, signed releases or audit data. Sequential call timings are
+not a concurrency benchmark. The fixture and tooling do not establish production
+accuracy, completed evaluation, or a release acceptance threshold.
+
+Future improvements: non-English language coverage, reviewed detection baselines
+and broader adversarial evaluation, model-image/SBOM signing, enforcement/egress
+evaluation and consented encrypted forensic input retention where explicitly justified. See [testing](testing.md), [threat model](threat-model.md) and [Milestone 5](history/detector-provenance-and-evidence.md).

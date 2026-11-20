@@ -42,7 +42,9 @@ class RequestLoggingMiddleware:
             raise
         finally:
             route = getattr(scope.get("route"), "path", scope.get("path", "UNMATCHED"))
-            if route not in {"/health/live", "/health/ready"}:
+            if route not in {"/health/live", "/health/ready"} and not scope.get("state", {}).get(
+                "ingress_rejected"
+            ):
                 event(
                     "request_rejected" if status in {401, 429} else "request_completed",
                     route=route,

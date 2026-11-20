@@ -124,6 +124,38 @@ class AdmissionLimits:
 
 
 @dataclass(frozen=True)
+class IngressLimits:
+    """Per API process cap for active HTTP scopes, including slow uploads."""
+
+    max_active_http_requests: int = 32
+    body_read_timeout_seconds: float = 10.0
+
+    def __post_init__(self) -> None:
+        value = self.max_active_http_requests
+        if type(value) is not int or not 1 <= value <= 1024:
+            raise ValueError("MAX_ACTIVE_HTTP_REQUESTS must be an integer from 1 to 1024")
+        seconds = self.body_read_timeout_seconds
+        if (
+            isinstance(seconds, bool)
+            or not isinstance(seconds, (int, float))
+            or not math.isfinite(seconds)
+            or seconds <= 0
+        ):
+            raise ValueError("BODY_READ_TIMEOUT_SECONDS must be finite and positive")
+
+    @classmethod
+    def from_env(cls) -> IngressLimits:
+        return cls(
+            max_active_http_requests=positive_int(
+                "MAX_ACTIVE_HTTP_REQUESTS", cls.max_active_http_requests
+            ),
+            body_read_timeout_seconds=positive_float(
+                "BODY_READ_TIMEOUT_SECONDS", cls.body_read_timeout_seconds
+            ),
+        )
+
+
+@dataclass(frozen=True)
 class DetectorExecutionLimits:
     """Per-worker bounded detector submissions (one detector thread)."""
 
@@ -158,10 +190,16 @@ class AuditExecutionLimits:
 
     max_jobs: int = 16
     queue_wait_seconds: float = 1.0
+    max_waiters: int = 8
+    max_auxiliary_jobs: int = 4
 
     def __post_init__(self) -> None:
         if type(self.max_jobs) is not int or not 1 <= self.max_jobs <= 1024:
             raise ValueError("MAX_AUDIT_JOBS must be an integer from 1 to 1024")
+        if type(self.max_waiters) is not int or not 1 <= self.max_waiters <= 1024:
+            raise ValueError("MAX_AUDIT_WAITERS must be an integer from 1 to 1024")
+        if type(self.max_auxiliary_jobs) is not int or not 1 <= self.max_auxiliary_jobs <= 1024:
+            raise ValueError("MAX_AUDIT_AUXILIARY_JOBS must be an integer from 1 to 1024")
         value = self.queue_wait_seconds
         if (
             isinstance(value, bool)
@@ -176,6 +214,46 @@ class AuditExecutionLimits:
         return cls(
             max_jobs=positive_int("MAX_AUDIT_JOBS", cls.max_jobs),
             queue_wait_seconds=positive_float("AUDIT_QUEUE_WAIT_SECONDS", cls.queue_wait_seconds),
+            max_waiters=positive_int("MAX_AUDIT_WAITERS", cls.max_waiters),
+            max_auxiliary_jobs=positive_int("MAX_AUDIT_AUXILIARY_JOBS", cls.max_auxiliary_jobs),
+        )
+
+
+@dataclass(frozen=True)
+class IntegrityExecutionLimits:
+    """Per process, bounded filesystem and signature verification jobs."""
+
+    max_jobs: int = 8
+    max_waiters: int = 8
+    queue_wait_seconds: float = 1.0
+
+    def __post_init__(self) -> None:
+        if type(self.max_jobs) is not int or not 2 <= self.max_jobs <= 1024:
+            raise ValueError("MAX_INTEGRITY_JOBS must be an integer from 2 to 1024")
+        if type(self.max_waiters) is not int or not 0 <= self.max_waiters <= 1024:
+            raise ValueError("MAX_INTEGRITY_WAITERS must be an integer from 0 to 1024")
+        value = self.queue_wait_seconds
+        if (
+            isinstance(value, bool)
+            or not isinstance(value, (int, float))
+            or not math.isfinite(value)
+            or value <= 0
+        ):
+            raise ValueError("INTEGRITY_QUEUE_WAIT_SECONDS must be finite and positive")
+
+    @classmethod
+    def from_env(cls) -> IntegrityExecutionLimits:
+        raw_waiters = os.environ.get("MAX_INTEGRITY_WAITERS", str(cls.max_waiters))
+        try:
+            waiters = int(raw_waiters)
+        except ValueError as exc:
+            raise ValueError("MAX_INTEGRITY_WAITERS must be a nonnegative integer") from exc
+        return cls(
+            max_jobs=positive_int("MAX_INTEGRITY_JOBS", cls.max_jobs),
+            max_waiters=waiters,
+            queue_wait_seconds=positive_float(
+                "INTEGRITY_QUEUE_WAIT_SECONDS", cls.queue_wait_seconds
+            ),
         )
 
 
@@ -224,9 +302,11 @@ class Settings:
     limits: RequestLimits = field(default_factory=RequestLimits)
     http: HTTPTimeouts = field(default_factory=HTTPTimeouts)
     admission: AdmissionLimits = field(default_factory=AdmissionLimits)
+    ingress: IngressLimits = field(default_factory=IngressLimits)
     detector_execution: DetectorExecutionLimits = field(default_factory=DetectorExecutionLimits)
     audit_execution: AuditExecutionLimits = field(default_factory=AuditExecutionLimits)
     telemetry: TelemetrySettings = field(default_factory=TelemetrySettings)
+    integrity_execution: IntegrityExecutionLimits = field(default_factory=IntegrityExecutionLimits)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -240,9 +320,11 @@ class Settings:
             limits=RequestLimits.from_env(),
             http=HTTPTimeouts.from_env(),
             admission=AdmissionLimits.from_env(),
+            ingress=IngressLimits.from_env(),
             detector_execution=DetectorExecutionLimits.from_env(),
             audit_execution=AuditExecutionLimits.from_env(),
             telemetry=TelemetrySettings.from_env(),
+            integrity_execution=IntegrityExecutionLimits.from_env(),
             opa_url=os.environ.get("OPA_URL", "http://opa:8181"),
             model_url=os.environ.get("MODEL_URL", "http://sovereign-model:9000"),
             db_path=os.environ.get("AUDIT_DB_PATH", "/var/lib/sovereign/audit.sqlite"),

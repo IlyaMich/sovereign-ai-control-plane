@@ -5,12 +5,19 @@ from __future__ import annotations
 import logging
 import re
 import time
-from typing import Any
+from functools import partial
+from typing import Any, Callable
 
 import httpx
 
 from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision, ReleaseVerifier
 from app.infrastructure.config import HTTPTimeouts
+from app.infrastructure.integrity_executor import (
+    BoundedIntegrityExecutor,
+    IntegrityCapacityExceeded,
+    IntegrityExecutorClosed,
+    integrity_unavailable_code,
+)
 from app.infrastructure.logging import event, failure_code
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError
@@ -36,26 +43,43 @@ class OPAPolicyEvaluator:
         releases: ReleaseVerifier | None = None,
         *,
         timeout: float = HTTPTimeouts.opa,
+        integrity_executor: BoundedIntegrityExecutor | None = None,
     ):
         self._client = client
         self._timeout = timeout
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
         self.snapshots = snapshots
         self.releases = releases
+        self.integrity_executor = integrity_executor
+
+    async def _verify(self, operation: Callable[[], Any]) -> Any:
+        if self.integrity_executor is not None:
+            try:
+                return await self.integrity_executor.run(operation)
+            except (IntegrityCapacityExceeded, IntegrityExecutorClosed) as exc:
+                raise PolicyIntegrityError("Integrity verification unavailable") from exc
+        # Injected legacy/test adapters remain usable.
+        return operation()
 
     async def evaluate(self, context: PolicyContext) -> PolicyDecision:
         started = time.perf_counter()
         try:
             try:
-                pinned = self.snapshots.verify_active() if self.snapshots else None
+                pinned = await self._verify(
+                    lambda: self.snapshots.verify_active() if self.snapshots else None
+                )
             except SnapshotError as exc:
                 raise PolicyIntegrityError("Policy snapshot unavailable or invalid") from exc
+            releases = self.releases
             pinned_release = (
-                self.releases.verify_active(
-                    policy_digest=pinned.policy_digest if pinned else None,
-                    detector_digest=context.classification.artifact_digest,
+                await self._verify(
+                    partial(
+                        releases.verify_active,
+                        policy_digest=pinned.policy_digest if pinned else None,
+                        detector_digest=context.classification.artifact_digest,
+                    )
                 )
-                if self.releases
+                if releases is not None
                 else None
             )
             response = await self._client.post(
@@ -70,20 +94,25 @@ class OPAPolicyEvaluator:
                 or decision.policy_revision != pinned.policy_revision
             ):
                 raise PolicyIntegrityError("OPA policy differs from verified active snapshot")
-            if pinned_release is not None and self.releases is not None:
-                verified_after = self.releases.verify_active(
-                    policy_digest=decision.policy_digest,
-                    detector_digest=context.classification.artifact_digest,
+            if pinned_release is not None and releases is not None:
+                verified_after = await self._verify(
+                    partial(
+                        releases.verify_active,
+                        policy_digest=decision.policy_digest,
+                        detector_digest=context.classification.artifact_digest,
+                    )
                 )
                 if verified_after["release_id"] != pinned_release["release_id"]:
                     raise ReleaseIntegrityError("Approved release changed during evaluation")
             return decision
-        except PolicyIntegrityError:
+        except PolicyIntegrityError as exc:
+            unavailable = integrity_unavailable_code(exc)
             event(
-                "policy_integrity_failed",
-                level=logging.ERROR,
+                "policy_verification_unavailable" if unavailable else "policy_integrity_failed",
+                level=logging.WARNING if unavailable else logging.ERROR,
+                limited=unavailable is not None,
                 stage="policy",
-                error_code="POLICY_INTEGRITY_FAILED",
+                error_code=unavailable or "POLICY_INTEGRITY_FAILED",
             )
             raise
         except ReleaseIntegrityError as exc:

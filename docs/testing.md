@@ -1,6 +1,6 @@
-# Testing and verification — current Milestone 6
+# Testing and verification - signed releases, M7 operations and detection evaluation
 
-The project has unit/integration tests for detection, policy parsing, enforcement, audit integrity, policy replay, detector provenance and signed release approval. The **runtime** verification path is Windows PowerShell + Podman Compose.
+The project has unit/integration tests for detection, policy parsing, enforcement, audit integrity, policy replay, detector provenance, signed releases, idempotency, bounded executors/admission, upload deadlines, runtime logging/metrics and concurrent release publication. The **runtime** verification path is Windows PowerShell + Podman Compose.
 
 ## Prerequisites
 
@@ -28,7 +28,14 @@ Key areas:
 | OPA parsing and Rego | `tests/test_policy_adapter.py`, `tests/rego/decision_test.rego` |
 | Policy integrity, archive replay | `tests/test_policy_snapshots.py`, `test_policy_replay.py`, `test_policy_integrity_enforcement.py` |
 | Detector provenance and portable evidence | `tests/test_provenance_and_evidence_packages.py` |
-| Signed releases, anti-rollback workflow | `tests/test_release_approvals.py` |
+| Signed releases, anti-rollback workflow | `tests/test_release_approvals.py`, `test_runtime_release.py` |
+| Idempotency, restart and cancellation behavior | `tests/test_idempotency.py` |
+| Admission, ingress and upload deadlines | `tests/test_request_admission.py`, `test_ingress_bounds.py`, `test_upload_deadline.py` |
+| Bounded detector/audit/integrity workers | `tests/test_detector_executor.py`, `test_audit_executor.py`, `test_audit_capacity_bounds.py`, `test_integrity_executor.py`, `test_integrity_runtime.py` |
+| Runtime diagnostics and logging | `tests/test_runtime_metrics.py`, `test_logging.py`, `test_logging_runtime.py` |
+| Atomic publication and activation races | `tests/test_atomic_publication.py`, `test_release_activation_concurrency.py` |
+| Profiling and overload tool logic | `tests/test_concurrency_performance.py`, `test_overload_and_audit_lookup.py` |
+| Synthetic evaluation validation, scoring and reports | `tests/evaluation/` |
 
 ## Runtime and Rego checks
 
@@ -64,8 +71,30 @@ A valid verification may report:
 
 For stronger audit authentication, supply independent `--trusted-public-key` and `--trusted-checkpoint` to `tools.verify_evidence_package`. Current scripts do **not** automate periodic external checkpoint witnessing.
 
+## Detection evaluation and concurrency profiling
+
+The developer-only [Stage 1 detection evaluation](../evaluation/README.md)
+provides a versioned 1,200-case synthetic dataset and detector scoring/reporting.
+Validate the fixture without loading the NLP model:
+
+```powershell
+python -m evaluation.cli validate
+python -m pytest -q tests/evaluation
+```
+
+Actual detection evaluation requires the pinned local spaCy model; follow the
+evaluation README. It does not exercise OPA, model forwarding or live egress.
+
+[M7.9 profiling](concurrency-performance-profiling.md) and the
+[live overload/lookup follow-up](overload-and-audit-lookup.md) exercise an approved
+running simulator deployment with signed-audit checks. They require the separately
+supplied, Git-ignored `benchmarks/` kit and cannot be reproduced from a fresh
+checkout without that dependency. Tool unit tests do not establish live capacity,
+resolve a performance regression, or satisfy the documented M7 acceptance criteria.
+The historical M6 results above do not validate later M7 changes.
+
 ## Gaps not covered by current automated tests
 
-Real enterprise identity/tenant isolation, real local-model inference quality, external provider identity/residency, mTLS and authenticated egress, output DLP, distributed audit durability, load/performance testing, full supply-chain attestation, audit signer compromise recovery, and periodic external checkpoint witnessing.
+Real enterprise identity/tenant isolation, real local-model inference quality, external provider identity/residency, mTLS and authenticated egress, output DLP, distributed audit durability, production-scale capacity/SLO guarantees, full supply-chain attestation, audit signer compromise recovery, and periodic external checkpoint witnessing.
 
 See [current architecture](architecture.md), [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).
