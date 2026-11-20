@@ -92,6 +92,16 @@ python -m tools.verify_policy_snapshot
 The first approval is generation 1; start with `up --no-build` and verify.
 There is no automatic migration of someone else's old deployment identity.
 
+## Safe Compose configuration inspection
+
+`podman compose -f deploy/compose.yaml --env-file .env config` prints the
+resolved environment, including the API credential. For routine validation,
+use `podman compose -f deploy/compose.yaml --env-file .env config --quiet`,
+which validates without exposing environment values in logs or screenshots.
+Rotate an API key if a verbose config dump was shared. Rotation of the API
+credential is a configuration change and does not require re-signing detector
+artifacts, but the control-plane container must be recreated to load it.
+
 ## Subsequent approved upgrades
 
 Keep `.env`, `.runtime`, the external signer, and the named audit volume.
