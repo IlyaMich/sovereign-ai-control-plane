@@ -153,13 +153,18 @@ def test_cli_controlled_smoke_and_failure_exit(tmp_path: Path, monkeypatch):
     assert (output / "report.html").is_file()
     assert (output / "run.json").is_file()
 
-    async def unsafe(*_args, **_kwargs):
-        return {"failed": 1, "metrics": {"unsafe_sensitive_release_count": 1, "issues": {}}}
-
-    monkeypatch.setattr("evaluation.output.cli.evaluate_scenarios", unsafe)
-    # Stub deliberately lacks normal report shape, so use an existing directory
-    # to assert errors are not falsely presented as successful benchmark runs.
-    assert main(["--mode", "controlled", "--output-dir", str(output)]) == 2
+    sensitive = _make_case(
+        "OUTPUT-LEAK", "Email alice@example.com",
+        (("EMAIL_ADDRESS", "alice@example.com"),),
+    )
+    unsafe = OutputScenario(
+        sensitive, "OUTPUT_BLOCKED", fault="detector_false_negative"
+    )
+    monkeypatch.setattr("evaluation.output.cli.controlled_scenarios", lambda: (unsafe,))
+    assert main([
+        "--mode", "controlled",
+        "--output-dir", str(tmp_path / "unsafe"),
+    ]) == 1
 
 
 def test_ground_truth_entity_offsets_are_exact():
