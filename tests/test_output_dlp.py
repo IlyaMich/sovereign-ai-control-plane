@@ -395,3 +395,55 @@ async def test_masked_output_growth_over_limit_blocks(audit):
     assert result.output_decision.reason_codes == ("OUTPUT_MASK_VERIFICATION_FAILED",)
 
 
+
+@pytest.mark.asyncio
+async def test_signed_masking_output_policy_is_replayed_without_plaintext(tmp_path, audit):
+    source = tmp_path / "policy"
+    archive = tmp_path / "archive"
+    active = tmp_path / "active"
+    info = build_snapshot(Path("policies"), archive, active)
+    svc, _ = make_service(
+        audit,
+        "Email jane@example.com",
+        digest=info.policy_digest,
+        output_policy=OutputMaskPolicy(info.policy_digest),
+        output_masking_enabled=True,
+    )
+    outcome = await svc.process(command())
+    assert outcome.status == RequestStatus.COMPLETED
+    package = tmp_path / "output-mask.zip"
+    export_package(
+        str(audit.db_path),
+        str(audit.key_path.with_suffix(".pub.pem")),
+        str(archive),
+        str(tmp_path / "empty-detectors"),
+        str(package),
+    )
+
+    def replay_input(_folder, _policy_input):
+        return PolicyDecision(
+            Effect.PERMIT,
+            (Obligation("ROUTE", "sovereign-model"),),
+            ("INPUT_OK",),
+            info.policy_revision,
+            info.policy_digest,
+        ).to_dict()
+
+    def replay_output(_folder, policy_input):
+        assert policy_input["masking_enabled"] is True
+        assert policy_input["classification"]["status"] == "PRIVATE"
+        return PolicyDecision(
+            Effect.PERMIT,
+            (Obligation("REDACT", categories=("EMAIL_ADDRESS", "PHONE_NUMBER")),),
+            ("OUTPUT_MASKING_REQUIRED",),
+            info.policy_revision,
+            info.policy_digest,
+        ).to_dict()
+
+    report = verify_package(
+        str(package), evaluator=replay_input, output_evaluator=replay_output
+    )
+    assert report["audit"]["output_policy_decisions_replayed"] == 1
+    assert report["audit"]["verified_events"] == 2
+    assert report["status"] == "EVIDENCE_PACKAGE_SELF_CONSISTENT"
+    assert "jane@example.com" not in str(report)
