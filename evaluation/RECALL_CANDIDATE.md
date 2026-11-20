@@ -9,11 +9,13 @@ fail-closed handling, or runtime egress behavior.
 - `PRIVATE_KEY`: recognize a complete `BEGIN ... PRIVATE KEY` / matching `END`
   PEM block as one span. The pre-existing header-only recognizer remains, so
   incomplete or malformed key-like headers are still treated as sensitive.
-  The new recognizer bounds its search to the configured maximum 8,192-character
-  prompt scope; the matched begin/end label must agree.
+  The new recognizer bounds its search to 8,192 characters (the default prompt
+  size limit); larger configured prompts would require revisiting this bound.
+  The matched begin/end label must agree.
 - `LOCATION`: recognize `City, Full US State Name` as one span (including
-  multiword cities and optional `St.` / `Ft.` prefixes), without depending
-  on spaCy to merge city and state entities.
+  selected common multiword city names and `St.` / `Ft.` prefixes), without
+  depending on spaCy to merge city and state entities. Deliberately avoid a
+  generic multiword proper-noun regex that could consume preceding text.
 
 **Reason for this scope:** Generic regex matching of arbitrary two-capitalized-word
 names would also match ordinary titles and phrases in the wild. Candidate
