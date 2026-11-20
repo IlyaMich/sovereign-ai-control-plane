@@ -78,6 +78,16 @@ The standard `Verify-SignedReleaseWorkflow.ps1` intentionally pins only the **re
 
 The release authority is **separate from** the audit signer. Host compromise remains a material threat: the audit key and SQLite volume are locally managed, and independently witnessed audit checkpoints are **not yet automated**.
 
+## Large audit export limits
+
+Evidence package export and review default to 128 MiB uncompressed. For a
+larger accumulated SQLite audit history, operators may explicitly raise
+**both** bounds with `--max-uncompressed-mib` (hard maximum 1024 MiB),
+or use `Verify-SignedReleaseWorkflow.ps1 -EvidenceMaxMiB 512` after a
+signed successor release. File hashing streams in chunks; audit signatures,
+full-chain verification, the file-count cap and ZIP extraction limits remain.
+A larger package is not evidence of a different or truncated audit history.
+
 ## Next security work
 
 Independent audit public-key pinning, periodic checkpoint witnessing to a separate trust domain, protected audit signing (KMS/HSM), recovery/rotation, audited evidence export access controls and an explicit unresolved-request reconciliation workflow. Do not imply GDPR/PCI certification or forensic completeness beyond the tested scope.
