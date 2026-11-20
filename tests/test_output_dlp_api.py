@@ -9,7 +9,7 @@ from tests.test_output_dlp import make_service
 
 def _client(audit, generated):
     secret = "local-output-test-key-at-least-24-characters"
-    orchestrator, model = make_service(audit, generated)
+    orchestrator, model = make_service(audit, generated, tenant_id="local-tenant")
     app = create_app(Components(Settings(api_key=secret), orchestrator, audit))
     return TestClient(app), secret, model
 
