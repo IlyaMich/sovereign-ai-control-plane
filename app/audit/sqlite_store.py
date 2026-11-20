@@ -214,16 +214,23 @@ class SQLiteAuditStore:
                 has_claims = conn.execute(
                     "SELECT 1 FROM sqlite_master WHERE type='table' AND name='request_idempotency'"
                 ).fetchone()
-                candidates = "SELECT request_id FROM events WHERE event_type='DECISION'"
                 if has_claims:
-                    candidates += " UNION SELECT request_id FROM request_idempotency"
-                return int(
-                    conn.execute(
-                        "SELECT COUNT(*) FROM (" + candidates + ") AS pending WHERE NOT EXISTS "
-                        "(SELECT 1 FROM events AS outcome WHERE outcome.request_id=pending.request_id "
-                        "AND outcome.event_type='OUTCOME')"
-                    ).fetchone()[0]
-                )
+                    query = (
+                        "SELECT COUNT(*) FROM ("
+                        "SELECT request_id FROM events WHERE event_type='DECISION' "
+                        "UNION SELECT request_id FROM request_idempotency"
+                        ") AS pending WHERE NOT EXISTS ("
+                        "SELECT 1 FROM events AS outcome WHERE "
+                        "outcome.request_id=pending.request_id AND outcome.event_type='OUTCOME')"
+                    )
+                else:
+                    query = (
+                        "SELECT COUNT(DISTINCT pending.request_id) FROM events AS pending "
+                        "WHERE pending.event_type='DECISION' AND NOT EXISTS ("
+                        "SELECT 1 FROM events AS outcome WHERE "
+                        "outcome.request_id=pending.request_id AND outcome.event_type='OUTCOME')"
+                    )
+                return int(conn.execute(query).fetchone()[0])
         except (sqlite3.Error, OSError) as exc:
             raise AuditUnavailable("Unresolved request metrics unavailable") from exc
 

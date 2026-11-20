@@ -99,7 +99,7 @@ class ResilientHTTP:
                     if attempt + 1 == attempts or not transient:
                         raise
                     delay = min(5.0, self.settings.probe_backoff_seconds * 2**attempt)
-                    await asyncio.sleep(delay * random.uniform(0.5, 1.0))
+                    await asyncio.sleep(delay * random.SystemRandom().uniform(0.5, 1.0))
                 else:
                     circuit.finish(generation, False)
                     return response

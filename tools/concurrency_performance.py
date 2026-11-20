@@ -13,8 +13,9 @@ import json
 import math
 import os
 import re
+import shutil
 import statistics
-import subprocess
+import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import sys
 import time
 from datetime import datetime, timezone
@@ -228,7 +229,8 @@ async def capture_command(
     async def read_lines() -> None:
         nonlocal phase
         stream = command_proc.stdout
-        assert stream is not None
+        if stream is None:
+            raise RuntimeError("Benchmark subprocess output was not captured")
         while line := await stream.readline():
             decoded = line.decode("utf-8", errors="replace")
             beginning = START.match(decoded)
@@ -576,8 +578,12 @@ def main(argv: list[str] | None = None) -> int:
     # Do not silently import a different benchmark implementation.
     if not (Path("benchmarks") / "suite.py").is_file():
         parser.error("Install the existing local benchmarks kit under benchmarks/ first")
-    sha = subprocess.run(["git", "rev-parse", "HEAD"], capture_output=True, text=True)
-    git_sha = sha.stdout.strip() if sha.returncode == 0 else "unavailable"
+    git = shutil.which("git")
+    git_sha = "unavailable"
+    if git is not None:
+        sha = subprocess.run([git, "rev-parse", "HEAD"], capture_output=True, text=True)  # nosec B603 # Resolved executable and constant read-only arguments.
+        if sha.returncode == 0:
+            git_sha = sha.stdout.strip()
     for index in range(1, args.runs + 1):
         label = f"{args.label_prefix}-r{index:02d}"
         print(f"\nM7.9 repetition {index}/{args.runs}: {label}", flush=True)

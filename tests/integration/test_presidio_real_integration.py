@@ -1,6 +1,7 @@
 """Runs against installed Presidio/spaCy in the Podman image, skipped otherwise."""
 
 import importlib.util
+import logging
 
 import pytest
 
@@ -10,7 +11,9 @@ import pytest
     or importlib.util.find_spec("en_core_web_sm") is None,
     reason="Presidio and pinned spaCy model are only installed in the M2 container",
 )
-def test_real_presidio_detects_patterns_and_completes_coverage():
+def test_real_presidio_detects_patterns_and_completes_coverage(monkeypatch, caplog):
+    monkeypatch.setattr(logging.getLogger("presidio-analyzer"), "propagate", True)
+    caplog.set_level(logging.WARNING, logger="presidio-analyzer")
     from app.detection.presidio_detector import PresidioDetector
 
     detector = PresidioDetector.create()
@@ -27,6 +30,8 @@ def test_real_presidio_detects_patterns_and_completes_coverage():
 
     clean = detector.detect("Explain local policy evaluation in simple terms")
     assert clean.status.value != "UNKNOWN"
+    detector.detect("Compute a sum of two integers")
+    assert not [record for record in caplog.records if record.name == "presidio-analyzer"]
 
 
 @pytest.mark.skipif(

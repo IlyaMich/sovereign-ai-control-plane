@@ -359,7 +359,12 @@ def test_create_registers_configured_patterns(monkeypatch):
         registry=SimpleNamespace(add_recognizer=registered.append),
     )
     modules = {
-        "spacy": SimpleNamespace(load=lambda name: SimpleNamespace(meta={"version": "3.8.0"})),
+        "spacy": SimpleNamespace(
+            load=lambda name: SimpleNamespace(
+                meta={"version": "3.8.0"},
+                pipe_labels={"ner": ("PERSON", "CARDINAL")},
+            )
+        ),
         "tldextract": SimpleNamespace(extract=None, TLDExtract=lambda **kwargs: None),
         "presidio_analyzer": SimpleNamespace(
             AnalyzerEngine=lambda **kwargs: analyzer,
@@ -367,7 +372,22 @@ def test_create_registers_configured_patterns(monkeypatch):
             PatternRecognizer=lambda **kwargs: kwargs,
         ),
         "presidio_analyzer.nlp_engine": SimpleNamespace(
-            NlpEngineProvider=lambda **kwargs: SimpleNamespace(create_engine=lambda: object())
+            NlpEngineProvider=lambda **kwargs: SimpleNamespace(
+                create_engine=lambda: SimpleNamespace(
+                    get_supported_entities=lambda: list(config.required_coverage),
+                )
+            ),
+            NerModelConfiguration=lambda: SimpleNamespace(
+                model_to_presidio_entity_mapping={"PERSON": "PERSON"}
+            ),
+        ),
+        "presidio_analyzer.recognizer_registry": SimpleNamespace(
+            RecognizerRegistryProvider=lambda **kwargs: SimpleNamespace(
+                create_recognizer_registry=lambda: analyzer.registry
+            ),
+        ),
+        "presidio_analyzer.recognizer_registry.recognizers_loader_utils": SimpleNamespace(
+            RecognizerConfigurationLoader=SimpleNamespace(get=lambda: {"recognizers": []}),
         ),
     }
     for name, module in modules.items():

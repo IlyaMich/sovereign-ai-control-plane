@@ -166,7 +166,8 @@ def export_package(
         if releases and release_archive is None:
             raise EvidencePackageError("Release archive required for signed-release decisions")
         for identity in sorted(releases):
-            assert release_archive is not None  # Required above when releases are present.
+            if release_archive is None:
+                raise EvidencePackageError("Release archive required for signed-release decisions")
             source = Path(release_archive) / (identity + ".json")
             doc = load_approval(
                 source

@@ -98,7 +98,9 @@ class JSONFormatter(logging.Formatter):
         if not record.name.startswith("sovereign."):
             source = record.name.split(".", 1)[0]
             fields["stage"] = (
-                source if source in {"uvicorn", "httpx", "httpcore", "spacy"} else "dependency"
+                ("presidio" if source == "presidio-analyzer" else source)
+                if source in {"uvicorn", "httpx", "httpcore", "spacy", "presidio-analyzer"}
+                else "dependency"
             )
         event = getattr(record, "event", "runtime_message")
         if not isinstance(event, str) or not re.fullmatch(r"[a-z][a-z0-9_]{0,79}", event):

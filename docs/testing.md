@@ -33,6 +33,16 @@ python -m pytest -q
 
 `tests/integration/test_presidio_real_integration.py` is skipped if the NLP installation is absent; install the pinned spaCy English model in a dedicated environment to run it. The production image intentionally omits pytest. `make test` is available when Make is installed and the virtual environment has been set up.
 
+CI installs the patched OPA CLI before the complete Python suite and treats
+Python warnings as errors. Local signed-runtime integration tests require
+`OPA_BINARY` to name an OPA executable; the symlink test also requires host support.
+
+CI security scans freeze installed dependencies to `requirements.txt`, retain
+`trivy-filesystem.json`, and fail if that report does not include the Python
+requirements. Bandit prints all severities before applying the High severity gate.
+Narrow `nosec` annotations document reviewed, shell-free operator CLI calls and
+the container listener; no scanner rule is disabled globally.
+
 Tests are grouped by subsystem under `tests/api/`, `tests/application/`,
 `tests/audit/`, `tests/detection/`, `tests/enforcement/`, `tests/infrastructure/`,
 `tests/policy/`, `tests/release/`, and `tests/tools/`. Cross-component tests live

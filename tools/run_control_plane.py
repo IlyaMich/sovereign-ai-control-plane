@@ -7,6 +7,8 @@ import uvicorn
 from app.infrastructure.config import positive_int
 from app.infrastructure.logging import configure_logging
 
+CONTAINER_BIND_HOST = "0.0.0.0"  # nosec B104 # Container interface; Compose publishes on loopback.
+
 
 def server_limits() -> tuple[int, int]:
     concurrency = positive_int("UVICORN_LIMIT_CONCURRENCY", 96)
@@ -19,11 +21,12 @@ def server_limits() -> tuple[int, int]:
 def main() -> None:
     configure_logging()
     concurrency, keepalive = server_limits()
+    # Listen on the container interface; Compose exposes only host loopback.
     uvicorn.run(
         "app.api.main:create_app",
         factory=True,
         log_config=None,
-        host="0.0.0.0",
+        host=CONTAINER_BIND_HOST,
         port=8000,
         access_log=False,
         proxy_headers=False,

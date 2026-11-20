@@ -413,3 +413,10 @@ async def test_shared_readiness_logs_one_completion_and_preserves_each_cancellat
     cancelled = [e for e in events if e["event"] == "integrity_wait_cancelled"]
     assert len(cancelled) == 1
     assert cancelled[0]["correlation_id"] == first_id
+
+
+def test_presidio_warning_identifies_source_without_exposing_message():
+    record = logging.LogRecord("presidio-analyzer", logging.WARNING, "", 1, SECRET, (), None)
+    result = json.loads(operational.JSONFormatter().format(record))
+    assert result["stage"] == "presidio"
+    assert SECRET not in json.dumps(result)

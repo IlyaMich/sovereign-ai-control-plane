@@ -9,17 +9,16 @@ from __future__ import annotations
 
 import fcntl
 import hashlib
+import http.client
 import json
 import os
 import re
 import shutil
-import subprocess
+import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import sys
 import tarfile
 import tempfile
 from pathlib import Path
-from urllib import error as urllib_error
-from urllib import request as urllib_request
 
 from app.policy.snapshots import PolicySnapshotStore, build_snapshot
 from app.release.approvals import ReleaseStore
@@ -38,27 +37,32 @@ def required_path(name: str, *, directory: bool = False) -> Path:
 
 
 def run(*args: str) -> None:
-    subprocess.run([sys.executable, "-m", *args], check=True)
+    subprocess.run([sys.executable, "-m", *args], check=True)  # nosec B603 # Internal module calls; no shell.
 
 
 def release_does_not_exist(tag: str) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
-    url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-    req = urllib_request.Request(
-        url,
-        headers={
-            "Authorization": "Bearer " + token,
-            "Accept": "application/vnd.github+json",
-            "X-GitHub-Api-Version": "2022-11-28",
-        },
-    )
+    connection = http.client.HTTPSConnection("api.github.com", timeout=30)
     try:
-        with urllib_request.urlopen(req, timeout=30):
+        connection.request(
+            "GET",
+            f"/repos/{repo}/releases/tags/{tag}",
+            headers={
+                "Authorization": "Bearer " + token,
+                "Accept": "application/vnd.github+json",
+                "X-GitHub-Api-Version": "2022-11-28",
+                "User-Agent": "sovereign-release-signer",
+            },
+        )
+        status = connection.getresponse().status
+        if status == 404:
+            return
+        if status == 200:
             raise RuntimeError("A GitHub Release already exists for this generation")
-    except urllib_error.HTTPError as exc:
-        if exc.code != 404:
-            raise
+        raise RuntimeError("Unexpected GitHub release lookup response")
+    finally:
+        connection.close()
 
 
 def copy_public_state(authority: Path, output: Path, candidate: Path) -> None:

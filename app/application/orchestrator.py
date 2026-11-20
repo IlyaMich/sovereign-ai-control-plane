@@ -479,7 +479,10 @@ class RequestOrchestrator:
                         output_decision = PolicyDecision.deny("OUTPUT_POLICY_UNAVAILABLE")
                         service_error = "OUTPUT_POLICY_UNAVAILABLE"
 
-            assert output_classification is not None and output_decision is not None
+            if output_classification is None or output_decision is None:
+                raise RuntimeError(
+                    "Output inspection did not produce a classification and decision"
+                )
             self.dlp_metrics.output_detection(
                 output_classification.status,
                 output_detection_ms,

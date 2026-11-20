@@ -10,7 +10,7 @@ import argparse
 import asyncio
 import json
 import re
-import subprocess
+import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import sys
 import uuid
 from collections import Counter
@@ -326,7 +326,7 @@ def main(argv: list[str] | None = None) -> int:
             "--scenarios",
             SCENARIO,
         ]
-        if subprocess.run(command, check=False).returncode != 0:
+        if subprocess.run(command, check=False).returncode != 0:  # nosec B603 # Fixed local Python benchmark CLI; no shell.
             print("FAIL: Signed-audit benchmark or diagnostics capture failed", file=sys.stderr)
             return 1
     overload = check_overload(run_dir)

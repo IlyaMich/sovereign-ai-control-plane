@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import json
 import sqlite3
-import subprocess
+import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import tempfile
 from contextlib import closing
 from pathlib import Path
@@ -38,7 +38,7 @@ def run_opa(
             encoding="utf-8",
         )
         try:
-            result = subprocess.run(
+            result = subprocess.run(  # nosec B603 # Operator-selected OPA binary; shell is disabled.
                 [
                     opa_binary,
                     "eval",

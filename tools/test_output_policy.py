@@ -6,7 +6,7 @@ Usage: python -m tools.test_output_policy [--opa-bin opa]
 from __future__ import annotations
 
 import argparse
-import subprocess
+import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import tempfile
 from pathlib import Path
 
@@ -21,7 +21,7 @@ def main(argv: list[str] | None = None) -> int:
         root = Path(directory)
         build_snapshot(Path("policies"), root / "archive", root / "active")
         try:
-            completed = subprocess.run(
+            completed = subprocess.run(  # nosec B603 # Operator-selected OPA binary; no shell.
                 [
                     args.opa_bin,
                     "test",
