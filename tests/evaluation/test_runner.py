@@ -1,9 +1,9 @@
 """Run/reports verified with controlled adapters (not assertions about model accuracy)."""
+
 from __future__ import annotations
 
 import json
 from pathlib import Path
-
 
 from evaluation.cli import main
 from evaluation.dataset import load_dataset
@@ -13,6 +13,7 @@ from evaluation.runner import evaluate, save_run
 
 class OracleAdapter:
     """Test fixture: echoes labels to exercise scoring, NOT a real detector baseline."""
+
     name = "truth-oracle-fixture"
 
     def __init__(self, cases):
@@ -20,11 +21,15 @@ class OracleAdapter:
 
     def detect(self, text):
         case = self.entries[text]
-        return {"status": case.expected_status,
-                "findings": [dict(category=e.category, start=e.start, end=e.end)
-                             for e in case.entities],
-                "reason_codes": [], "detector_version": "fixture-v1",
-                "config_digest": "fixture"}
+        return {
+            "status": case.expected_status,
+            "findings": [
+                dict(category=e.category, start=e.start, end=e.end) for e in case.entities
+            ],
+            "reason_codes": [],
+            "detector_version": "fixture-v1",
+            "config_digest": "fixture",
+        }
 
 
 class BrokenAdapter:
@@ -36,15 +41,13 @@ class BrokenAdapter:
 
 def test_full_dataset_run_outputs_reports_without_prompt_text(tmp_path: Path):
     dataset = load_dataset()
-    result, predictions = evaluate(dataset, OracleAdapter(dataset.cases),
-                                   repo_root=tmp_path)
+    result, predictions = evaluate(dataset, OracleAdapter(dataset.cases), repo_root=tmp_path)
     assert result["metrics"]["total_cases"] == 1200
     assert result["metrics"]["entities_exact_full"]["overall"]["recall"] == 1.0
     assert result["metrics"]["in_scope_unknown_count"] == 0
     dest = tmp_path / "result"
     save_run(dest, result, dataset.cases, predictions)
-    for filename in ("run.json", "predictions.jsonl", "cases.csv",
-                     "categories.csv", "report.html"):
+    for filename in ("run.json", "predictions.jsonl", "cases.csv", "categories.csv", "report.html"):
         assert (dest / filename).is_file()
     probe = dataset.cases[0].text
     for output_file in dest.iterdir():
@@ -57,8 +60,9 @@ def test_full_dataset_run_outputs_reports_without_prompt_text(tmp_path: Path):
 
 def test_detector_exception_is_reported_without_leaking_exception_text(tmp_path: Path):
     dataset = load_dataset()
-    result, predictions = evaluate(dataset, BrokenAdapter(), split="development",
-                                   repo_root=tmp_path)
+    result, predictions = evaluate(
+        dataset, BrokenAdapter(), split="development", repo_root=tmp_path
+    )
     assert result["metrics"]["detector_error_count"] == 240
     assert all(p.status == "ERROR" and p.error_type == "RuntimeError" for p in predictions)
     dest = tmp_path / "run-errors"

@@ -1,4 +1,5 @@
 """Strict/overlap span matching and abstention-aware classification metrics."""
+
 from __future__ import annotations
 
 from collections import Counter, defaultdict
@@ -25,21 +26,27 @@ def _fraction(a: int, b: int) -> float | None:
 def _prf(tp: int, fp: int, fn: int) -> dict[str, Any]:
     precision = _fraction(tp, tp + fp)
     recall = _fraction(tp, tp + fn)
-    f1 = (2 * precision * recall / (precision + recall)
-          if precision is not None and recall is not None and precision + recall > 0
-          else None)
-    return {"tp": tp, "fp": fp, "fn": fn, "precision": precision,
-            "recall": recall, "f1": f1}
+    f1 = (
+        2 * precision * recall / (precision + recall)
+        if precision is not None and recall is not None and precision + recall > 0
+        else None
+    )
+    return {"tp": tp, "fp": fp, "fn": fn, "precision": precision, "recall": recall, "f1": f1}
 
 
-def _matched(expected: tuple[Entity, ...], actual: tuple[Entity, ...],
-             *, relaxed: bool) -> list[tuple[int, int]]:
+def _matched(
+    expected: tuple[Entity, ...], actual: tuple[Entity, ...], *, relaxed: bool
+) -> list[tuple[int, int]]:
     """Max-cardinality, deterministic one-to-one matching; never double-count a span."""
+
     def compatible(a: Entity, b: Entity) -> bool:
         if a.category != b.category:
             return False
-        return (a.start < b.end and b.start < a.end) if relaxed else (
-            a.start == b.start and a.end == b.end)
+        return (
+            (a.start < b.end and b.start < a.end)
+            if relaxed
+            else (a.start == b.start and a.end == b.end)
+        )
 
     links = [[j for j, p in enumerate(actual) if compatible(e, p)] for e in expected]
     # Check all augmenting paths, so greedy prediction order cannot undercount true positives.
@@ -60,8 +67,9 @@ def _matched(expected: tuple[Entity, ...], actual: tuple[Entity, ...],
     return sorted((i, j) for j, i in assigned.items())
 
 
-def _entity_metrics(cases: tuple[Case, ...], predictions: dict[str, Prediction],
-                    *, relaxed: bool, selective: bool) -> dict[str, Any]:
+def _entity_metrics(
+    cases: tuple[Case, ...], predictions: dict[str, Prediction], *, relaxed: bool, selective: bool
+) -> dict[str, Any]:
     by_cat: dict[str, Counter[str]] = defaultdict(Counter)
     overall: Counter[str] = Counter()
     for case in cases:
@@ -80,10 +88,8 @@ def _entity_metrics(cases: tuple[Case, ...], predictions: dict[str, Prediction],
             if j not in predicted_match:
                 by_cat[e.category]["fp"] += 1
                 overall["fp"] += 1
-    categories = {key: _prf(x["tp"], x["fp"], x["fn"])
-                  for key, x in sorted(by_cat.items())}
-    return {"overall": _prf(overall["tp"], overall["fp"], overall["fn"]),
-            "by_category": categories}
+    categories = {key: _prf(x["tp"], x["fp"], x["fn"]) for key, x in sorted(by_cat.items())}
+    return {"overall": _prf(overall["tp"], overall["fp"], overall["fn"]), "by_category": categories}
 
 
 def score(cases: tuple[Case, ...], outcomes: list[Prediction]) -> dict[str, Any]:
@@ -105,41 +111,51 @@ def score(cases: tuple[Case, ...], outcomes: list[Prediction]) -> dict[str, Any]
     for c in cases:
         p = predictions[c.id]
         confusion[c.expected_status][p.status] += 1
-        correct += (p.status == c.expected_status)
+        correct += p.status == c.expected_status
         by_group[c.group]["total"] += 1
-        by_group[c.group]["correct"] += (p.status == c.expected_status)
+        by_group[c.group]["correct"] += p.status == c.expected_status
         if c.in_scope and p.status == "UNKNOWN":
             abstained += 1
             unknown_reasons.update(p.reason_codes or ("UNKNOWN_NO_REASON",))
         if p.status == "ERROR":
             errors += 1
     return {
-        "total_cases": len(cases), "in_scope_cases": len(in_scope),
+        "total_cases": len(cases),
+        "in_scope_cases": len(in_scope),
         "unsupported_cases": len(cases) - len(in_scope),
         "status_accuracy": _fraction(correct, len(cases)),
         "status_confusion": {k: dict(v) for k, v in sorted(confusion.items())},
-        "group_accuracy": {k: {"total": v["total"], "correct": v["correct"],
-                              "accuracy": _fraction(v["correct"], v["total"])}
-                           for k, v in sorted(by_group.items())},
+        "group_accuracy": {
+            k: {
+                "total": v["total"],
+                "correct": v["correct"],
+                "accuracy": _fraction(v["correct"], v["total"]),
+            }
+            for k, v in sorted(by_group.items())
+        },
         "positive_detection_recall": _fraction(
-            sum(predictions[c.id].status == "PRIVATE" for c in positive), len(positive)),
+            sum(predictions[c.id].status == "PRIVATE" for c in positive), len(positive)
+        ),
         "unsafe_negative_rate": _fraction(
-            sum(predictions[c.id].status == "NO_PRIVATE_DETECTED" for c in positive),
-            len(positive)),
+            sum(predictions[c.id].status == "NO_PRIVATE_DETECTED" for c in positive), len(positive)
+        ),
         "negative_specificity": _fraction(
-            sum(predictions[c.id].status == "NO_PRIVATE_DETECTED" for c in negative),
-            len(negative)),
+            sum(predictions[c.id].status == "NO_PRIVATE_DETECTED" for c in negative), len(negative)
+        ),
         "false_positive_rate_on_negatives": _fraction(
-            sum(predictions[c.id].status == "PRIVATE" for c in negative), len(negative)),
+            sum(predictions[c.id].status == "PRIVATE" for c in negative), len(negative)
+        ),
         "in_scope_unknown_count": abstained,
         "in_scope_unknown_rate": _fraction(abstained, len(in_scope)),
         "unknown_reasons": dict(sorted(unknown_reasons.items())),
         "unsupported_unknown_rate": _fraction(
             sum(predictions[c.id].status == "UNKNOWN" for c in cases if not c.in_scope),
-            len(cases) - len(in_scope)),
+            len(cases) - len(in_scope),
+        ),
         "detector_error_count": errors,
         "entities_exact_full": _entity_metrics(cases, predictions, relaxed=False, selective=False),
-        "entities_exact_selective": _entity_metrics(cases, predictions, relaxed=False,
-                                                      selective=True),
+        "entities_exact_selective": _entity_metrics(
+            cases, predictions, relaxed=False, selective=True
+        ),
         "entities_overlap_full": _entity_metrics(cases, predictions, relaxed=True, selective=False),
     }

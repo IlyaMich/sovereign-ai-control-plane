@@ -8,6 +8,7 @@ Guard the ORIGINAL source as well as the transformed payload: checking only
 post-redaction text misses a partially redacted multiline name whose first
 name has already been replaced by a marker.
 """
+
 from __future__ import annotations
 
 import re
@@ -24,9 +25,7 @@ _SSN_SHAPE = re.compile(
 # A first/last proper-name-shaped pair across a line break. This intentionally
 # trades some false positives for a fail-closed result on ambiguous names.
 _WORD = r"(?:[A-Z][a-z]{1,39}|[A-Z]{2,40})"
-_MULTILINE_NAME = re.compile(
-    rf"(?<![A-Za-z]){_WORD}[ \t]*\r?\n[ \t]*{_WORD}(?![A-Za-z])"
-)
+_MULTILINE_NAME = re.compile(rf"(?<![A-Za-z]){_WORD}[ \t]*\r?\n[ \t]*{_WORD}(?![A-Za-z])")
 
 
 def external_content_signals(source: str, forwarded: str) -> tuple[str, ...]:

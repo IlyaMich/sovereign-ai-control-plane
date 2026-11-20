@@ -32,7 +32,6 @@ from app.release.approvals import ReleaseIntegrityError
 from evaluation.dataset import Case, Entity
 from evaluation.enforcement.policy import FixturePolicy
 
-
 DESTINATIONS = (
     Destination("sovereign-model", "http://sovereign-model:9000", "INTERNAL"),
     Destination("external-simulator", "http://egress-gateway:9010", "EXTERNAL_SIMULATED"),
