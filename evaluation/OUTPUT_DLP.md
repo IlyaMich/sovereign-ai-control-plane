@@ -55,7 +55,9 @@ The benchmark's regression tests additionally inject (a) a detector false
 negative that **releases a labeled synthetic secret** and (b) a detector false
 positive that blocks benign text. These are intentional **negative controls**:
 they prove that safety metrics notice unsafe releases and unnecessary blocks,
-even when the audit signature itself remains valid.
+even when the audit signature itself remains valid. A third negative
+control writes an internally contradictory output-release flag **with a valid
+temporary audit signature**; independent evidence replay must reject it.
 
 ## Frozen-dataset mode: detection vs safety
 
@@ -73,7 +75,7 @@ The measured release safety metrics are **separate** from detector metrics:
 
 | Measurement | Definition |
 | --- | --- |
-| Output detection | Exact-/overlap-span precision, recall, F1, status confusion, false-positive rate and unsafe negative rate |
+| Output detection | Exact-/overlap-span precision, recall, F1, status confusion, false-positive rate, unsafe negative rate and sequential output detection p50/p95 latency |
 | Released | Responses actually returned by the orchestrator |
 | Output blocked | Responses withheld with `OUTPUT_BLOCKED` |
 | Execution/audit errors | Model or audit failures with no released response |
@@ -137,3 +139,7 @@ test using a test-only signed release and detector manifest, with intentionally
 tampered release approval, altered detector digest and missing output evidence
 negative controls. Do not run these against production signing keys or audit
 volumes.
+
+Latency here measures sequential response inspection, not throughput or concurrent admission.
+Synthetic benchmark audit pins must never be substituted for independent
+production signing authorities.
