@@ -26,6 +26,26 @@ from app.release.evidence import verify_release_references
 
 MAX_FILES = 2000
 MAX_UNCOMPRESSED = 128 * 1024 * 1024
+MAX_CUSTOM_UNCOMPRESSED_MIB = 1024
+MIB = 1024 * 1024
+_HASH_CHUNK_BYTES = 1024 * 1024
+
+
+def _uncompressed_limit(max_uncompressed_mib: int) -> int:
+    """Bound explicit export/reviewer overrides; default keeps legacy guard."""
+    if type(max_uncompressed_mib) is not int or not 1 <= max_uncompressed_mib <= MAX_CUSTOM_UNCOMPRESSED_MIB:
+        raise EvidencePackageError("Evidence limit must be an integer from 1 to 1024 MiB")
+    return max_uncompressed_mib * MIB
+
+
+def _hash_file(path: Path) -> str:
+    """Hash evidence bytes in bounded memory, including large SQLite snapshots."""
+    digest = hashlib.sha256()
+    with path.open("rb") as stream:
+        for chunk in iter(lambda: stream.read(_HASH_CHUNK_BYTES), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
 
 
 class PackageEntry(TypedDict):
@@ -88,8 +108,11 @@ def _safe_path(name: str) -> bool:
     )
 
 
-def _manifest_of(folder: Path) -> dict:
+def _manifest_of(
+    folder: Path, *, max_uncompressed_bytes: int = MAX_UNCOMPRESSED
+) -> dict:
     entries: list[PackageEntry] = []
+    total_bytes = 0
     for path in sorted(folder.rglob("*")):
         if path.is_symlink():
             raise EvidencePackageError("Symlink in evidence package source")
@@ -97,12 +120,13 @@ def _manifest_of(folder: Path) -> dict:
             name = path.relative_to(folder).as_posix()
             if name == "package-manifest.json":
                 continue
-            raw = path.read_bytes()
-            entries.append(
-                {"path": name, "sha256": hashlib.sha256(raw).hexdigest(), "size": len(raw)}
-            )
-    if len(entries) > MAX_FILES or sum(x["size"] for x in entries) > MAX_UNCOMPRESSED:
-        raise EvidencePackageError("Evidence package exceeds safety limits")
+            size = path.stat().st_size
+            total_bytes += size
+            if len(entries) >= MAX_FILES or total_bytes > max_uncompressed_bytes:
+                raise EvidencePackageError(
+                    "Evidence package exceeds configured file count or uncompressed size limit"
+                )
+            entries.append({"path": name, "sha256": _hash_file(path), "size": size})
     return {
         "schema_version": 1,
         "format": "sovereign-evidence-package",
@@ -119,8 +143,11 @@ def export_package(
     output_path: str,
     witnessed_checkpoint: str | None = None,
     release_archive: str | None = None,
+    *,
+    max_uncompressed_mib: int = 128,
 ) -> dict:
     """Create a self-contained bundle; input database is read-only throughout."""
+    limit = _uncompressed_limit(max_uncompressed_mib)
     with tempfile.TemporaryDirectory(prefix="sovereign-export-") as tmp:
         root = Path(tmp)
         snapshot = root / "audit.sqlite"
@@ -153,7 +180,7 @@ def export_package(
         (root / "checkpoint.json").write_bytes(canonical(head) + b"\n")
         if witnessed_checkpoint:
             shutil.copyfile(witnessed_checkpoint, root / "witnessed-checkpoint.json")
-        manifest = _manifest_of(root)
+        manifest = _manifest_of(root, max_uncompressed_bytes=limit)
         (root / "package-manifest.json").write_bytes(canonical(manifest) + b"\n")
         dest = Path(output_path)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -182,8 +209,10 @@ def verify_package(
     trusted_public_key: str | None = None,
     trusted_checkpoint: str | None = None,
     trusted_release_public_key: str | None = None,
+    max_uncompressed_mib: int = 128,
 ) -> dict:
     """Verify files, signed audit chain, detector manifests, and Rego decisions."""
+    limit = _uncompressed_limit(max_uncompressed_mib)
     with tempfile.TemporaryDirectory(prefix="sovereign-verify-") as tmp:
         root = Path(tmp)
         with zipfile.ZipFile(package_path, "r") as z:
@@ -191,7 +220,7 @@ def verify_package(
             if (
                 not infos
                 or len(infos) > MAX_FILES
-                or sum(info.file_size for info in infos) > MAX_UNCOMPRESSED
+                or sum(info.file_size for info in infos) > limit
             ):
                 raise EvidencePackageError("Evidence ZIP exceeds safety limits")
             names: set[str] = set()
@@ -211,7 +240,7 @@ def verify_package(
             declared = json.loads((root / "package-manifest.json").read_bytes())
         except (OSError, ValueError) as exc:
             raise EvidencePackageError("Invalid evidence manifest") from exc
-        if declared != _manifest_of(root):
+        if declared != _manifest_of(root, max_uncompressed_bytes=limit):
             raise EvidencePackageError("Evidence file hash or content mismatch")
         # A key or checkpoint included IN the ZIP is not independently trusted.
         # External verifier-provided anchors cannot be substituted by the exporter.
