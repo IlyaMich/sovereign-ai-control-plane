@@ -63,3 +63,15 @@ def test_resource_parser_allowlist() -> None:
                        "CPUPerc": "12.5%", "MemUsage": "120MiB / 4GiB"}) == {
         "service": "control-plane", "cpu_pct": 12.5, "memory_usage": "120MiB / 4GiB"
     }
+
+def test_podman_native_json_snake_case() -> None:
+    record = _parse_one({
+        "name": "sovereign-ai-control-plane-control-plane-1",
+        "cpu_percent": "12.5%",
+        "mem_usage": "120MiB / 4GiB",
+    })
+    assert record == {
+        "service": "control-plane", "cpu_pct": 12.5, "memory_usage": "120MiB / 4GiB"
+    }
+    assert _parse_one({"name": "sovereign-ai-control-plane-opa-1",
+                       "cpu_percent": "--", "mem_usage": "-- / --"})["cpu_pct"] is None
