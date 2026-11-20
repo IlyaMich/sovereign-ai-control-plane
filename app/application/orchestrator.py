@@ -36,6 +36,7 @@ from app.infrastructure.integrity_executor import (
     BoundedIntegrityExecutor,
     integrity_unavailable_code,
 )
+from app.infrastructure.dlp_metrics import DLPMetrics
 from app.infrastructure.logging import event
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
@@ -55,6 +56,8 @@ class RequestOrchestrator:
         integrity_executor: BoundedIntegrityExecutor | None = None,
         output_policy: OutputPolicyEvaluator | None = None,
         max_model_output_bytes: int = 8192,
+        output_masking_enabled: bool = False,
+        dlp_metrics: DLPMetrics | None = None,
     ):
         self.detector = detector
         self.policy = policy
@@ -66,6 +69,10 @@ class RequestOrchestrator:
         self.audit_executor = audit_executor
         self.integrity_executor = integrity_executor
         self.output_policy = output_policy
+        if type(output_masking_enabled) is not bool:
+            raise ValueError("Invalid output masking flag")
+        self.output_masking_enabled = output_masking_enabled
+        self.dlp_metrics = dlp_metrics or DLPMetrics()
         if type(max_model_output_bytes) is not int or max_model_output_bytes <= 0:
             raise ValueError("Invalid model output size bound")
         self.max_model_output_bytes = max_model_output_bytes
@@ -88,6 +95,8 @@ class RequestOrchestrator:
                     request_id, tenant_id, event_type, payload
                 )
         except Exception:
+            if event_type == "OUTCOME":
+                self.dlp_metrics.failure("OUTCOME_AUDIT_UNAVAILABLE")
             event(
                 "audit_commit_failed",
                 level=logging.ERROR,
@@ -138,6 +147,7 @@ class RequestOrchestrator:
             )
             classification = DetectionResult.unknown()
 
+        self.dlp_metrics.input_detection(classification.status)
         policy_input = PolicyContext(command, classification)
         approved_release = None
         release_untrusted = False
@@ -339,6 +349,7 @@ class RequestOrchestrator:
                 "OUTCOME",
                 {"execution_status": "BLOCKED", "model_invoked": False},
             )
+            self.dlp_metrics.outcome(RequestStatus.BLOCKED)
             return ProcessedRequest(
                 command.request_id,
                 RequestStatus.BLOCKED,
@@ -371,6 +382,7 @@ class RequestOrchestrator:
                     "transformed": transformed,
                 },
             )
+            self.dlp_metrics.outcome(RequestStatus.ERROR)
             return ProcessedRequest(
                 command.request_id,
                 RequestStatus.ERROR,
@@ -388,6 +400,10 @@ class RequestOrchestrator:
         output_context = None
         if self.output_policy is not None:
             content = model_result.output
+            released_content = content
+            mask_applied = False
+            mask_verification = None
+            inspection_started = time.perf_counter()
             try:
                 valid_content = (
                     isinstance(content, str)
@@ -409,12 +425,15 @@ class RequestOrchestrator:
                         request_id=command.request_id,
                         error_code="OUTPUT_DETECTION_UNAVAILABLE",
                     )
+                    self.dlp_metrics.failure("OUTPUT_DETECTOR_UNAVAILABLE")
                     output_classification = DetectionResult.unknown("OUTPUT_DETECTION_UNAVAILABLE")
 
                 if output_classification.status == DetectionStatus.UNKNOWN:
                     output_decision = PolicyDecision.deny("OUTPUT_DETECTION_UNKNOWN")
                 else:
-                    output_context = OutputPolicyContext(command, output_classification)
+                    output_context = OutputPolicyContext(
+                        command, output_classification, self.output_masking_enabled
+                    )
                     try:
                         output_decision = await self.output_policy.evaluate_output(output_context)
                         output_evaluation = output_decision
@@ -425,16 +444,66 @@ class RequestOrchestrator:
                             request_id=command.request_id,
                             error_code="OUTPUT_POLICY_UNAVAILABLE",
                         )
+                        self.dlp_metrics.failure("OUTPUT_POLICY_UNAVAILABLE")
                         output_decision = PolicyDecision.deny("OUTPUT_POLICY_UNAVAILABLE")
 
             assert output_classification is not None and output_decision is not None
-            if output_decision.effect == Effect.PERMIT and (
-                output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
-                or output_classification.findings
-                or output_decision.obligations
-                or output_context is None
-            ):
-                output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+            self.dlp_metrics.output_detection(
+                output_classification.status,
+                1000.0 * (time.perf_counter() - inspection_started),
+            )
+            output_obligations = output_decision.obligations
+            mask_requested = output_decision.effect == Effect.PERMIT and bool(output_obligations)
+            if output_decision.effect == Effect.PERMIT:
+                if mask_requested:
+                    # Only a trusted, explicitly enabled Rego REDACT obligation
+                    # permits transforming a response. High-risk categories and
+                    # arbitrary obligations are never silently accepted.
+                    allowed = {"EMAIL_ADDRESS", "PHONE_NUMBER"}
+                    findings = output_classification.findings
+                    valid_mask = (
+                        self.output_masking_enabled
+                        and len(output_obligations) == 1
+                        and output_obligations[0].type == "REDACT"
+                        and set(output_obligations[0].categories) == allowed
+                        and output_classification.status == DetectionStatus.PRIVATE
+                        and bool(findings)
+                        and all(f.category in allowed for f in findings)
+                        and output_context is not None
+                    )
+                    if not valid_mask:
+                        output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+                    else:
+                        try:
+                            released_content = redact(
+                                content, output_classification, output_obligations[0].categories
+                            )
+                            if len(released_content.encode("utf-8")) > self.max_model_output_bytes:
+                                raise RedactionError("Masked response exceeds size bound")
+                            if any(
+                                content[f.start : f.end] in released_content for f in findings
+                            ):
+                                raise RedactionError("Original matched value remains")
+                            mask_verification = await self._detect(released_content)
+                            if (
+                                mask_verification.status != DetectionStatus.NO_PRIVATE_DETECTED
+                                or mask_verification.findings
+                                or mask_verification.artifact_digest
+                                != output_classification.artifact_digest
+                            ):
+                                raise RedactionError("Output masking verification was not clean")
+                            mask_applied = True
+                        except Exception:
+                            self.dlp_metrics.failure("OUTPUT_MASK_VERIFY_FAILED")
+                            output_decision = PolicyDecision.deny(
+                                "OUTPUT_MASK_VERIFICATION_FAILED"
+                            )
+                elif (
+                    output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
+                    or output_classification.findings
+                    or output_context is None
+                ):
+                    output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
 
             # A signed release must remain trusted *after* model execution.
             # No output is released against a changed or unavailable authority.
@@ -466,12 +535,14 @@ class RequestOrchestrator:
             # Output evidence contains *only* structure, identities, and a keyed
             # fingerprint. No generated text or extracted sensitive values.
             output_evidence = {
-                "schema_version": 1,
+                "schema_version": 2 if mask_requested else 1,
                 "classification": output_classification.to_dict(),
                 "policy_input": (
                     output_context.to_dict()
                     if output_context is not None
-                    else OutputPolicyContext(command, output_classification).to_dict()
+                    else OutputPolicyContext(
+                        command, output_classification, self.output_masking_enabled
+                    ).to_dict()
                 ),
                 "policy_evaluation": (
                     output_evaluation.to_dict() if output_evaluation is not None else None
@@ -491,6 +562,18 @@ class RequestOrchestrator:
                     else None
                 ),
                 "released": released,
+                **({
+                    "transformation": {
+                        "applied": mask_applied,
+                        "verification": (
+                            mask_verification.to_dict() if mask_verification is not None else None
+                        ),
+                        "masked_hmac_sha256": (
+                            self.audit.fingerprint("model-output-masked-v1\x00" + released_content)
+                            if mask_applied else None
+                        ),
+                    }
+                } if mask_requested else {}),
             }
             outcome_receipt = await self._commit(
                 command.request_id,
@@ -505,6 +588,10 @@ class RequestOrchestrator:
                     "output_dlp": output_evidence,
                 },
             )
+            self.dlp_metrics.outcome(
+                RequestStatus.COMPLETED if released else RequestStatus.OUTPUT_BLOCKED,
+                masked=mask_applied and released,
+            )
             return ProcessedRequest(
                 command.request_id,
                 RequestStatus.COMPLETED if released else RequestStatus.OUTPUT_BLOCKED,
@@ -512,7 +599,7 @@ class RequestOrchestrator:
                 decision,
                 decision_receipt,
                 outcome_receipt,
-                output=content if released else None,
+                output=released_content if released else None,
                 model_id=model_result.model_id,
                 output_classification=output_classification,
                 output_decision=output_decision,
@@ -530,6 +617,7 @@ class RequestOrchestrator:
                 "transformed": transformed,
             },
         )
+        self.dlp_metrics.outcome(RequestStatus.COMPLETED)
         return ProcessedRequest(
             command.request_id,
             RequestStatus.COMPLETED,
