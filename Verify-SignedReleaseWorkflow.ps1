@@ -1,7 +1,12 @@
 # M6: signed release trust + request evidence + portable offline approval authentication.
 # Run in repo root after activating a signed release and recreating the deployment.
 [CmdletBinding()]
-param()
+param(
+    # Historical audit SQLite snapshots can exceed the default 128 MiB cap.
+    # Set explicitly for the exporter AND offline verifier; maximum 1024 MiB.
+    [ValidateRange(1, 1024)]
+    [int]$EvidenceMaxMiB = 128
+)
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 function Assert-M6([bool]$ok, [string]$message) {
@@ -49,13 +54,14 @@ Assert-M6 ($ref.release_id -eq $release.release_id -and
 
 Write-Host '[4/5] Export portable evidence with signed release archive' -ForegroundColor Cyan
 $zip = "/var/lib/sovereign/m6-evidence-$([guid]::NewGuid().ToString('N').Substring(0,8)).zip"
-& podman exec $container python -m tools.export_evidence_package --out $zip
+& podman exec $container python -m tools.export_evidence_package --out $zip --max-uncompressed-mib $EvidenceMaxMiB
 if ($LASTEXITCODE -ne 0) { throw 'Evidence export failed' }
 
 Write-Host '[5/5] Network-disabled offline review using OUT-OF-BUNDLE release trust root' -ForegroundColor Cyan
 & podman compose -f deploy/compose.yaml --env-file .env --profile audit-review `
     run --build --rm --entrypoint python audit-reviewer -m tools.verify_evidence_package `
-    --bundle $zip --trusted-release-public-key /release-trust/release-signing.pub.pem
+    --bundle $zip --trusted-release-public-key /release-trust/release-signing.pub.pem `
+    --max-uncompressed-mib $EvidenceMaxMiB
 if ($LASTEXITCODE -ne 0) { throw 'Offline signed-release verification failed' }
 Write-Host 'PASS: Milestone 6 workflow completed' -ForegroundColor Green
 Write-Host "Evidence ZIP retained in audit volume: $zip"
