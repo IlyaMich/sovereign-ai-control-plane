@@ -28,57 +28,57 @@ def verify_release_references(
     ):
         rows = conn.execute(
             "SELECT sequence,event_json FROM events WHERE event_type='DECISION' ORDER BY sequence"
-        ).fetchall()
-    for seq, serialized in rows:
-        try:
-            event = json.loads(serialized)["payload"]
-            version = event.get("release_evidence_version")
-            if version is None:
-                if "release_snapshot" in event:
-                    raise ReleaseIntegrityError("Unsigned release marker in evidence")
-                legacy += 1
-                continue
-            if version != "1" or archive is None:
-                raise ReleaseIntegrityError("Unsupported release evidence or archive unavailable")
-            reference = event["release_snapshot"]
-            if not isinstance(reference, dict) or set(reference) != {
-                "release_id",
-                "generation",
-                "policy_digest",
-                "detector_digest",
-                "signer_key_id",
-            }:
-                raise ReleaseIntegrityError("Malformed release reference")
-            if not isinstance(reference["release_id"], str) or not HEX64.fullmatch(
-                reference["release_id"]
-            ):
-                raise ReleaseIntegrityError("Invalid release id in signed audit reference")
-            rel = Path(archive) / (reference["release_id"] + ".json")
-            doc = load_approval(rel)
-            if summary(doc) != reference:
-                raise ReleaseIntegrityError("Audit release reference does not match archive")
-            class_digest = (
-                event.get("policy_input", {}).get("classification", {}).get("artifact_digest")
-            )
-            if class_digest and class_digest != reference["detector_digest"]:
-                raise ReleaseIntegrityError(
-                    "Classification detector differs from approved detector"
+        )
+        for seq, serialized in rows:
+            try:
+                event = json.loads(serialized)["payload"]
+                version = event.get("release_evidence_version")
+                if version is None:
+                    if "release_snapshot" in event:
+                        raise ReleaseIntegrityError("Unsigned release marker in evidence")
+                    legacy += 1
+                    continue
+                if version != "1" or archive is None:
+                    raise ReleaseIntegrityError("Unsupported release evidence or archive unavailable")
+                reference = event["release_snapshot"]
+                if not isinstance(reference, dict) or set(reference) != {
+                    "release_id",
+                    "generation",
+                    "policy_digest",
+                    "detector_digest",
+                    "signer_key_id",
+                }:
+                    raise ReleaseIntegrityError("Malformed release reference")
+                if not isinstance(reference["release_id"], str) or not HEX64.fullmatch(
+                    reference["release_id"]
+                ):
+                    raise ReleaseIntegrityError("Invalid release id in signed audit reference")
+                rel = Path(archive) / (reference["release_id"] + ".json")
+                doc = load_approval(rel)
+                if summary(doc) != reference:
+                    raise ReleaseIntegrityError("Audit release reference does not match archive")
+                class_digest = (
+                    event.get("policy_input", {}).get("classification", {}).get("artifact_digest")
                 )
-            opa = event.get("policy_evaluation")
-            if opa is not None and opa.get("policy_digest") != reference["policy_digest"]:
-                raise ReleaseIntegrityError("OPA used policy not approved by recorded release")
-            if trusted_key is not None:
-                from app.release.approvals import verify_approval
+                if class_digest and class_digest != reference["detector_digest"]:
+                    raise ReleaseIntegrityError(
+                        "Classification detector differs from approved detector"
+                    )
+                opa = event.get("policy_evaluation")
+                if opa is not None and opa.get("policy_digest") != reference["policy_digest"]:
+                    raise ReleaseIntegrityError("OPA used policy not approved by recorded release")
+                if trusted_key is not None:
+                    from app.release.approvals import verify_approval
 
-                # Trust directory assembled by independent verifier; never from the ZIP.
-                verify_approval(doc, trusted_key)
-                authenticated += 1
-            count += 1
-            unique.add(reference["release_id"])
-        except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
-            raise ReleaseIntegrityError(
-                f"Invalid release reference at decision sequence {seq}"
-            ) from exc
+                    # Trust directory assembled by independent verifier; never from the ZIP.
+                    verify_approval(doc, trusted_key)
+                    authenticated += 1
+                count += 1
+                unique.add(reference["release_id"])
+            except (KeyError, TypeError, ValueError, OSError, json.JSONDecodeError) as exc:
+                raise ReleaseIntegrityError(
+                    f"Invalid release reference at decision sequence {seq}"
+                ) from exc
     return {
         "release_references_checked": count,
         "release_approvals_authenticated": authenticated,
