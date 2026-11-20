@@ -1,3 +1,5 @@
+# Detection Evaluation — Stage 1
+
 ## Response-side DLP evaluation (additive extension)
 
 See [Response-side DLP evaluation](OUTPUT_DLP.md) for the controlled
@@ -16,7 +18,6 @@ audit keys. They do not change the existing Stage 1 dataset, running
 deployment or signed operational state. The evaluation-signed audit evidence
 is distinct from a production-signed release approval.
 
-# Detection Evaluation — Stage 1
 
 This is an **additive, developer-only benchmark** for the Sovereign AI Control Plane.
 It does **not** change the production detector, OPA policy, signed release artifacts,
