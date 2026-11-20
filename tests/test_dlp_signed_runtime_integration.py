@@ -175,6 +175,7 @@ def test_signed_runtime_api_output_scenarios(
     assert verify_database(str(audit.db_path), audit_public)["verified_events"] == 2
     # verify_release_references expects a trust *directory*, not a PEM file.
     # Both the archive and the trust anchor belong to this isolated test run.
-    refs = verify_release_references(str(audit.db_path), releases.archive, releases.trust)
+    assert public.parent == releases.trust
+    refs = verify_release_references(str(audit.db_path), releases.archive, public.parent)
     assert refs["release_approvals_authenticated"] == 1
     assert releases.verify_active()["release_id"]
