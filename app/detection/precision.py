@@ -33,6 +33,7 @@ def refine_person_technical_markers(
             matched is not None
             and finding.category == "PERSON"
             and finding.recognizer == "SpacyRecognizer"
+            and 0 <= finding.start < finding.end <= len(text)
             and text[finding.start : finding.end] == "BEGIN KEY"
             and matched.start() <= finding.start
             and finding.end <= matched.end()
