@@ -78,10 +78,20 @@ class FindingAggregator:
             ):
                 return DetectionResult.unknown("DETECTION_RESULT_INVALID")
 
-        # Low-scoring candidates are uncertainty, not proof that the text is
-        # public. Mark the whole classification UNKNOWN for fail-closed routing.
-        if any(item.score < self.threshold for item in observations):
-            return DetectionResult.unknown("LOW_CONFIDENCE_FINDING")
+        # Ignore a weak candidate only if a strong detection of the SAME
+        # category fully covers it. This prevents an inferior recognizer from
+        # turning a confidently detected phone number into UNKNOWN, without
+        # ignoring unrelated or partially covered low-confidence signals.
+        strong = [item for item in observations if item.score >= self.threshold]
+        for weak in (item for item in observations if item.score < self.threshold):
+            if not any(
+                candidate.category == weak.category
+                and candidate.start <= weak.start
+                and weak.end <= candidate.end
+                for candidate in strong
+            ):
+                return DetectionResult.unknown("LOW_CONFIDENCE_FINDING")
+        observations = strong
         # Severity first ensures an email or person recognizer cannot mask a
         # higher-risk credential over the same span. Then confidence, length and
         # stable lexical tie-breakers remove order dependence from recognizer calls.

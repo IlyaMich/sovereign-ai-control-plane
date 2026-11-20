@@ -1,4 +1,5 @@
 """Best-effort, allowlisted container statistics; no payloads or identifiers."""
+
 from __future__ import annotations
 
 import asyncio
@@ -15,8 +16,12 @@ def _parse_one(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
     name = str(raw.get("name", raw.get("Name", "")))
-    if not any(name == service or name.endswith("_" + service + "_1")
-               or name.endswith("-" + service + "-1") for service in _ALLOWED):
+    if not any(
+        name == service
+        or name.endswith("_" + service + "_1")
+        or name.endswith("-" + service + "-1")
+        for service in _ALLOWED
+    ):
         return None
     # Podman's JSON output uses snake_case, unlike its Go-template field names.
     cpu = str(raw.get("cpu_percent", raw.get("CPUPerc", raw.get("CPU", ""))))
@@ -25,10 +30,18 @@ def _parse_one(raw: Any) -> dict[str, Any] | None:
     # Never persist arbitrary strings from a container runtime.
     if not re.fullmatch(r"[A-Za-z0-9 ./%+-]{1,80}", mem):
         mem = ""
-    return {"service": next((s for s in _ALLOWED if name == s or name.endswith("_" + s + "_1")
-                             or name.endswith("-" + s + "-1")), ""),
-            "cpu_pct": float(match.group(1)) if match else None,
-            "memory_usage": mem[:80] if len(mem) <= 80 else None}
+    return {
+        "service": next(
+            (
+                s
+                for s in _ALLOWED
+                if name == s or name.endswith("_" + s + "_1") or name.endswith("-" + s + "-1")
+            ),
+            "",
+        ),
+        "cpu_pct": float(match.group(1)) if match else None,
+        "memory_usage": mem[:80] if len(mem) <= 80 else None,
+    }
 
 
 async def sample() -> list[dict[str, Any]] | None:
@@ -36,8 +49,13 @@ async def sample() -> list[dict[str, Any]] | None:
         return None
     try:
         process = await asyncio.create_subprocess_exec(
-            "podman", "stats", "--no-stream", "--format", "json",
-            stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            "podman",
+            "stats",
+            "--no-stream",
+            "--format",
+            "json",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.DEVNULL,
         )
         stdout, _ = await asyncio.wait_for(process.communicate(), timeout=8)
         if process.returncode != 0 or len(stdout) > 200000:
