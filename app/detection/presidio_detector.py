@@ -182,6 +182,6 @@ class PresidioDetector:
         result = self._aggregator.aggregate(
             prompt=prompt,
             raw=refine_person_technical_markers(prompt, observations),
-            coverage=self._coverage
+            coverage=self._coverage,
         )
         return replace(result, artifact_digest=self._artifact_digest)
