@@ -37,7 +37,7 @@ class InputPermit:
             Effect.PERMIT,
             (Obligation("ROUTE", "sovereign-model"),),
             ("INPUT_OK",),
-            "redaction-response-dlp-v4",
+            "redaction-response-dlp-v5",
             self.digest,
         )
 
@@ -56,14 +56,14 @@ class OutputPolicy:
                 Effect.DENY,
                 (),
                 ("OUTPUT_PRIVATE_DATA_BLOCKED",),
-                "redaction-response-dlp-v4",
+                "redaction-response-dlp-v5",
                 self.digest,
             )
         return PolicyDecision(
             Effect.PERMIT,
             (),
             ("OUTPUT_CONTENT_CLEARED",),
-            "redaction-response-dlp-v4",
+            "redaction-response-dlp-v5",
             self.digest,
         )
 
@@ -90,6 +90,7 @@ def make_service(
     max_output_bytes=8192,
     digest="",
     tenant_id="tenant",
+    output_masking_enabled=False,
 ):
     detector = detector or DemoPatternDetector()
     model = LocalModel(output, audit, tenant_id=tenant_id)
@@ -101,6 +102,7 @@ def make_service(
         planner=EnforcementPlanner(),
         output_policy=output_policy or OutputPolicy(digest),
         max_model_output_bytes=max_output_bytes,
+        output_masking_enabled=output_masking_enabled,
     )
     return orchestrator, model
 
@@ -292,3 +294,104 @@ async def test_output_policy_is_replayed_from_exported_signed_evidence(tmp_path,
     assert verified["audit"]["policy_decisions_replayed"] == 1
     assert verified["audit"]["output_policy_decisions_replayed"] == 1
     assert "Safe generated answer." not in str(verified)
+
+class OutputMaskPolicy(OutputPolicy):
+    async def evaluate_output(self, context):
+        if context.classification.status == DetectionStatus.PRIVATE:
+            return PolicyDecision(
+                Effect.PERMIT,
+                (Obligation("REDACT", categories=("EMAIL_ADDRESS", "PHONE_NUMBER")),),
+                ("OUTPUT_MASKING_REQUIRED",),
+                "redaction-response-dlp-v5",
+                self.digest,
+            )
+        return await super().evaluate_output(context)
+
+
+@pytest.mark.asyncio
+async def test_masking_is_disabled_by_default_even_for_opa_permit(audit):
+    svc, _ = make_service(
+        audit, "Reply jane@example.com",
+        output_policy=OutputMaskPolicy(),
+    )
+    result = await svc.process(command())
+    assert result.status == RequestStatus.OUTPUT_BLOCKED
+    assert result.output is None
+    assert result.output_decision.reason_codes == ("OUTPUT_INVALID_POLICY_PLAN",)
+
+
+@pytest.mark.asyncio
+async def test_operator_enabled_masking_is_verified_before_audited_release(audit):
+    svc, _ = make_service(
+        audit, "Reply jane@example.com",
+        output_policy=OutputMaskPolicy(),
+        output_masking_enabled=True,
+    )
+    result = await svc.process(command())
+    assert result.status == RequestStatus.COMPLETED
+    assert "jane@example.com" not in result.output
+    assert "[REDACTED_EMAIL_ADDRESS]" in result.output
+    evidence = signed_events(audit)[-1]["payload"]["output_dlp"]
+    assert evidence["schema_version"] == 2
+    assert evidence["transformation"]["applied"] is True
+    assert evidence["transformation"]["verification"]["status"] == "NO_PRIVATE_DETECTED"
+    assert len(evidence["transformation"]["masked_hmac_sha256"]) == 64
+    assert evidence["released"] is True
+    assert "jane@example.com" not in str(signed_events(audit))
+    metrics = svc.dlp_metrics.snapshot()
+    assert metrics["masked_responses"] == 1
+    assert metrics["response_outcomes"]["COMPLETED"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mask_verification_unknown_blocks_and_preserves_signed_evidence(audit):
+    class UncertainAfterMask(DemoPatternDetector):
+        def detect(self, prompt):
+            if "[REDACTED_EMAIL_ADDRESS]" in prompt:
+                return DetectionResult.unknown("UNKNOWN_AFTER_MASK")
+            return super().detect(prompt)
+
+    svc, _ = make_service(
+        audit, "Reply jane@example.com",
+        detector=UncertainAfterMask(),
+        output_policy=OutputMaskPolicy(),
+        output_masking_enabled=True,
+    )
+    result = await svc.process(command())
+    assert result.status == RequestStatus.OUTPUT_BLOCKED
+    assert result.output is None
+    assert result.output_decision.reason_codes == ("OUTPUT_MASK_VERIFICATION_FAILED",)
+    dlp = signed_events(audit)[-1]["payload"]["output_dlp"]
+    assert dlp["schema_version"] == 2
+    assert dlp["transformation"]["applied"] is False
+    assert dlp["released"] is False
+    assert svc.dlp_metrics.snapshot()["failures"]["OUTPUT_MASK_VERIFY_FAILED"] == 1
+
+
+@pytest.mark.asyncio
+async def test_mixed_secret_output_cannot_be_masked(audit):
+    svc, _ = make_service(
+        audit, "Reply jane@example.com and -----BEGIN PRIVATE KEY-----",
+        output_policy=OutputMaskPolicy(),
+        output_masking_enabled=True,
+    )
+    result = await svc.process(command())
+    assert result.status == RequestStatus.OUTPUT_BLOCKED
+    assert result.output is None
+    assert result.output_decision.reason_codes == ("OUTPUT_INVALID_POLICY_PLAN",)
+
+
+@pytest.mark.asyncio
+async def test_masked_output_growth_over_limit_blocks(audit):
+    svc, _ = make_service(
+        audit, "jane@example.com",
+        output_policy=OutputMaskPolicy(),
+        output_masking_enabled=True,
+        max_output_bytes=20,
+    )
+    result = await svc.process(command())
+    assert result.status == RequestStatus.OUTPUT_BLOCKED
+    assert result.output is None
+    assert result.output_decision.reason_codes == ("OUTPUT_MASK_VERIFICATION_FAILED",)
+
+
