@@ -22,7 +22,9 @@ python -m performance.cli run --profile saturation --environment-tag my-host-fix
 python -m performance.cli run --profile scenario-catalog --environment-tag my-host-fixed-config
 ```
 
-`smoke` is a brief end-to-end file-retention and correctness check (one client, 15 seconds per scenario); it is not a capacity benchmark.\n\n`scenario-catalog` is a **sequential** set of scenarios, *not simultaneous mixed
+`smoke` is a brief end-to-end file-retention and correctness check (one client, 15 seconds per scenario); it is not a capacity benchmark.
+
+`scenario-catalog` is a **sequential** set of scenarios, *not simultaneous mixed
 traffic*. Its `external_redaction` scenario requires the existing enabled
 simulated-egress profile. The benchmark client itself is closed-loop. Saturation
 rejections are expected and checked by the underlying reviewer; saturation is
@@ -62,3 +64,11 @@ security and privacy rules continue to apply.
 
 When changing detector/policy/runtime code, deploy through the existing signed
 release process. Never alter production behavior merely to make a benchmark pass.
+
+**Submission status:** no versioned performance result archive is committed here.
+The runner and profiles are reproducible only when the separately delivered
+`benchmarks/` signed-audit reviewer kit, environment and approved image are also
+preserved. The [submission evidence matrix](../docs/submission-evidence.md)
+records required metadata; historical M7.9 profiling is described in
+[concurrency profiling](../docs/concurrency-performance-profiling.md), with
+[live overload checks](../docs/overload-and-audit-lookup.md).
