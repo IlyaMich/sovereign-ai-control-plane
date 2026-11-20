@@ -448,3 +448,69 @@ async def test_signed_masking_output_policy_is_replayed_without_plaintext(tmp_pa
     assert report["audit"]["verified_events"] == 2
     assert report["status"] == "EVIDENCE_PACKAGE_SELF_CONSISTENT"
     assert "jane@example.com" not in str(report)
+
+
+@pytest.mark.asyncio
+async def test_signed_but_false_mask_verification_is_rejected_by_offline_replay(tmp_path, audit):
+    from app.policy.replay import ReplayError
+
+    class TamperSignedOutcome:
+        def fingerprint(self, value):
+            return audit.fingerprint(value)
+
+        def commit(self, request_id, tenant_id, event_type, payload):
+            if event_type == "OUTCOME":
+                changed = dict(payload)
+                dlp = dict(payload["output_dlp"])
+                transform = dict(dlp["transformation"])
+                verification = dict(transform["verification"])
+                verification["status"] = "UNKNOWN"
+                transform["verification"] = verification
+                dlp["transformation"] = transform
+                changed["output_dlp"] = dlp
+                return audit.commit(request_id, tenant_id, event_type, changed)
+            return audit.commit(request_id, tenant_id, event_type, payload)
+
+    info = build_snapshot(
+        Path("policies"), tmp_path / "archive", tmp_path / "active"
+    )
+    svc, _ = make_service(
+        audit,
+        "Email jane@example.com",
+        digest=info.policy_digest,
+        output_policy=OutputMaskPolicy(info.policy_digest),
+        output_masking_enabled=True,
+    )
+    svc.audit = TamperSignedOutcome()
+    result = await svc.process(command())
+    assert result.status == RequestStatus.COMPLETED
+    assert audit.get_events("output-dlp-case", "tenant")[-1]["event"]["payload"][
+        "output_dlp"
+    ]["transformation"]["verification"]["status"] == "UNKNOWN"
+
+    package = tmp_path / "tampered-mask-evidence.zip"
+    export_package(
+        str(audit.db_path),
+        str(audit.key_path.with_suffix(".pub.pem")),
+        str(tmp_path / "archive"),
+        str(tmp_path / "empty-detectors"),
+        str(package),
+    )
+    with pytest.raises(ReplayError, match="Mask verification evidence"):
+        verify_package(
+            str(package),
+            evaluator=lambda _folder, _input: PolicyDecision(
+                Effect.PERMIT,
+                (Obligation("ROUTE", "sovereign-model"),),
+                ("INPUT_OK",),
+                info.policy_revision,
+                info.policy_digest,
+            ).to_dict(),
+            output_evaluator=lambda _folder, _input: PolicyDecision(
+                Effect.PERMIT,
+                (Obligation("REDACT", categories=("EMAIL_ADDRESS", "PHONE_NUMBER")),),
+                ("OUTPUT_MASKING_REQUIRED",),
+                info.policy_revision,
+                info.policy_digest,
+            ).to_dict(),
+        )
