@@ -39,7 +39,9 @@ def verify_release_references(
                     legacy += 1
                     continue
                 if version != "1" or archive is None:
-                    raise ReleaseIntegrityError("Unsupported release evidence or archive unavailable")
+                    raise ReleaseIntegrityError(
+                        "Unsupported release evidence or archive unavailable"
+                    )
                 reference = event["release_snapshot"]
                 if not isinstance(reference, dict) or set(reference) != {
                     "release_id",
