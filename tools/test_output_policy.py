@@ -10,6 +10,7 @@ import subprocess  # nosec B404 # Required for explicit operator-owned CLI comma
 import tempfile
 from pathlib import Path
 
+from app.infrastructure.executables import resolve_executable
 from app.policy.snapshots import build_snapshot
 
 
@@ -21,18 +22,20 @@ def main(argv: list[str] | None = None) -> int:
         root = Path(directory)
         build_snapshot(Path("policies"), root / "archive", root / "active")
         try:
-            completed = subprocess.run(  # nosec B603 # Operator-selected OPA binary; no shell.
+            completed = subprocess.run(  # nosec B603 # Resolved executable and fixed test arguments; shell=False.
                 [
-                    args.opa_bin,
+                    resolve_executable(args.opa_bin),
                     "test",
                     str(root / "active"),
                     "tests/rego",
                     "tests/rego_output",
                 ],
+                shell=False,
+                stdin=subprocess.DEVNULL,
                 check=False,
                 timeout=60,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
             raise RuntimeError("OPA candidate tests unavailable") from exc
         return completed.returncode
 

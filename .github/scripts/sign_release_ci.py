@@ -14,14 +14,15 @@ import json
 import os
 import re
 import shutil
-import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import sys
 import tarfile
 import tempfile
 from pathlib import Path
 
+from app.detection.provenance import canonical
+from app.infrastructure.atomic_files import publish_new_bytes
 from app.policy.snapshots import PolicySnapshotStore, build_snapshot
-from app.release.approvals import ReleaseStore
+from app.release.approvals import ReleaseStore, make_payload, sign_approval
 
 HEX64 = re.compile(r"^[a-f0-9]{64}$")
 
@@ -34,10 +35,6 @@ def required_path(name: str, *, directory: bool = False) -> Path:
     if not (p.is_dir() if directory else p.is_file()):
         raise RuntimeError(f"{name} is unavailable")
     return p
-
-
-def run(*args: str) -> None:
-    subprocess.run([sys.executable, "-m", *args], check=True)  # nosec B603 # Internal module calls; no shell.
 
 
 def release_does_not_exist(tag: str) -> None:
@@ -152,38 +149,18 @@ def sign_release() -> None:
             # Add content-addressed snapshot to signer's protected archive without
             # changing its active policy until release activation validates it.
             proposal = build_snapshot("policies", authority / "policy-archive", proposed_policy)
-            run(
-                "tools.sign_release",
-                "--private-key",
-                str(private_key),
-                "--policy-snapshot",
-                str(proposed_policy),
-                "--detector-digest",
-                digest,
-                "--generation",
-                str(next_generation),
-                "--previous-release-id",
-                predecessor["release_id"],
-                "--out",
-                str(candidate),
+            approval = sign_approval(
+                make_payload(
+                    proposal.policy_digest,
+                    proposal.policy_revision,
+                    digest,
+                    next_generation,
+                    predecessor["release_id"],
+                ),
+                private_key,
             )
-            run(
-                "tools.activate_release",
-                "--candidate",
-                str(candidate),
-                "--detector-digest",
-                digest,
-                "--trust",
-                str(trust),
-                "--release-active",
-                str(authority / "release-active" / "release.json"),
-                "--release-archive",
-                str(authority / "release-archive"),
-                "--policy-active",
-                str(authority / "policy-active"),
-                "--policy-archive",
-                str(authority / "policy-archive"),
-            )
+            publish_new_bytes(candidate, canonical(approval) + b"\n", mode=0o600)
+            store.activate(candidate, detector_digest=digest)
             verified = store.verify_active(
                 detector_digest=digest, policy_digest=proposal.policy_digest
             )

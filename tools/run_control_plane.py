@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import os
+from ipaddress import ip_address
+
 import uvicorn
 
 from app.infrastructure.config import positive_int
 from app.infrastructure.logging import configure_logging
 
-CONTAINER_BIND_HOST = "0.0.0.0"  # nosec B104 # Container interface; Compose publishes on loopback.
+
+def server_host() -> str:
+    try:
+        return str(ip_address(os.environ.get("CONTROL_PLANE_LISTEN_HOST", "127.0.0.1")))
+    except ValueError as exc:
+        raise ValueError("CONTROL_PLANE_LISTEN_HOST must be a literal IP address") from exc
 
 
 def server_limits() -> tuple[int, int]:
@@ -21,12 +29,12 @@ def server_limits() -> tuple[int, int]:
 def main() -> None:
     configure_logging()
     concurrency, keepalive = server_limits()
-    # Listen on the container interface; Compose exposes only host loopback.
+    # Local startup is loopback-only; containers opt into their network interface.
     uvicorn.run(
         "app.api.main:create_app",
         factory=True,
         log_config=None,
-        host=CONTAINER_BIND_HOST,
+        host=server_host(),
         port=8000,
         access_log=False,
         proxy_headers=False,

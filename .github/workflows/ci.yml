@@ -144,10 +144,9 @@ jobs:
         run: |
           python -m pip install . 'bandit>=1.8,<2'
           python -m pip freeze > requirements.txt
-      - name: SAST — block High severity
+      - name: SAST — block unreviewed findings
         run: |
-          python -m bandit -r app simulator tools .github/scripts --severity-level all --exit-zero
-          python -m bandit -r app simulator tools .github/scripts -lll
+          python -m bandit -r app simulator tools .github/scripts --severity-level all
       - name: Dependency, source secret and config security — block High/Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

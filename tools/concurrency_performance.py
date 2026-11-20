@@ -13,7 +13,6 @@ import json
 import math
 import os
 import re
-import shutil
 import statistics
 import subprocess  # nosec B404 # Required for explicit operator-owned CLI commands.
 import sys
@@ -24,6 +23,8 @@ from typing import Any
 from urllib.parse import urlsplit
 
 import httpx
+
+from app.infrastructure.executables import resolve_executable
 
 SCENARIOS = ("local_permit", "credential_deny", "unsupported_input", "external_redaction")
 START = re.compile(
@@ -222,8 +223,14 @@ async def capture_command(
     phase = "setup"
     samples = [{"t_seconds": 0.0, "phase": phase, "metrics": before}]
     poll_errors = 0
+    if not command:
+        raise ValueError("Benchmark command is required")
     command_proc = await asyncio.create_subprocess_exec(
-        *command, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env
+        resolve_executable(command[0]),
+        *command[1:],
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.STDOUT,
+        env=env,
     )
 
     async def read_lines() -> None:
@@ -578,12 +585,21 @@ def main(argv: list[str] | None = None) -> int:
     # Do not silently import a different benchmark implementation.
     if not (Path("benchmarks") / "suite.py").is_file():
         parser.error("Install the existing local benchmarks kit under benchmarks/ first")
-    git = shutil.which("git")
     git_sha = "unavailable"
-    if git is not None:
-        sha = subprocess.run([git, "rev-parse", "HEAD"], capture_output=True, text=True)  # nosec B603 # Resolved executable and constant read-only arguments.
+    try:
+        git = resolve_executable("git")
+        sha = subprocess.run(  # nosec B603 # Resolved binary and constant arguments; no shell.
+            [git, "rev-parse", "HEAD"],
+            shell=False,
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
         if sha.returncode == 0:
             git_sha = sha.stdout.strip()
+    except (OSError, ValueError, subprocess.TimeoutExpired):
+        pass  # Commit metadata is optional; benchmark integrity checks still run.
     for index in range(1, args.runs + 1):
         label = f"{args.label_prefix}-r{index:02d}"
         print(f"\nM7.9 repetition {index}/{args.runs}: {label}", flush=True)

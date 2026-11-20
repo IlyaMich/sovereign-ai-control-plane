@@ -39,9 +39,11 @@ Python warnings as errors. Local signed-runtime integration tests require
 
 CI security scans freeze installed dependencies to `requirements.txt`, retain
 `trivy-filesystem.json`, and fail if that report does not include the Python
-requirements. Bandit prints all severities before applying the High severity gate.
-Narrow `nosec` annotations document reviewed, shell-free operator CLI calls and
-the container listener; no scanner rule is disabled globally.
+requirements. Bandit blocks all unreviewed severities. Narrow `nosec` annotations
+cover only the necessary external OPA/Git subprocess boundaries: executable paths
+are resolved without searching the checkout, shell launchers are rejected, shells
+are disabled, stdin is closed, and executions have deadlines. Internal signing and
+profiling calls use Python APIs; no scanner rule is disabled globally.
 
 Tests are grouped by subsystem under `tests/api/`, `tests/application/`,
 `tests/audit/`, `tests/detection/`, `tests/enforcement/`, `tests/infrastructure/`,

@@ -17,6 +17,7 @@ from typing import Any, Callable
 
 from app.audit.verify import verify_database
 from app.detection.evidence import verify_detector_references
+from app.infrastructure.executables import resolve_executable
 from app.policy.opa import parse_decision
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
 
@@ -31,6 +32,12 @@ def run_opa(
     policy_input: dict,
     entrypoint: str = "data.sovereign.authz.decision",
 ) -> dict:
+    if entrypoint not in {"data.sovereign.authz.decision", "data.sovereign.authz.output_decision"}:
+        raise ReplayError("Unsupported policy replay entrypoint")
+    try:
+        executable = resolve_executable(opa_binary)
+    except (OSError, ValueError) as exc:
+        raise ReplayError("OPA executable unavailable or unsafe") from exc
     with tempfile.TemporaryDirectory(prefix="policy-replay-") as directory:
         input_path = Path(directory) / "input.json"
         input_path.write_text(
@@ -38,17 +45,19 @@ def run_opa(
             encoding="utf-8",
         )
         try:
-            result = subprocess.run(  # nosec B603 # Operator-selected OPA binary; shell is disabled.
+            result = subprocess.run(  # nosec B603 # Resolved executable, fixed flags and allowlisted query; shell=False.
                 [
-                    opa_binary,
+                    executable,
                     "eval",
                     "--format=json",
                     "--data",
-                    str(snapshot_path),
+                    str(snapshot_path.resolve()),
                     "--input",
                     str(input_path),
                     entrypoint,
                 ],
+                shell=False,
+                stdin=subprocess.DEVNULL,
                 capture_output=True,
                 text=True,
                 timeout=15,

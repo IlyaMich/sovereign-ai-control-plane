@@ -207,3 +207,33 @@ async def test_no_rejections_at_eight_is_not_false_successful_saturation_claim()
         result = await lookup_rounds(client, refs, concurrency=8, rounds=2)
     assert result["passed"]
     assert not result["eight_way_saturation_observed"]
+
+
+def test_overload_invokes_capture_api_and_stops_on_failure(tmp_path, monkeypatch):
+    from tools import overload_and_audit_lookup as tool
+
+    arguments = []
+
+    def capture(args):
+        arguments.extend(args)
+        return 1
+
+    monkeypatch.setattr(tool, "capture_main", capture)
+    monkeypatch.setattr(tool, "load_api_key", lambda path: "synthetic-test-key")
+    assert (
+        tool.main(
+            [
+                "--label-prefix",
+                "sast-check",
+                "--clients",
+                "9",
+                "--duration",
+                "10",
+                "--results-root",
+                str(tmp_path),
+            ]
+        )
+        == 1
+    )
+    assert arguments[0] == "capture"
+    assert "--allow-overload" in arguments

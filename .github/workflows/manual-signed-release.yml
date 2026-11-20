@@ -101,10 +101,9 @@ jobs:
           python -m mypy
           python -m pytest -q -ra -W error
           python -m evaluation.cli validate
-      - name: Bandit — block High severity
+      - name: Bandit — block unreviewed findings
         run: |
-          python -m bandit -r app simulator tools .github/scripts --severity-level all --exit-zero
-          python -m bandit -r app simulator tools .github/scripts -lll
+          python -m bandit -r app simulator tools .github/scripts --severity-level all
       - name: Trivy filesystem — block High/Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:

@@ -30,6 +30,7 @@ variables; they do not automatically load `.env`.
 | `MODEL_TIMEOUT_SECONDS` | 10 | Model invocation HTTP timeout |
 | `READINESS_TIMEOUT_SECONDS` | 1 | Timeout for each readiness HTTP probe |
 | `SIMULATOR_EGRESS_TIMEOUT_SECONDS` | 5 | Gateway-to-external-simulator HTTP timeout |
+| `CONTROL_PLANE_LISTEN_HOST` | 127.0.0.1 locally; 0.0.0.0 in Compose | Validated literal IP for the API listener inside the process; host publication remains controlled by `API_HOST` |
 | `API_HOST` | 127.0.0.1 | Published API host address |
 | `API_PORT` | 8000 | Published API host port; container port stays 8000 |
 | `SIMULATOR_UPSTREAM_URL` | http://external-simulator:9000 | Operator-controlled HTTP(S) origin; gateway appends `/generate` |
