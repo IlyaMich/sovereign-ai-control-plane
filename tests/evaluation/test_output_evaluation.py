@@ -70,6 +70,7 @@ async def test_known_sensitive_false_negative_is_counted_as_unsafe_release():
     assert report["metrics"]["output_detection"]["unsafe_negative_rate"] == 1.0
     assert "UNSAFE_SENSITIVE_OUTPUT_RELEASE" in report["rows"][0]["issues"]
     assert report["rows"][0]["released"] is True
+    assert report["rows"][0]["observed_categories"] == []
     # A correctly signed audit record is not a guarantee of correct detection.
     assert report["evidence"]["signed_events_verified"] == 2
 
@@ -83,6 +84,8 @@ async def test_false_positive_blocks_benign_output_and_is_reported():
     assert report["metrics"]["false_block_count"] == 1
     assert report["metrics"]["released_count"] == 0
     assert report["metrics"]["output_detection"]["false_positive_rate_on_negatives"] == 1.0
+    assert report["rows"][0]["observed_categories"] == ["PERSON"]
+    assert report["rows"][0]["observed_recognizers"] == ["synthetic-output-fixture"]
 
 
 @pytest.mark.asyncio
