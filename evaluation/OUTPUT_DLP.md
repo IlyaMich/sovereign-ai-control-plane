@@ -100,6 +100,48 @@ include `observed_categories` and `observed_recognizers` identifiers but
 not extracted text, and earlier runs still retain per-category counts in
 `run.json -> metrics.output_detection.entities_exact_full.by_category`.
 
+## DLP v5 candidate acceptance run (2026-11-20)
+
+The Windows candidate benchmark at Git commit
+`ab53dfd67b57c2b32e73979c3988e98655c01174`, using the unchanged frozen
+dataset SHA-256
+`766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109`,
+was inspected against all **1,200 case-level records**. It reported:
+
+| Synthetic response metric | v4 baseline | v5 candidate |
+| --- | ---: | ---: |
+| Expected outcomes passed | 1,190 | 1,200 |
+| False blocks (450 benign cases) | 10 | 0 |
+| Known-sensitive responses released | 0 | 0 |
+| Released benign responses | 440 | 450 |
+| Withheld responses | 760 | 750 |
+| Independent temporary signed events verified | 2,400 | 2,400 |
+
+All 650 labeled-private cases were withheld, as were all 100 unsupported
+(`UNKNOWN`) cases. Every one of the 450 benign responses was released, including
+the ten repeated `BEGIN KEY` hard negatives. There were **zero per-case evidence
+mismatches**, 1,100 output policy decisions replayed and 100 locally fail-closed
+output denials verified. The report is tagged
+`policy_mode=fixture-policy-not-opa`; separately tested real OPA CLI and
+test-only signed API integration cover different boundaries.
+
+The candidate's output exact-span metrics are **precision 0.979925, recall
+0.976250, F1 0.978084** (TP 781, FP 16, FN 19). The 19 missed exact spans
+comprise 16 `PRIVATE_KEY` span-boundary disagreements and three `PERSON` misses.
+Overlap-span recall is 0.99625. **Zero unsafe releases is not the same as
+perfect entity-span detection**, and these outstanding errors should remain
+visible in subsequent detector evaluations.
+
+Detector identity in this run:
+`presidio-spacy-v1`, config digest
+`d0e91335f7b99c496f9c2016e933a43529bcb16e83b8c8d4fbcbe04629a7901e`.
+The `artifact_digest` field is empty because the test uses standalone Presidio,
+not a release-approved installed detector manifest. The run's temporary
+audit public key and checkpoint were generated within the benchmark; the
+`release_signer_trusted_externally` flag is **false**. Neither these metrics nor
+the test-only signed-runtime scenarios authorize deployment without a signed
+successor policy/detector release.
+
 ## Controlled cases
 
 The default suite includes two safe outputs; email, telephone, mixed entities,
@@ -196,11 +238,14 @@ before accepting a new benchmark definition.
 
 ## Remaining follow-up
 
-For production-representative assurance, add a distinct offline approved-image
-test using a test-only signed release and detector manifest, with intentionally
-tampered release approval, altered detector digest and missing output evidence
-negative controls. Do not run these against production signing keys or audit
-volumes.
+The v5 candidate adds isolated FastAPI/OPA CLI/model-gateway integration
+scenarios using test-only signed release approvals and audit evidence
+(`tests/test_dlp_signed_runtime_integration.py`). They are not a full
+production approved-image test: before declaring production-representative
+assurance, verify an actually installed detector manifest in the approved
+container image and expand negative controls for altered detector digests,
+tampered release approvals and missing output evidence. Do not run those
+negative controls against production signing keys or audit volumes.
 
 Latency here measures sequential response inspection, not throughput or concurrent admission.
 Synthetic benchmark audit pins must never be substituted for independent

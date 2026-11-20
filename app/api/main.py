@@ -146,6 +146,7 @@ def make_components() -> Components:
         policy=policy,
         output_policy=policy,
         max_model_output_bytes=settings.limits.max_forwarded_prompt_bytes,
+        output_masking_enabled=settings.output_masking_enabled,
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
@@ -317,6 +318,16 @@ def create_app(components: Components | None = None) -> FastAPI:
                     else None
                 ),
             },
+        )
+
+    @app.get("/v1/diagnostics/dlp")
+    async def dlp_diagnostics(
+        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+    ):
+        authenticate(x_api_key)
+        return JSONResponse(
+            headers={"Cache-Control": "no-store"},
+            content=deps.orchestrator.dlp_metrics.snapshot(),
         )
 
     @app.get("/health/live")

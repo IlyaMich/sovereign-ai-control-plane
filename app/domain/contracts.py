@@ -127,9 +127,14 @@ class OutputPolicyContext:
 
     command: PromptCommand
     classification: DetectionResult
+    masking_enabled: bool = False
 
     def to_dict(self) -> dict[str, Any]:
-        return {**PolicyContext(self.command, self.classification).to_dict(), "stage": "OUTPUT"}
+        return {
+            **PolicyContext(self.command, self.classification).to_dict(),
+            "stage": "OUTPUT",
+            "masking_enabled": self.masking_enabled,
+        }
 
 
 @dataclass(frozen=True)

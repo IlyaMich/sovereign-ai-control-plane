@@ -9,6 +9,7 @@ variables; they do not automatically load `.env`.
 | `MAX_PROMPT_BYTES` | 8192 | Maximum ingress prompt size in UTF-8 bytes |
 | `MAX_REQUEST_BODY_BYTES` | 16384 | Maximum complete ingress request, including JSON overhead |
 | `MAX_FORWARDED_PROMPT_BYTES` | 8192 | Maximum prompt accepted by all model simulators and egress gateway |
+| `OUTPUT_MASKING_ENABLED` | false | Opt-in v5-only selective email/phone masking, followed by mandatory clean rescan and signed outcome |
 | `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
 | `MAX_ACTIVE_HTTP_REQUESTS` | 32 | Active HTTP ASGI scopes per process, before reading the body; 503 on saturation |
 | `BODY_READ_TIMEOUT_SECONDS` | 10 | Total body-read deadline for POST/PUT/PATCH; 408 on expiry, releasing ingress capacity |
@@ -205,3 +206,22 @@ M7.8 addresses that separate operator-side race.
 verification limits are per process, not global across multiple Uvicorn workers.
 The authenticated concurrency diagnostics endpoint reports request verification
 capacity and coalesced readiness scan counts without storing request data.
+
+## DLP-specific diagnostics and optional masking
+
+`GET /v1/diagnostics/dlp` requires `X-API-Key` and returns no-store,
+process-local counts for input/output classifications, released, withheld,
+masked and failed responses, with a bounded p50/p95 output-inspection latency
+window. Counters reset on process restart and cannot prove zero leakage or
+replace durable signed events. No text, matched values, request IDs, principal
+identities, or arbitrary recognition labels are emitted.
+
+New-source `OUTPUT_MASKING_ENABLED=false` preserves allow/block DLP. Set it
+true only after activating a signed **v5** policy+detector release that permits
+only explicit `REDACT` obligations for email and phone outputs. The setting is
+trusted operator configuration, not client-controlled. Invalid flag values
+fail startup. A masked response is returned only after replacing every recorded
+span, verifying the transformed bytes remain within the output limit, a
+second detector result is clean, the detector identity stays unchanged and
+signed OUTCOME evidence is committed. Production signed v4 continues to be
+valid until the operator explicitly activates the reviewed successor release.

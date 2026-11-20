@@ -47,6 +47,16 @@
         "github-pat",
         "\\bgh[pousr]_[A-Za-z0-9]{20,}\\b",
         0.98
+      ],
+      [
+        "gitlab-personal-access-token",
+        "\\bglpat-[A-Za-z0-9_-]{20,128}\\b",
+        0.98
+      ],
+      [
+        "slack-bot-and-user-token",
+        "(?<![A-Za-z0-9])xox[baprs]-(?:[0-9]{8,13}-){2}[A-Za-z0-9]{20,64}(?![A-Za-z0-9])",
+        0.98
       ]
     ],
     "PRIVATE_KEY": [

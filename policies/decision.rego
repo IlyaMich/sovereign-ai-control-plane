@@ -2,7 +2,7 @@ package sovereign.authz
 import rego.v1
 
 # M3 input routing plus output-stage DLP (fail closed, separate decision entrypoint).
-revision := "redaction-response-dlp-v4"
+revision := "redaction-response-dlp-v5"
 
 
 required_coverage := {"EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD", "US_SSN", "API_CREDENTIAL", "PRIVATE_KEY"}
@@ -130,11 +130,28 @@ output_clear if {
   approved_purpose
 }
 
+# Output masking is operator controlled, never a request-body option.
+# Only limited low-risk structured PII is eligible; credentials, SSNs, cards,
+# names, and mixed output with any other category still fail closed.
+output_maskable if {
+  input.stage == "OUTPUT"
+  input.masking_enabled == true
+  valid_classification
+  approved_purpose
+  input.request.destination_id in {"sovereign-model", "external-simulator"}
+  input.classification.status == "PRIVATE"
+  count(input.classification.findings) > 0
+  every finding in input.classification.findings {
+    finding.category in {"EMAIL_ADDRESS", "PHONE_NUMBER"}
+  }
+}
+
 output_private if {
   input.stage == "OUTPUT"
   valid_classification
   input.classification.status == "PRIVATE"
   count(input.classification.findings) > 0
+  not output_maskable
 }
 
 output_decision := {
@@ -144,6 +161,16 @@ output_decision := {
   "policy_digest": data.sovereign.policy_meta.digest,
 } if {
   output_clear
+}
+
+output_decision := {
+  "effect": "PERMIT",
+  "obligations": [{"type": "REDACT", "categories": ["EMAIL_ADDRESS", "PHONE_NUMBER"]}],
+  "reason_codes": ["OUTPUT_MASKING_REQUIRED"],
+  "policy_revision": revision,
+  "policy_digest": data.sovereign.policy_meta.digest,
+} if {
+  output_maskable
 }
 
 output_decision := {
@@ -162,5 +189,6 @@ output_decision := {
   "policy_digest": data.sovereign.policy_meta.digest,
 } if {
   not output_clear
+  not output_maskable
   not output_private
 }

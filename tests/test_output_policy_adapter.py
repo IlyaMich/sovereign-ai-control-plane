@@ -61,7 +61,7 @@ async def test_output_opa_adapter_posts_metadata_to_output_entrypoint():
                     Effect.PERMIT,
                     (),
                     ("OUTPUT_CONTENT_CLEARED",),
-                    "redaction-response-dlp-v4",
+                    "redaction-response-dlp-v5",
                 ).to_dict()
             },
         )

@@ -90,7 +90,7 @@ async def test_readiness_file_scan_is_nonblocking_and_coalesced(audit):
         if request.url.path == "/health":
             return httpx.Response(200, json={"status": "UP"})
         return httpx.Response(
-            200, json={"result": {"policy_revision": "redaction-response-dlp-v4"}}
+            200, json={"result": {"policy_revision": "redaction-response-dlp-v5"}}
         )
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(mock_response)) as probe:

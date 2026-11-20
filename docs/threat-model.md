@@ -37,7 +37,7 @@ Default `sovereign-internal` network is private; API published only on loopback.
 ## Residual risks and unimplemented security controls
 
 1. **Audit trust:** The standard evidence ZIP supplies its own audit public key and checkpoint; this proves internal consistency but not independent authenticity or completeness. Periodic checkpoint witnessing to external storage is not implemented. Local audit key compromise threatens reconstructed history.
-2. **Real model sovereignty:** No real inference server, provider residency attestation, authenticated real external egress, output DLP or RAG/attachment scanning. Model output is returned without a post-generation leakage policy.
+2. **Real model sovereignty:** No real inference server, provider residency attestation, authenticated real external egress or RAG/attachment scanning. Model responses are scanned and blocked if private or unknown; classification may miss private content and masking is opt-in v5 only after release approval.
 3. **Identity/governance:** One API key maps to `local-tester` / `local-tenant`. No OIDC/JWT, tenant-aware admin policies, authorization workflows, RBAC or tenant isolation at scale.
 4. **Detection limits:** English ASCII, best-effort recognizers and limited patterns; entity overlap/threshold handling does not guarantee complete sensitivity detection.
 5. **Supply chain and releases:** Selected model/source bytes are hashed and independently approved, but not the full image, OS and dependency closure. Python versions are not fully hash-locked; release key is an unencrypted development PEM; local generation checks can be subverted by host administrators.
@@ -53,6 +53,6 @@ Default `sovereign-internal` network is private; API published only on loopback.
 
 ## Priority improvements
 
-Independent audit trust and periodic checkpoint witnessing; protected audit/release keys; real local inference and authenticated egress; output data-loss prevention; OIDC/multi-tenant policy governance; then deployment hardening and measured performance improvements. Existing [profiling and overload tools](concurrency-performance-profiling.md) support investigation; their presence does not establish completed performance acceptance.
+Independent audit trust and periodic checkpoint witnessing; protected audit/release keys; real local inference and authenticated egress; broader DLP channels and real-runtime tests; OIDC/multi-tenant policy governance; then deployment hardening and measured performance improvements. Existing [profiling and overload tools](concurrency-performance-profiling.md) support investigation; their presence does not establish completed performance acceptance.
 
 See [audit design](audit-design.md), [architecture](architecture.md), [Milestone 6](signed-release-workflow.md) and the [release workflow](policy-design.md).
