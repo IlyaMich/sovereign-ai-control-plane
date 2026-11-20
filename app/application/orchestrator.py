@@ -388,9 +388,15 @@ class RequestOrchestrator:
         output_context = None
         if self.output_policy is not None:
             content = model_result.output
-            if not isinstance(content, str) or not content or (
-                len(content.encode("utf-8")) > self.max_model_output_bytes
-            ):
+            try:
+                valid_content = (
+                    isinstance(content, str)
+                    and bool(content)
+                    and len(content.encode("utf-8")) <= self.max_model_output_bytes
+                )
+            except UnicodeError:
+                valid_content = False
+            if not valid_content:
                 output_classification = DetectionResult.unknown("OUTPUT_INVALID_CONTENT")
                 output_decision = PolicyDecision.deny("OUTPUT_INVALID_CONTENT")
             else:
