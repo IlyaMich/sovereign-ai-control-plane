@@ -6,7 +6,6 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.domain.contracts import DetectionStatus, RequestStatus
-from app.infrastructure.runtime_metrics import _distribution
 from app.infrastructure.dlp_metrics import DLPMetrics
 from tests.test_api import app_with_fakes
 from tests.test_output_dlp import make_service, command
