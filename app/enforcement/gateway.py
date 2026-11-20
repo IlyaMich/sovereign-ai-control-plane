@@ -16,12 +16,17 @@ from app.domain.contracts import (
     PolicyDecision,
     PromptCommand,
 )
+from app.enforcement.pre_egress import external_content_signals
 from app.infrastructure.config import HTTPTimeouts
 from app.infrastructure.logging import event, failure_code
 
 
 class InvalidPlan(Exception):
     pass
+
+
+class ExternalContentUnverified(InvalidPlan):
+    """Independent external-boundary safety check rejected the input."""
 
 
 class ModelUnavailable(Exception):
@@ -91,6 +96,20 @@ class EnforcementPlanner:
         destination = self.registry.get(destination_id) if self.registry else None
         if self.registry and destination is None:
             raise InvalidPlan("Destination unregistered")
+        # A permissive detector/OPA result is insufficient to clear known
+        # syntactic risk patterns for simulated external routing. Review the
+        # ORIGINAL prompt before any redaction, so partial transformations
+        # cannot erase the evidence needed for this independent guard.
+        if destination is not None and destination.boundary != "INTERNAL":
+            if external_content_signals(command.prompt, command.prompt):
+                raise ExternalContentUnverified("External content cannot be independently cleared")
+            # Until a separately validated full-span check exists, PERSON
+            # redaction is not a sufficient basis for external forwarding.
+            # Unrecognized names still require the independent source guard.
+            if classification is not None and any(
+                finding.category == "PERSON" for finding in classification.findings
+            ):
+                raise ExternalContentUnverified("External PERSON transformation not cleared")
         if classification is not None:
             if classification.status == DetectionStatus.UNKNOWN:
                 raise InvalidPlan("Unknown classification")
@@ -128,6 +147,17 @@ class HTTPModelGateway:
                 error_code="DESTINATION_UNREGISTERED",
             )
             raise ModelUnavailable("Destination not registered")
+        # Last-mile barrier even if a caller bypasses EnforcementPlanner.
+        # It cannot see the original source after redaction; the planner must
+        # therefore also screen that source before transformation.
+        if destination.boundary != "INTERNAL" and external_content_signals(prompt, prompt):
+            event(
+                "model_destination_rejected",
+                level=logging.ERROR,
+                request_id=request_id,
+                error_code="EXTERNAL_CONTENT_UNVERIFIED",
+            )
+            raise ModelUnavailable("External payload failed independent safety review")
         started = time.perf_counter()
         try:
             response = await self._client.post(
