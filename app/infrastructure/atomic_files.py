@@ -18,6 +18,15 @@ from pathlib import Path
 from typing import Iterator, Protocol, cast
 
 
+class _WindowsLocking(Protocol):
+    """Portable typing for the Windows CRT locking API."""
+
+    LK_NBLCK: int
+    LK_UNLCK: int
+
+    def locking(self, fd: int, mode: int, nbytes: int) -> None: ...
+
+
 class _PosixFlock(Protocol):
     """POSIX lock interface, independent of the host type-checker's stubs."""
 
@@ -114,7 +123,7 @@ def interprocess_lock(path: Path | str, *, timeout_seconds: float = 15.0) -> Ite
             raise ValueError("Lock target must be a regular file")
         deadline = time.monotonic() + float(timeout_seconds)
         if os.name == "nt":
-            import msvcrt
+            windows_locks = cast(_WindowsLocking, import_module("msvcrt"))
 
             # CRT byte-range locking is most portable on a one-byte file.
             if os.fstat(fd).st_size == 0:
@@ -123,11 +132,11 @@ def interprocess_lock(path: Path | str, *, timeout_seconds: float = 15.0) -> Ite
 
             def acquire() -> None:
                 os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_NBLCK, 1)
+                windows_locks.locking(fd, windows_locks.LK_NBLCK, 1)
 
             def release() -> None:
                 os.lseek(fd, 0, os.SEEK_SET)
-                msvcrt.locking(fd, msvcrt.LK_UNLCK, 1)
+                windows_locks.locking(fd, windows_locks.LK_UNLCK, 1)
 
         else:
             # Direct fcntl attributes are absent from Windows mypy stubs.
