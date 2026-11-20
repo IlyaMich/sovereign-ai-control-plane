@@ -13,9 +13,9 @@ from performance.resources import _parse_one
 
 
 def test_shipped_profiles_are_valid() -> None:
-    for name in ("baseline", "saturation", "scenario-catalog"):
+    for name in ("smoke", "baseline", "saturation", "scenario-catalog"):
         config = load_profile(name)
-        assert config.runs == 3
+        assert config.runs == (1 if name == "smoke" else 3)
         assert config.digest and config.scenarios
         assert len(set(config.levels)) == len(config.levels)
     assert load_profile("saturation").allow_overload
