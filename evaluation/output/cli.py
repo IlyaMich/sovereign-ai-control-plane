@@ -210,6 +210,8 @@ def main(argv: list[str] | None = None) -> int:
             "released": report["metrics"]["released_count"],
             "blocked": report["metrics"]["blocked_count"],
             "unsafe_sensitive_releases": report["metrics"]["unsafe_sensitive_release_count"],
+            "false_blocks": report["metrics"]["false_block_count"],
+            "issues": report["metrics"]["issues"],
             "signed_events_verified": report["evidence"]["signed_events_verified"],
             "output_policy_replayed": report["evidence"]["output_policy_decisions_replayed"],
             "evidence_status": report["evidence"]["status"],
