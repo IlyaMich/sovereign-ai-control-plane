@@ -35,18 +35,23 @@ never enters the deployed containers. The API has only the public verifier key.
    public key **outside the evidence ZIP**. Without that key, it reports archive
    self-consistency only. Prior audit signatures and OPA replay remain unchanged.
 
-## Normal deployment (Windows PowerShell + Podman)
+## Existing deployment (Windows PowerShell + Podman)
 
 Preserve `.env`, audit volume, and existing `policy-archive` and `policy-active`.
 **Do not use `podman compose down -v`.** The signer key is independent of
 `/var/lib/sovereign/audit-key.pem`.
 
 1. Install Python >=3.12 and `cryptography>=43,<47` on the operator host.
-2. Extract overlay, keep the original audit volume, and run
-   `./Approve-And-ActivateRelease.ps1` from the checkout root. It creates a dev key
-   under `%USERPROFILE%\\.sovereign-ai-control-plane`, writes only its public
-   key to `release-trust/`, builds the control-plane image, reads the actual
-   installed detector manifest, signs and activates generation 1.
+2. Verify the active policy and release with `python -m tools.verify_policy_snapshot`
+   and `python -m tools.verify_release`. Preserve the trusted private signing key
+   outside the checkout and the corresponding public key in `release-trust/`.
+   If an intended change needs approval, run
+   `./Approve-And-ActivateRelease.ps1 -UseExistingKey` from the checkout root
+   (`-KeyDirectory` selects the signer directory; the default is
+   `%USERPROFILE%\.sovereign-ai-control-plane`). The helper builds the image,
+   verifies its detector manifest, then signs and activates generation **N+1**
+   referencing the currently active release. Stop OPA and control-plane before
+   changing active policy/release artifacts; recreate them after approval.
 3. Provision/protect the trusted public key separately on any reviewing host.
    Protect private key with OS ACLs and ideally encrypted storage/HSM.
 4. Start containers with `podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d`.
@@ -55,9 +60,36 @@ Preserve `.env`, audit volume, and existing `policy-archive` and `policy-active`
 
 `make up` and `make restart` run a release preflight and use `--no-build`, preserving the approved image. If `make build` was already run, `.\Approve-And-ActivateRelease.ps1 -UseExistingKey -SkipBuild` approves the existing image as a new successor generation without rebuilding it.
 
+### First installation with an independent release authority
+
+Generation 1 applies only when the target deployment has no active release.
+The committed release files represent an existing authority/history; generating
+a new key does not authorize those approvals. `-UseExistingKey` also does not
+recover a missing key or grant trust in another signer.
+
+Prepare a separate deployment directory and a fresh audit volume under a unique
+Compose project name (`COMPOSE_PROJECT_NAME`). Retain the supplied example
+release history separately from its operational `release-active/`,
+`release-archive/`, `release-candidates/` and `release-trust/` directories.
+For this new history, those operational directories must start empty, with
+`release-active/release.json` absent. Existing installations and their volumes,
+keys and archives must be preserved.
+
+Provision `.env`, build and verify the intended policy snapshot, then run
+`./Approve-And-ActivateRelease.ps1` using a new external `-KeyDirectory`.
+When the private key is absent, the helper creates a development keypair,
+places its public key in `release-trust/`, builds/verifies the image and signs
+its initial generation-1 approval. The helper does not create an isolated
+project, clear example histories or reset volumes for you. Keep the chosen
+Compose project name set for all later helper, startup and verification commands.
+Provision the public key independently to reviewers, then start without rebuilding
+and run `Verify-SignedReleaseWorkflow.ps1` as above.
+
 ### Subsequent policy rollouts / rollback
 
-For a new policy, first stop/recreate OPA around activation (to avoid modifying mounted files while serving): edit `policies/decision.rego`, run
+For a new policy, stop both OPA and control-plane before modifying active artifacts
+(`podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane`).
+Edit `policies/decision.rego`, run
 `python -m tools.build_policy_snapshot`, build the intended detector image,
 then sign a new approval with **generation N+1** and previous release ID.
 `Approve-And-ActivateRelease.ps1 -UseExistingKey` handles the normal next generation.
@@ -99,7 +131,7 @@ an independent witness of completeness.
   atomic cross-volume transaction.
 - Verifying a signed release in the same compromised container is insufficient
   against a malicious administrator who can change the container binary.
-- The historical archive retains M1â€“M5 records as integrity-replayable where
+- The historical archive retains M1-M5 records as integrity-replayable where
   supported; it does not manufacture release approvals for older events.
 - A disabled `REQUIRE_SIGNED_RELEASE=false` switch is for **local migration/
   development only**; it bypasses the new authorization boundary.

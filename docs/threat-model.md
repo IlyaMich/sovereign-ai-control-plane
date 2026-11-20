@@ -1,4 +1,4 @@
-# Threat model and sovereignty — current Milestone 6
+# Threat model and sovereignty - signed releases and M7 operations
 
 **System under review:** A single-host, local AI policy gateway running FastAPI, Presidio/spaCy, OPA, a local model simulator and SQLite audit chain on Podman Compose. Optional `egress-test` services are **simulated**. This is a reference implementation, not evidence of certification, production isolation, or regional residency.
 
@@ -28,7 +28,9 @@ The **release signer private key** is kept outside runtime containers/repository
 | Audit unavailable before model | Precommit fails; no invocation | Rejected request may not be durably recorded |
 | Audit row edited / chain gap | Hash/Ed25519 verification rejects tampering | Tail truncation needs independent prior checkpoint |
 | Archive or release manifest tampered | Content digests and signed release verification reject mismatch | Does not attest entire image or host |
-| Model call timeout | Outcome `UNKNOWN` rather than falsely claiming block | No idempotency/reconciliation yet |
+| Model call timeout | Outcome `UNKNOWN` rather than falsely claiming block; an opt-in durable idempotency claim prevents another gateway admission for the same key | No automatic outcome recovery or exactly-once provider execution |
+| Retry after lost response | Tenant/principal-scoped durable key claim; matching retry returns 409 with original request ID | Claim table is unsigned; output is not cached; unkeyed requests can execute again |
+| Slow upload or capacity exhaustion | Body deadline, HTTP/prompt admission bounds and bounded worker jobs/waiters | Per-process bounds; health probes may be rejected; this is not a global rate limit |
 
 Default `sovereign-internal` network is private; API published only on loopback. The optional test profile routes through an explicit gateway into a second **private** simulator network. Podman networking differs across Windows VM/rootless environments and does not replace tested host firewall rules, mTLS or workload identity.
 
@@ -39,7 +41,7 @@ Default `sovereign-internal` network is private; API published only on loopback.
 3. **Identity/governance:** One API key maps to `local-tester` / `local-tenant`. No OIDC/JWT, tenant-aware admin policies, authorization workflows, RBAC or tenant isolation at scale.
 4. **Detection limits:** English ASCII, best-effort recognizers and limited patterns; entity overlap/threshold handling does not guarantee complete sensitivity detection.
 5. **Supply chain and releases:** Selected model/source bytes are hashed and independently approved, but not the full image, OS and dependency closure. Python versions are not fully hash-locked; release key is an unencrypted development PEM; local generation checks can be subverted by host administrators.
-6. **Operational resilience:** Single local SQLite sequencer, no multi-writer distributed guarantee, streaming or async job recovery, rate limits, robust retry/idempotency, production-grade monitoring or disaster recovery.
+6. **Operational resilience:** Single local SQLite sequencer with bounded per-process admission and worker queues. Durable opt-in idempotency and a read-only lifecycle inspector exist, but automatic recovery, cached responses, exactly-once inference, global rate limits, distributed sequencing, streaming, production monitoring and disaster recovery remain unimplemented. See [idempotency](idempotency-and-request-lifecycle.md) and [configuration](configuration.md).
 
 ## Evidence interpretation
 
@@ -51,6 +53,6 @@ Default `sovereign-internal` network is private; API published only on loopback.
 
 ## Priority improvements
 
-Independent audit trust and periodic checkpoint witnessing; protected audit/release keys; real local inference and authenticated egress; output data-loss prevention; OIDC/multi-tenant policy governance; then deployment hardening and performance benchmarks.
+Independent audit trust and periodic checkpoint witnessing; protected audit/release keys; real local inference and authenticated egress; output data-loss prevention; OIDC/multi-tenant policy governance; then deployment hardening and measured performance improvements. Existing [profiling and overload tools](concurrency-performance-profiling.md) support investigation; their presence does not establish completed performance acceptance.
 
 See [audit design](audit-design.md), [architecture](architecture.md), [Milestone 6](signed-release-workflow.md) and the [release workflow](policy-design.md).

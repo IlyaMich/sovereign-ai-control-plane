@@ -61,7 +61,9 @@ executor. Cancellation after submitting a commit does not cancel its
 thread: it can leave an unresolved DECISION requiring M7.4 reconciliation.
 Graceful shutdown drains submitted audit operations. SQLite still
 serializes cross-process writers through BEGIN IMMEDIATE and WAL.
-Release verification and prompt fingerprint calculation remain synchronous.
+Request-time policy and release verification now runs off the event loop through
+the M7.7 integrity executor; readiness uses a separate full-scan lane (see below).
+Prompt fingerprint calculation remains synchronous in the orchestrator.
 Timeouts must be positive and finite; HTTPX applies them to individual network operations,
 not to the entire request lifecycle. Invalid values fail startup. Character counts in
 OpenAPI are a preliminary bound; UTF-8 byte validation also applies. Each API app instance

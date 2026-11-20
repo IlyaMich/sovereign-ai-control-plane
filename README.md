@@ -2,13 +2,15 @@
 
 A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, and records independently checkable evidence.
 
-**Current implementation: Milestone 6 Â· API version 0.6.0.** M1â€“M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
+**Current implementation: M6 signed releases plus M7 operational features; API version 0.6.0.** M1-M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. M7 adds bounded concurrency, durable opt-in idempotency, diagnostics, upload deadlines, serialized release publication, and profiling tools. These implemented features do not establish completion of the M7 performance acceptance criteria. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
 
 ## Capabilities at a glance
 
 | Area | Implemented now | Important boundary |
 | --- | --- | --- |
 | Ingress | FastAPI `POST /v1/prompts`, API-key authentication, size limits, sanitized errors | One fixed local principal/tenant, not OIDC/RBAC |
+| Request lifecycle | Durable opt-in idempotency, status lookup, bounded admission and worker queues | No automatic recovery, cached output or exactly-once inference |
+| Diagnostics | Authenticated process-local concurrency metrics and profiling tools | Rolling samples; no global monitoring or proven capacity guarantee |
 | Detection | Local Presidio/spaCy, custom recognizers, deterministic normalized findings, coverage and `UNKNOWN` | Best-effort English ASCII scope; false negatives remain possible |
 | Policy | Direct OPA/Rego with default deny; content-addressed archived policy snapshots | Rego inputs are structured detection metadata, not raw prompt text |
 | Enforcement | `PERMIT`/`DENY`, ordered `REDACT` then `ROUTE`, post-redaction rescan, destination registry | External route is **test-only simulator**, disabled by default |
@@ -59,7 +61,7 @@ flowchart TD
 
 The default Compose network is private. The API binds to `127.0.0.1:8000`; OPA and model ports are not published. The optional `egress-test` profile creates a separate simulated network. **Neither a Compose network nor a policy label establishes real-world data residency.**
 
-## Start an existing Milestone 6 installation
+## Start an existing signed-release installation
 
 Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and enough resources for local spaCy. Building the detector image requires network access to install dependencies and the pinned `en_core_web_sm` model; request processing does not download the model.
 
@@ -72,7 +74,9 @@ python -m tools.verify_policy_snapshot
 python -m tools.verify_release
 
 # If a new release is necessary, use the EXISTING signer and sign an N+1 approval.
+# Stop services before changing active release artifacts.
 # This rebuilds the intended image before signing:
+podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane
 .\Approve-And-ActivateRelease.ps1 -UseExistingKey
 
 # Run the EXACT approved image. Do not rebuild after signing:
@@ -87,13 +91,10 @@ For the optional simulated egress test, add `ENABLE_EXTERNAL_SIMULATOR=true` to 
 
 ### Developer workflows
 
-```powershell
-podman compose -f deploy/compose.yaml --env-file .env restart opa
-```
-
-We are intentionally **not** claiming cryptographic policy-bundle pinning in
-M3. Evidence records the revision reported by OPA and the exact structured
-policy inputs; attesting the actual policy bytes is later work.
+Policy identity is bound to exact archived source bytes and authorized by a signed
+release. Editing source or restarting OPA alone does not activate an approved
+change. Follow [Changing policy or detector code](#changing-policy-or-detector-code)
+and the [release workflow](docs/signed-release-workflow.md).
 
 ## Python code quality
 
@@ -156,11 +157,21 @@ Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST -Headers @{
 
 On an approved local request, expect `COMPLETED`, a `PERMIT` decision, and signed decision/outcome receipts. A private-key marker should be blocked; unsupported non-ASCII text is classified `UNKNOWN` and denied. `GET /v1/requests/{request_id}` returns tenant-scoped signed evidence metadata (not the raw prompt). API docs: `http://127.0.0.1:8000/docs`.
 
+Requests may include an `Idempotency-Key` header. A matching retry returns HTTP 409
+with the original request ID; a conflicting payload returns HTTP 409 without it.
+`GET /v1/idempotency/status` accepts the same API key and idempotency key in headers.
+It reports recorded lifecycle state without recovering the original output or
+retrying inference. See [idempotency and reconciliation](docs/idempotency-and-request-lifecycle.md).
+
+`GET /v1/diagnostics/concurrency` requires `X-API-Key`. Prompt admission can return
+429, ingress saturation can return 503, and an expired upload deadline returns
+408. See [configuration](docs/configuration.md) for limits and defaults.
+
 ## Changing policy or detector code
 
-Editing `policies/decision.rego` **does not activate** a new policy. The current M6 deployment requires a content-addressed policy snapshot and a **newly signed release** approving the exact policy and installed detector digests.
+Editing `policies/decision.rego` **does not activate** a new policy. The current deployment requires a content-addressed policy snapshot and a **newly signed release** approving the exact policy and installed detector digests.
 
-1. Review the proposed policy and run tests; build and verify the snapshot with `python -m tools.build_policy_snapshot` and `python -m tools.verify_policy_snapshot`.
+1. Review the proposed policy and run tests. Stop OPA and control-plane before changing active artifacts (`podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane`); build and verify the snapshot with `python -m tools.build_policy_snapshot` and `python -m tools.verify_policy_snapshot`.
 2. Build the intended detector image and obtain the installed artifact digest.
 3. Use the existing out-of-runtime private signing key to sign a new generation (predecessor must match the currently active release), then run `tools.activate_release` / `tools.verify_release`. The operator helper `Approve-And-ActivateRelease.ps1 -UseExistingKey` covers the normal next-generation workflow.
 4. If the Rego revision changed, update `EXPECTED_POLICY_REVISION` in `.env`.
@@ -174,7 +185,7 @@ The exporter (`python -m tools.export_evidence_package --out /var/lib/sovereign/
 
 A result of `EVIDENCE_PACKAGE_SELF_CONSISTENT` with `REPLAY_VERIFIED` confirms the package's internal signatures, chain, manifests and eligible policy replays. It does **not** by itself authenticate the audit signing key or establish complete history. A separately provisioned release verification key authenticates release approvals only. Use separately retained `--trusted-public-key` and `--trusted-checkpoint` for stronger audit authentication. A checkpoint generated inside the same ZIP is not an independent witness.
 
-The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1â€“M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
+The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1-M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
 
 ## Documentation
 
@@ -185,6 +196,11 @@ The verifier cannot replay original NLP classifications: raw prompts and origina
 - [Audit integrity, replay and evidence trust](docs/audit-design.md)
 - [Testing and release verification](docs/testing.md)
 - [Operational logging and privacy](docs/logging.md)
+- [Configuration, capacity limits and upload deadlines](docs/configuration.md)
+- [Idempotency and request-lifecycle reconciliation](docs/idempotency-and-request-lifecycle.md)
+- [Concurrency profiling and acceptance criteria](docs/concurrency-performance-profiling.md)
+- [Live overload and audit lookup diagnostics](docs/overload-and-audit-lookup.md)
+- [Synthetic detection evaluation](evaluation/README.md)
 - [Milestone 3: redaction and simulated egress](docs/history/redaction-and-egress.md)
 - [Milestone 4: content-bound Rego](docs/history/policy-snapshots-and-replay.md)
 - [Milestone 5: detector provenance](docs/history/detector-provenance-and-evidence.md)
@@ -193,7 +209,7 @@ The verifier cannot replay original NLP classifications: raw prompts and origina
 
 ## Deliberate limitations / next work
 
-This prototype does **not** provide a real external inference provider, evidence of geographic model residency, output DLP, OIDC or multi-tenant RBAC, full detector replay, production key protection, hardware anti-rollback, independent audit witnessing, or distributed audit sequencing. It uses synchronous processing and SQLite as one local writer.
+This prototype does **not** provide a real external inference provider, evidence of geographic model residency, output DLP, OIDC or multi-tenant RBAC, full detector replay, production key protection, hardware anti-rollback, independent audit witnessing, or distributed audit sequencing. Requests complete within the HTTP lifecycle. Async orchestration uses bounded detector, audit and integrity worker pools; SQLite remains one local audit sequencer. Automatic execution recovery and response caching are not implemented.
 
 The proposed next priorities are **independently witnessed audit checkpoints and externally pinned audit trust anchors**, then a real local inference runtime with stronger egress/workload identity, followed by enterprise governance and operations. These are roadmap items, **not implemented guarantees**. Security and compliance claims must be bounded by the threat model and actual deployment evidence.
 
