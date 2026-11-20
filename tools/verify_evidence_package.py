@@ -17,7 +17,9 @@ def main():
         "--trusted-release-public-key", help="Pinned release-signer key OUTSIDE bundle"
     )
     parser.add_argument(
-        "--max-uncompressed-mib", type=int, default=128,
+        "--max-uncompressed-mib",
+        type=int,
+        default=128,
         help="Explicit maximum evidence size in MiB (1-1024; default: 128)",
     )
     args = parser.parse_args()
