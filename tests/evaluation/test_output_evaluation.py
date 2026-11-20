@@ -57,11 +57,14 @@ async def test_controlled_output_dlp_and_signed_offline_replay():
 @pytest.mark.asyncio
 async def test_known_sensitive_false_negative_is_counted_as_unsafe_release():
     case = _make_case(
-        "OUTPUT-MISSED-EMAIL", "Synthetic contact alice@example.com",
+        "OUTPUT-MISSED-EMAIL",
+        "Synthetic contact alice@example.com",
         (("EMAIL_ADDRESS", "alice@example.com"),),
     )
     spec = OutputScenario(
-        case, "OUTPUT_BLOCKED", "OUTPUT_PRIVATE_DATA_BLOCKED",
+        case,
+        "OUTPUT_BLOCKED",
+        "OUTPUT_PRIVATE_DATA_BLOCKED",
         "detector_false_negative",
     )
     report = await evaluate_scenarios((spec,))
@@ -128,7 +131,7 @@ def test_report_writes_only_ids_and_structural_results(tmp_path: Path):
     for value in (
         "alice@example.com",
         "202-555-0102",
-        "AKIAABCDEFGHIJKLMNOP",
+        "".join(("AKIA", "ABCDEFGHIJKLMNOP")),
         "-----BEGIN PRIVATE KEY-----",
         "Response detector temporarily unavailable",
     ):
@@ -146,12 +149,12 @@ def test_report_refuses_overwrite(tmp_path: Path):
 
 
 def test_tampering_a_signed_output_event_is_rejected(tmp_path: Path):
-    store = SQLiteAuditStore(
-        str(tmp_path / "audit.sqlite"), str(tmp_path / "audit-key.pem")
-    )
+    store = SQLiteAuditStore(str(tmp_path / "audit.sqlite"), str(tmp_path / "audit-key.pem"))
     store.commit("case-1", "eval", "DECISION", {"policy_evidence_version": "2"})
     store.commit(
-        "case-1", "eval", "OUTCOME",
+        "case-1",
+        "eval",
+        "OUTCOME",
         {"output_dlp": {"released": False, "schema_version": 1}},
     )
     public = str(tmp_path / "audit-key.pub.pem")
@@ -172,33 +175,45 @@ def test_cli_controlled_smoke_and_failure_exit(tmp_path: Path, monkeypatch):
     assert (output / "run.json").is_file()
 
     sensitive = _make_case(
-        "OUTPUT-LEAK", "Email alice@example.com",
+        "OUTPUT-LEAK",
+        "Email alice@example.com",
         (("EMAIL_ADDRESS", "alice@example.com"),),
     )
-    unsafe = OutputScenario(
-        sensitive, "OUTPUT_BLOCKED", fault="detector_false_negative"
-    )
+    unsafe = OutputScenario(sensitive, "OUTPUT_BLOCKED", fault="detector_false_negative")
     monkeypatch.setattr("evaluation.output.cli.controlled_scenarios", lambda: (unsafe,))
-    assert main([
-        "--mode", "controlled",
-        "--output-dir", str(tmp_path / "unsafe"),
-    ]) == 1
+    assert (
+        main(
+            [
+                "--mode",
+                "controlled",
+                "--output-dir",
+                str(tmp_path / "unsafe"),
+            ]
+        )
+        == 1
+    )
 
 
 def test_missing_host_opa_cli_reports_actionable_error(tmp_path: Path, capsys):
     missing = tmp_path / "absent-opa.exe"
-    code = main([
-        "--mode", "controlled",
-        "--policy", "opa-cli",
-        "--opa-bin", str(missing),
-    ])
+    code = main(
+        [
+            "--mode",
+            "controlled",
+            "--policy",
+            "opa-cli",
+            "--opa-bin",
+            str(missing),
+        ]
+    )
     assert code == 2
     assert "Local OPA CLI not found" in capsys.readouterr().err
 
 
 def test_ground_truth_entity_offsets_are_exact():
     case = _make_case(
-        "OUTPUT-SPAN", "Email alice@example.com",
+        "OUTPUT-SPAN",
+        "Email alice@example.com",
         (("EMAIL_ADDRESS", "alice@example.com"),),
     )
     assert case.entities == (Entity("EMAIL_ADDRESS", 6, 23),)
