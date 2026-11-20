@@ -133,16 +133,19 @@ def make_components() -> Components:
         max_waiters=settings.integrity_execution.max_waiters,
         queue_wait_seconds=settings.integrity_execution.queue_wait_seconds,
     )
+    policy = OPAPolicyEvaluator(
+        client,
+        settings.opa_url,
+        snapshot_store,
+        release_store,
+        timeout=settings.http.opa,
+        integrity_executor=integrity_executor,
+    )
     orchestrator = RequestOrchestrator(
         detector=detector,
-        policy=OPAPolicyEvaluator(
-            client,
-            settings.opa_url,
-            snapshot_store,
-            release_store,
-            timeout=settings.http.opa,
-            integrity_executor=integrity_executor,
-        ),
+        policy=policy,
+        output_policy=policy,
+        max_model_output_bytes=settings.limits.max_forwarded_prompt_bytes,
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
@@ -380,6 +383,23 @@ def create_app(components: Components | None = None) -> FastAPI:
                 raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
+            # A pre-DLP snapshot may still serve the input entrypoint. It
+            # must not appear READY when the output entrypoint is missing.
+            if deps.orchestrator.output_policy is not None:
+                output_response = await deps.client.post(
+                    deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/output_decision",
+                    json={"input": {"stage": "OUTPUT"}},
+                    timeout=deps.settings.http.readiness,
+                )
+                output_response.raise_for_status()
+                output_result = output_response.json().get("result")
+                if (
+                    not isinstance(output_result, dict)
+                    or output_result.get("effect") != "DENY"
+                    or output_result.get("policy_digest") != result.get("policy_digest")
+                    or output_result.get("policy_revision") != result.get("policy_revision")
+                ):
+                    raise ValueError("Output DLP policy missing or not bound to active policy")
             stage = "audit"
             if deps.audit_executor is not None:
                 await deps.audit_executor.check_writable()
@@ -513,11 +533,22 @@ def create_app(components: Components | None = None) -> FastAPI:
             "outcome_receipt": result.outcome_receipt.to_dict(),
             "model_id": result.model_id,
             "output": result.output,
+            **(
+                {"output_classification": result.output_classification.to_dict()}
+                if result.output_classification is not None
+                else {}
+            ),
+            **(
+                {"output_decision": result.output_decision.to_dict()}
+                if result.output_decision is not None
+                else {}
+            ),
         }
         http_code = {
             RequestStatus.COMPLETED: 200,
             RequestStatus.BLOCKED: 403,
             RequestStatus.ERROR: 502,
+            RequestStatus.OUTPUT_BLOCKED: 403,
         }[result.status]
         return JSONResponse(status_code=http_code, content=body)
 

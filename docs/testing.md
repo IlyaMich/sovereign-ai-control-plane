@@ -8,6 +8,22 @@ From the repository root: `.env` with a strong `CONTROL_PLANE_API_KEY`; Podman +
 
 The local runtime is intentionally English ASCII-only and simulated models are used for inference. External model integration is not tested by the simulated egress profile.
 
+## Candidate response-side DLP verification
+
+The proposed output policy has a new Rego entrypoint and revision, but the
+checked-in active snapshot remains signed for the old release. Do **not**
+overwrite active policy or release files merely to run a test.
+
+~~~powershell
+python -m pytest -q tests/test_output_dlp.py tests/test_output_dlp_api.py
+python -m tools.test_output_policy --opa-bin opa
+~~~
+
+The policy test helper builds a disposable policy snapshot and evaluates both
+request-side and output-side Rego tests. See
+[response-side DLP](response-side-dlp.md) for the output audit contract and
+required successor release procedure.
+
 ## Python tests
 
 ~~~powershell

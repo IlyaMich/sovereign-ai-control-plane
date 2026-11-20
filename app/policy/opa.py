@@ -10,7 +10,14 @@ from typing import Any, Callable
 
 import httpx
 
-from app.domain.contracts import Effect, Obligation, PolicyContext, PolicyDecision, ReleaseVerifier
+from app.domain.contracts import (
+    Effect,
+    Obligation,
+    OutputPolicyContext,
+    PolicyContext,
+    PolicyDecision,
+    ReleaseVerifier,
+)
 from app.infrastructure.config import HTTPTimeouts
 from app.infrastructure.integrity_executor import (
     BoundedIntegrityExecutor,
@@ -48,6 +55,7 @@ class OPAPolicyEvaluator:
         self._client = client
         self._timeout = timeout
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
+        self._output_url = base_url.rstrip("/") + "/v1/data/sovereign/authz/output_decision"
         self.snapshots = snapshots
         self.releases = releases
         self.integrity_executor = integrity_executor
@@ -62,6 +70,14 @@ class OPAPolicyEvaluator:
         return operation()
 
     async def evaluate(self, context: PolicyContext) -> PolicyDecision:
+        return await self._evaluate(context, self._url)
+
+    async def evaluate_output(self, context: OutputPolicyContext) -> PolicyDecision:
+        return await self._evaluate(context, self._output_url)
+
+    async def _evaluate(
+        self, context: PolicyContext | OutputPolicyContext, url: str
+    ) -> PolicyDecision:
         started = time.perf_counter()
         try:
             try:
@@ -83,7 +99,7 @@ class OPAPolicyEvaluator:
                 else None
             )
             response = await self._client.post(
-                self._url, json={"input": context.to_dict()}, timeout=self._timeout
+                url, json={"input": context.to_dict()}, timeout=self._timeout
             )
             response.raise_for_status()
             data = response.json()

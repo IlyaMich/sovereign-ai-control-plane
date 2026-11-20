@@ -279,15 +279,14 @@ def test_repetitive_events_are_limited_with_suppression_count(events, monkeypatc
 
 def test_readiness_logs_only_state_transitions(audit, events):
     app = app_with_fakes(audit)
+    expected_revision = app.state.components.settings.expected_policy_revision
     healthy = [False]
 
     def upstream(request):
         if not healthy[0]:
             raise httpx.ReadTimeout(SECRET, request=request)
         if request.method == "POST":
-            return httpx.Response(
-                200, json={"result": {"policy_revision": "redaction-baseline-v3"}}
-            )
+            return httpx.Response(200, json={"result": {"policy_revision": expected_revision}})
         return httpx.Response(200, json={"status": "UP"})
 
     with TestClient(app) as client:

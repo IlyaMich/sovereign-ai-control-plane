@@ -2,9 +2,11 @@
 
 **Status:** API version `0.6.0`, including M6 signed releases and implemented M7 operational features. Performance acceptance remains subject to the [profiling criteria](concurrency-performance-profiling.md). The original M1 modular-monolith decision remains in [ADR-0001](adr/0001-modular-monolith.md); M4 policy snapshot decision in [ADR-0002](adr/0002-content-addressed-rego.md).
 
+See the [response-side DLP design](response-side-dlp.md) for the proposed v4 output authorization and audited release boundary. The signed runtime must be upgraded before it becomes active.
+
 ## Intent and deployment
 
-A local, fail-closed AI request security gateway intended to demonstrate policy-based routing, sensitive-data handling, and verifiable decisions. It is **not** a production multi-tenant control plane or proof of geographic sovereignty.
+A local, fail-closed AI request security gateway intended to demonstrate policy-based routing, sensitive-data handling, response-side allow/block DLP and verifiable decisions. It is **not** a production multi-tenant control plane or proof of geographic sovereignty.
 
 | Trust domain | Current components |
 | --- | --- |
@@ -30,9 +32,13 @@ flowchart TD
         A --> E{Authorized route}
         E --> M[Local model simulator]
         E --> G[Optional egress gateway]
-        M --> OUT[Signed OUTCOME]
-        G --> OUT
+        M --> OD[Output Presidio + OPA DLP]
+        G --> OD
+        OD --> OUT[Signed OUTCOME: released or withheld]
         OUT --> DB[(SQLite audit chain)]
+        OUT --> RETURN{Output authorized?}
+        RETURN -->|yes| DELIVER[Return model output]
+        RETURN -->|no| WITHHOLD[OUTPUT_BLOCKED without model text]
         A --> DB
     end
     G --> X[External simulator on test network]

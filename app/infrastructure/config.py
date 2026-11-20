@@ -290,7 +290,7 @@ class Settings:
     signing_key_path: str = "/var/lib/sovereign/audit-key.pem"
     enable_external_simulator: bool = False
     egress_gateway_url: str = "http://egress-gateway:9010"
-    expected_policy_revision: str = "redaction-baseline-v3"
+    expected_policy_revision: str = "redaction-response-dlp-v4"
     active_policy_path: str = "/policy-active"
     policy_archive_path: str = "/policy-archive"
     detector_manifest_path: str = "/service/detector-active/manifest.json"
@@ -335,7 +335,7 @@ class Settings:
             == "true",
             egress_gateway_url=os.environ.get("EGRESS_GATEWAY_URL", "http://egress-gateway:9010"),
             expected_policy_revision=os.environ.get(
-                "EXPECTED_POLICY_REVISION", "redaction-baseline-v3"
+                "EXPECTED_POLICY_REVISION", "redaction-response-dlp-v4"
             ),
             active_policy_path=os.environ.get("ACTIVE_POLICY_PATH", "/policy-active"),
             policy_archive_path=os.environ.get("POLICY_ARCHIVE_PATH", "/policy-archive"),

@@ -1,8 +1,10 @@
 # Sovereign AI Control Plane
 
-A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, and records independently checkable evidence.
+A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, inspects model responses before releasing them, and records independently checkable evidence.
 
 **Current implementation: M6 signed releases plus M7 operational features; API version 0.6.0.** M1-M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. M7 adds bounded concurrency, durable opt-in idempotency, diagnostics, upload deadlines, serialized release publication, and profiling tools. These implemented features do not establish completion of the M7 performance acceptance criteria. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
+
+For the proposed output-response enforcement and its signed-release activation steps, see [response-side DLP](docs/response-side-dlp.md). The checked-in active release predates this candidate until explicitly upgraded.
 
 ## Capabilities at a glance
 
@@ -14,6 +16,7 @@ A **local security reference implementation** for governing requests to AI model
 | Detection | Local Presidio/spaCy, custom recognizers, deterministic normalized findings, coverage and `UNKNOWN` | Best-effort English ASCII scope; false negatives remain possible |
 | Policy | Direct OPA/Rego with default deny; content-addressed archived policy snapshots | Rego inputs are structured detection metadata, not raw prompt text |
 | Enforcement | `PERMIT`/`DENY`, ordered `REDACT` then `ROUTE`, post-redaction rescan, destination registry | External route is **test-only simulator**, disabled by default |
+| Response DLP (candidate v4) | Inspect generated responses locally, enforce OPA output allow/block and audit before returning text | Requires new approved signed release; no output redaction, best-effort classification |
 | Audit | SQLite WAL, signed SHA-256 event chain, decision committed before model invocation, separate outcome events | Keys live on the local host; a lost outcome can remain unresolved |
 | Provenance | Detector model/source manifest, exact policy digest and archived replay | Artifact identity does not prove classifier correctness |
 | Releases | Separate Ed25519 release approval for policy/detector identities, activation generation and predecessor | Local generation checks are not hardware-backed anti-rollback |

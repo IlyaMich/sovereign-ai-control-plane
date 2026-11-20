@@ -1,8 +1,8 @@
 package sovereign.authz
 import rego.v1
 
-# M3: only simulated, statically allowlisted external routing with mandatory redaction.
-revision := "redaction-baseline-v3"
+# M3 input routing plus output-stage DLP (fail closed, separate decision entrypoint).
+revision := "redaction-response-dlp-v4"
 
 
 required_coverage := {"EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD", "US_SSN", "API_CREDENTIAL", "PRIVATE_KEY"}
@@ -117,4 +117,50 @@ decision := {
   "policy_digest": data.sovereign.policy_meta.digest,
 } if {
   external_redacted_permit
+}
+
+# Output-side policy is independent of the input's authorization decision.
+# The output stage receives metadata and spans only, never the model's text.
+output_clear if {
+  input.stage == "OUTPUT"
+  valid_classification
+  input.classification.status == "NO_PRIVATE_DETECTED"
+  count(input.classification.findings) == 0
+  input.request.destination_id in {"sovereign-model", "external-simulator"}
+  approved_purpose
+}
+
+output_private if {
+  input.stage == "OUTPUT"
+  valid_classification
+  input.classification.status == "PRIVATE"
+  count(input.classification.findings) > 0
+}
+
+output_decision := {
+  "effect": "PERMIT", "obligations": [],
+  "reason_codes": ["OUTPUT_CONTENT_CLEARED"],
+  "policy_revision": revision,
+  "policy_digest": data.sovereign.policy_meta.digest,
+} if {
+  output_clear
+}
+
+output_decision := {
+  "effect": "DENY", "obligations": [],
+  "reason_codes": ["OUTPUT_PRIVATE_DATA_BLOCKED"],
+  "policy_revision": revision,
+  "policy_digest": data.sovereign.policy_meta.digest,
+} if {
+  output_private
+}
+
+output_decision := {
+  "effect": "DENY", "obligations": [],
+  "reason_codes": ["OUTPUT_DEFAULT_DENY"],
+  "policy_revision": revision,
+  "policy_digest": data.sovereign.policy_meta.digest,
+} if {
+  not output_clear
+  not output_private
 }

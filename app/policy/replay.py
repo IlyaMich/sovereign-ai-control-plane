@@ -25,7 +25,12 @@ class ReplayError(Exception):
     pass
 
 
-def run_opa(opa_binary: str, snapshot_path: Path, policy_input: dict) -> dict:
+def run_opa(
+    opa_binary: str,
+    snapshot_path: Path,
+    policy_input: dict,
+    entrypoint: str = "data.sovereign.authz.decision",
+) -> dict:
     with tempfile.TemporaryDirectory(prefix="policy-replay-") as directory:
         input_path = Path(directory) / "input.json"
         input_path.write_text(
@@ -42,7 +47,7 @@ def run_opa(opa_binary: str, snapshot_path: Path, policy_input: dict) -> dict:
                     str(snapshot_path),
                     "--input",
                     str(input_path),
-                    "data.sovereign.authz.decision",
+                    entrypoint,
                 ],
                 capture_output=True,
                 text=True,
@@ -70,6 +75,7 @@ def replay_database(
     opa_binary: str = "opa",
     evaluator: Callable[[Path, dict], dict] | None = None,
     detector_archive_root: str | None = None,
+    output_evaluator: Callable[[Path, dict], dict] | None = None,
 ) -> dict[str, Any]:
     """Verify signed events first, then evaluate all content-bound decisions."""
     chain = verify_database(db_path, public_key_path, checkpoint_path)
@@ -158,11 +164,117 @@ def replay_database(
             replayed += 1
         except (KeyError, ValueError, TypeError, SnapshotError) as exc:
             raise ReplayError(f"Cannot replay decision at sequence {sequence}") from exc
+    # Output-stage decisions are part of signed OUTCOME events. Reconstruct the
+    # recorded OPA result using its exact archived policy; never rerun NLP
+    # classification because plaintext model responses are intentionally absent.
+    output_replayed = 0
+    output_local_denials = 0
+    signed_inputs: dict[tuple[str, str], dict] = {}
+    for _, serialized in rows:
+        event = json.loads(serialized)
+        signed_inputs[(event["request_id"], event["tenant_id"])] = event["payload"]
+    with (
+        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as connection,
+        connection,
+    ):
+        outcomes = connection.execute(
+            "SELECT sequence,event_json FROM events WHERE event_type='OUTCOME' ORDER BY sequence"
+        ).fetchall()
+    for sequence, serialized in outcomes:
+        try:
+            outcome_event = json.loads(serialized)
+            payload = outcome_event["payload"]
+            if "output_dlp" not in payload:
+                continue  # Historical outcomes precede output DLP v1.
+            original = signed_inputs.get((outcome_event["request_id"], outcome_event["tenant_id"]))
+            if original is None or original.get("decision", {}).get("effect") != "PERMIT":
+                raise ReplayError(f"Output evidence without input permit at sequence {sequence}")
+            dlp = payload["output_dlp"]
+            recorded = dlp["policy_evaluation"]
+            final = parse_decision(dlp["decision"])
+            classified = dlp["classification"]
+            policy_input = dlp["policy_input"]
+            if (
+                dlp["schema_version"] != 1
+                or not isinstance(policy_input, dict)
+                or policy_input.get("stage") != "OUTPUT"
+                or policy_input.get("classification") != classified
+                or payload.get("model_invoked") is not True
+                or payload.get("execution_status") != "COMPLETED"
+                or policy_input.get("request") != original.get("policy_input", {}).get("request")
+                or policy_input.get("principal")
+                != original.get("policy_input", {}).get("principal")
+                or policy_input.get("request", {}).get("destination_id")
+                != payload.get("destination_id")
+                or final.obligations
+                or dlp["released"] is not (final.effect == "PERMIT")
+            ):
+                raise ReplayError(f"Invalid output enforcement evidence at sequence {sequence}")
+            if final.effect == "PERMIT" and (
+                classified.get("status") != "NO_PRIVATE_DETECTED"
+                or classified.get("findings") != []
+            ):
+                raise ReplayError(f"Unsafe output permit at sequence {sequence}")
+            if recorded is None:
+                if final.effect != "DENY" or final.reason_codes not in (
+                    ("OUTPUT_INVALID_CONTENT",),
+                    ("OUTPUT_DETECTION_UNKNOWN",),
+                    ("OUTPUT_POLICY_UNAVAILABLE",),
+                    ("OUTPUT_UNTRUSTED_RELEASE",),
+                ):
+                    raise ReplayError(f"Invalid output local fallback at sequence {sequence}")
+                output_local_denials += 1
+                continue
+            expected = parse_decision(recorded)
+            digest = expected.policy_digest
+            if not digest or dlp["policy_snapshot"] != {
+                "sha256": digest,
+                "revision": expected.policy_revision,
+            }:
+                raise ReplayError(f"Invalid output policy snapshot at sequence {sequence}")
+            approved = original.get("release_snapshot")
+            if approved is not None and (
+                approved.get("policy_digest") != digest
+                or approved.get("detector_digest") != classified.get("artifact_digest")
+            ):
+                raise ReplayError(
+                    f"Output artifacts diverge from signed release at sequence {sequence}"
+                )
+            snapshot = archive.find(digest)
+            answer = (
+                output_evaluator(snapshot, policy_input)
+                if output_evaluator is not None
+                else run_opa(
+                    opa_binary,
+                    snapshot,
+                    policy_input,
+                    "data.sovereign.authz.output_decision",
+                )
+            )
+            if answer != expected.to_dict():
+                raise ReplayError(f"Output Rego replay mismatch at sequence {sequence}")
+            if final.to_dict() != expected.to_dict() and (
+                final.effect != "DENY"
+                or expected.effect != "PERMIT"
+                or final.reason_codes
+                not in (
+                    ("OUTPUT_INVALID_POLICY_PLAN",),
+                    ("OUTPUT_UNTRUSTED_RELEASE",),
+                )
+            ):
+                raise ReplayError(f"Unexpected output policy override at sequence {sequence}")
+            output_replayed += 1
+            seen.add(digest)
+        except (KeyError, TypeError, ValueError, SnapshotError, AttributeError) as exc:
+            raise ReplayError(f"Invalid output evidence at sequence {sequence}") from exc
+
     return {
         "status": "REPLAY_VERIFIED",
         **provenance,
         "verified_events": chain["verified_events"],
         "policy_decisions_replayed": replayed,
+        "output_policy_decisions_replayed": output_replayed,
+        "output_local_fail_closed_decisions": output_local_denials,
         "legacy_decisions_integrity_only": legacy,
         "local_fail_closed_decisions": local_fail_closed,
         "unique_policy_snapshots": len(seen),
