@@ -93,3 +93,20 @@ the private key, including restarts after interrupted public-file creation.
 This improves initialization crash safety but does not provide an HSM,
 externally trusted audit key, cross-host distributed storage, or protection
 against a privileged administrator who can replace the entire audit volume.
+
+
+## Output-side DLP evidence (candidate v4)
+
+After a permitted model call, the managed orchestrator detects and authorizes
+the **generated output** before returning it to the API client. The signed
+`OUTCOME` retains `model_invoked=true` and `execution_status=COMPLETED`
+even if the response is withheld. A nested `output_dlp` record captures
+classification signals, the exact Rego output input and decision, its
+content-bound snapshot identity, a keyed output fingerprint, and whether
+content was released. Raw generated text is not retained.
+
+The offline evidence verifier can independently replay eligible output-policy
+decisions from their signed input and archived Rego, but cannot reclassify
+unretained response text. Historical outcomes that predate v4 have no
+`output_dlp` record and must not be described as output-inspected. See
+[response-side DLP](response-side-dlp.md) for failure semantics and activation.
