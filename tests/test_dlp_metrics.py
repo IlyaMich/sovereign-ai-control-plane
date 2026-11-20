@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from app.domain.contracts import DetectionStatus, RequestStatus
 from app.infrastructure.dlp_metrics import DLPMetrics
 from tests.test_api import app_with_fakes
-from tests.test_output_dlp import make_service, command
+from tests.test_output_dlp import command, make_service
 
 
 def test_dlp_metrics_have_fixed_labels_and_bounded_latencies():
