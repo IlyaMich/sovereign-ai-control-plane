@@ -295,6 +295,7 @@ async def test_output_policy_is_replayed_from_exported_signed_evidence(tmp_path,
     assert verified["audit"]["output_policy_decisions_replayed"] == 1
     assert "Safe generated answer." not in str(verified)
 
+
 class OutputMaskPolicy(OutputPolicy):
     async def evaluate_output(self, context):
         if context.classification.status == DetectionStatus.PRIVATE:
@@ -471,9 +472,7 @@ async def test_signed_but_false_mask_verification_is_rejected_by_offline_replay(
                 return audit.commit(request_id, tenant_id, event_type, changed)
             return audit.commit(request_id, tenant_id, event_type, payload)
 
-    info = build_snapshot(
-        Path("policies"), tmp_path / "archive", tmp_path / "active"
-    )
+    info = build_snapshot(Path("policies"), tmp_path / "archive", tmp_path / "active")
     svc, _ = make_service(
         audit,
         "Email jane@example.com",
@@ -484,9 +483,12 @@ async def test_signed_but_false_mask_verification_is_rejected_by_offline_replay(
     svc.audit = TamperSignedOutcome()
     result = await svc.process(command())
     assert result.status == RequestStatus.COMPLETED
-    assert audit.get_events("output-dlp-case", "tenant")[-1]["event"]["payload"][
-        "output_dlp"
-    ]["transformation"]["verification"]["status"] == "UNKNOWN"
+    assert (
+        audit.get_events("output-dlp-case", "tenant")[-1]["event"]["payload"]["output_dlp"][
+            "transformation"
+        ]["verification"]["status"]
+        == "UNKNOWN"
+    )
 
     package = tmp_path / "tampered-mask-evidence.zip"
     export_package(

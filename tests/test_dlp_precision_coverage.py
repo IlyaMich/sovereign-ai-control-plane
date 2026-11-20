@@ -69,10 +69,7 @@ def real_presidio():
 
 
 def test_full_presidio_no_longer_marks_literal_begin_key_as_person(real_presidio):
-    target = next(
-        case for case in load_dataset().cases
-        if case.id == "HARD_NEGATIVE-0009"
-    )
+    target = next(case for case in load_dataset().cases if case.id == "HARD_NEGATIVE-0009")
     prediction = real_presidio.detect(target.text)
     assert prediction.status == DetectionStatus.NO_PRIVATE_DETECTED
     assert not prediction.findings
