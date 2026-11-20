@@ -13,6 +13,7 @@ import csv
 import hashlib
 import html
 import json
+import shutil
 import sys
 import uuid
 from datetime import datetime, timezone
@@ -168,6 +169,13 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if args.limit < 0:
         parser.error("--limit must be nonnegative")
+    if args.policy == "opa-cli" and shutil.which(args.opa_bin) is None:
+        print(
+            "Local OPA CLI not found. Install the pinned OPA 1.8.0 Windows "
+            "executable, then provide its full path with --opa-bin.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         if args.mode == "controlled":
             scenarios = controlled_scenarios()
