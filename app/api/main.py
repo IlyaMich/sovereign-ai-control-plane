@@ -133,16 +133,19 @@ def make_components() -> Components:
         max_waiters=settings.integrity_execution.max_waiters,
         queue_wait_seconds=settings.integrity_execution.queue_wait_seconds,
     )
+    policy = OPAPolicyEvaluator(
+        client,
+        settings.opa_url,
+        snapshot_store,
+        release_store,
+        timeout=settings.http.opa,
+        integrity_executor=integrity_executor,
+    )
     orchestrator = RequestOrchestrator(
         detector=detector,
-        policy=OPAPolicyEvaluator(
-            client,
-            settings.opa_url,
-            snapshot_store,
-            release_store,
-            timeout=settings.http.opa,
-            integrity_executor=integrity_executor,
-        ),
+        policy=policy,
+        output_policy=policy,
+        max_model_output_bytes=settings.limits.max_forwarded_prompt_bytes,
         audit=audit,
         model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
@@ -513,11 +516,22 @@ def create_app(components: Components | None = None) -> FastAPI:
             "outcome_receipt": result.outcome_receipt.to_dict(),
             "model_id": result.model_id,
             "output": result.output,
+            **(
+                {"output_classification": result.output_classification.to_dict()}
+                if result.output_classification is not None
+                else {}
+            ),
+            **(
+                {"output_decision": result.output_decision.to_dict()}
+                if result.output_decision is not None
+                else {}
+            ),
         }
         http_code = {
             RequestStatus.COMPLETED: 200,
             RequestStatus.BLOCKED: 403,
             RequestStatus.ERROR: 502,
+            RequestStatus.OUTPUT_BLOCKED: 403,
         }[result.status]
         return JSONResponse(status_code=http_code, content=body)
 
