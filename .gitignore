@@ -47,3 +47,8 @@ release-active/.release-activation.lock
 .policy-stage-*/
 .policy-backup-*/
 .policy-unpublished-*/
+
+# Signed deployment state is operator-owned, never Git-managed.
+# Do not run git clean -fdx in a deployed checkout.
+.runtime/
+.runtime-migration-*/

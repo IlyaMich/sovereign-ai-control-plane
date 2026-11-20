@@ -6,15 +6,16 @@ from pathlib import Path
 
 from app.policy.snapshots import PolicySnapshotStore
 from app.release.approvals import ReleaseStore, summary
+from tools.operator_state import state_path
 
 
 def main():
     p = argparse.ArgumentParser()
-    p.add_argument("--trust", default="release-trust")
-    p.add_argument("--active", default="release-active/release.json")
-    p.add_argument("--archive", default="release-archive")
-    p.add_argument("--policy-active", default="policy-active")
-    p.add_argument("--policy-archive", default="policy-archive")
+    p.add_argument("--trust", default=str(state_path("release-trust")))
+    p.add_argument("--active", default=str(state_path("release-active") / "release.json"))
+    p.add_argument("--archive", default=str(state_path("release-archive")))
+    p.add_argument("--policy-active", default=str(state_path("policy-active")))
+    p.add_argument("--policy-archive", default=str(state_path("policy-archive")))
     p.add_argument("--detector-manifest", default=None)
     args = p.parse_args()
     store = ReleaseStore(

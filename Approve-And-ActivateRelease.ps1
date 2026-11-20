@@ -13,11 +13,19 @@ $ErrorActionPreference = 'Stop'
 if (-not (Test-Path '.env') -or -not (Test-Path '.\deploy\compose.yaml')) {
     throw 'Run from the repository root, with .env and deploy/compose.yaml.'
 }
-if (-not (Test-Path '.\release-trust')) { New-Item -Type Directory release-trust | Out-Null }
-if (-not (Test-Path '.\release-candidates')) { New-Item -Type Directory release-candidates | Out-Null }
+# Never sign Git-tracked example approvals. Migrate or initialize first.
+if (-not (Test-Path '.\.runtime\policy-active\manifest.json')) {
+    throw 'Missing .runtime policy snapshot. For an existing deployment run python -m tools.migrate_operator_state --apply; for a fresh deployment run python -m tools.build_policy_snapshot.'
+}
+if (-not (Test-Path '.\.runtime\release-trust')) {
+    New-Item -Type Directory -Force '.\.runtime\release-trust' | Out-Null
+}
+if (-not (Test-Path '.\.runtime\release-candidates')) {
+    New-Item -Type Directory -Force '.\.runtime\release-candidates' | Out-Null
+}
 if (-not (Test-Path $KeyDirectory)) { New-Item -Type Directory -Force $KeyDirectory | Out-Null }
 $privateKey = Join-Path $KeyDirectory 'release-signing-private.pem'
-$publicKey = (Join-Path (Resolve-Path .\release-trust).Path 'release-signing.pub.pem')
+$publicKey = (Join-Path (Resolve-Path .\.runtime\release-trust).Path 'release-signing.pub.pem')
 if (-not (Test-Path $privateKey)) {
     if ($UseExistingKey) { throw 'Existing release signing private key is missing.' }
     Write-Host '[Key] Generate local development-only release key' -ForegroundColor Cyan
@@ -68,15 +76,15 @@ Write-Host "Detector artifact digest: $digest"
 Write-Host '[4/5] Sign release using key OUTSIDE runtime container' -ForegroundColor Cyan
 $generation = 1
 $previous = $null
-if (Test-Path '.\release-active\release.json') {
-    $current = Get-Content '.\release-active\release.json' -Raw | ConvertFrom-Json
+if (Test-Path '.\.runtime\release-active\release.json') {
+    $current = Get-Content '.\.runtime\release-active\release.json' -Raw | ConvertFrom-Json
     $generation = [long]$current.payload.generation + 1
     $previous = [string]$current.release_id
 }
-$candidate = "release-candidates\release-g$generation.json"
+$candidate = ".runtime\release-candidates\release-g$generation.json"
 if (Test-Path $candidate) { throw "Refusing to overwrite $candidate" }
 $arguments = @('-m', 'tools.sign_release', '--private-key', $privateKey,
-               '--policy-snapshot', 'policy-active', '--detector-digest', $digest,
+               '--policy-snapshot', '.runtime/policy-active', '--detector-digest', $digest,
                '--generation', "$generation", '--out', $candidate)
 if ($previous) { $arguments += @('--previous-release-id', $previous) }
 & $Python @arguments

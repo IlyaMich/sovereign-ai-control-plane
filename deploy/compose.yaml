@@ -1,4 +1,6 @@
 name: sovereign-ai-control-plane
+# Operator-owned artifacts are mounted only from Git-ignored .runtime/.
+# create_host_path=false fails closed if migration/initialization was skipped.
 services:
   control-plane:
     build:
@@ -50,11 +52,36 @@ services:
       - "${API_HOST:-127.0.0.1}:${API_PORT:-8000}:8000"
     volumes:
       - audit-data:${AUDIT_DATA_DIR:-/var/lib/sovereign}
-      - ../policy-active:${ACTIVE_POLICY_PATH:-/policy-active}:ro
-      - ../policy-archive:${POLICY_ARCHIVE_PATH:-/policy-archive}:ro
-      - ../release-active:${RELEASE_ACTIVE_DIR:-/release-active}:ro
-      - ../release-archive:${RELEASE_ARCHIVE_PATH:-/release-archive}:ro
-      - ../release-trust:${RELEASE_TRUST_PATH:-/release-trust}:ro
+      - type: bind
+        source: ../.runtime/policy-active
+        target: ${ACTIVE_POLICY_PATH:-/policy-active}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.runtime/policy-archive
+        target: ${POLICY_ARCHIVE_PATH:-/policy-archive}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.runtime/release-active
+        target: ${RELEASE_ACTIVE_DIR:-/release-active}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.runtime/release-archive
+        target: ${RELEASE_ARCHIVE_PATH:-/release-archive}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.runtime/release-trust
+        target: ${RELEASE_TRUST_PATH:-/release-trust}
+        read_only: true
+        bind:
+          create_host_path: false
     read_only: true
     tmpfs:
       - /tmp
@@ -72,7 +99,12 @@ services:
     image: docker.io/openpolicyagent/opa:1.8.0
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
     volumes:
-      - ../policy-active:/policies:ro
+      - type: bind
+        source: ../.runtime/policy-active
+        target: /policies
+        read_only: true
+        bind:
+          create_host_path: false
       - ../tests/rego:/policy-tests:ro
     read_only: true
     cap_drop:
@@ -87,8 +119,18 @@ services:
       dockerfile: deploy/ReviewerContainerfile
     volumes:
       - audit-data:${AUDIT_DATA_DIR:-/var/lib/sovereign}:ro
-      - ../policy-archive:${POLICY_ARCHIVE_PATH:-/policy-archive}:ro
-      - ../release-trust:${RELEASE_TRUST_PATH:-/release-trust}:ro
+      - type: bind
+        source: ../.runtime/policy-archive
+        target: ${POLICY_ARCHIVE_PATH:-/policy-archive}
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: bind
+        source: ../.runtime/release-trust
+        target: ${RELEASE_TRUST_PATH:-/release-trust}
+        read_only: true
+        bind:
+          create_host_path: false
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]

@@ -35,16 +35,31 @@ never enters the deployed containers. The API has only the public verifier key.
    public key **outside the evidence ZIP**. Without that key, it reports archive
    self-consistency only. Prior audit signatures and OPA replay remain unchanged.
 
+## Git-safe host deployment state
+
+**The live host release is under `.runtime/`, never under the tracked legacy
+`policy-active/` or `release-active/` examples.** Source policies stay
+in `policies/`. All host operator tools use `.runtime` by default, and
+Compose bind mounts map those same directories into the usual container
+paths. On Windows `.gitattributes` forces Rego files to LF on checkout.
+
+For any existing running signed installation, **first migrate with the
+verified copy-only procedure** in
+[Git-safe operator state migration](operator-state-migration.md). It retains
+the signed generation, private signing authority, approved image and audit
+volume; it does not re-sign. Do not start Compose with new mounts before
+migration.
+
 ## Existing deployment (Windows PowerShell + Podman)
 
-Preserve `.env`, audit volume, and existing `policy-archive` and `policy-active`.
+Preserve `.env`, the audit volume, and the ignored `.runtime` policy and release archives.
 **Do not use `podman compose down -v`.** The signer key is independent of
 `/var/lib/sovereign/audit-key.pem`.
 
 1. Install Python >=3.12 and `cryptography>=43,<47` on the operator host.
 2. Verify the active policy and release with `python -m tools.verify_policy_snapshot`
    and `python -m tools.verify_release`. Preserve the trusted private signing key
-   outside the checkout and the corresponding public key in `release-trust/`.
+   outside the checkout and the corresponding public key in `.runtime/release-trust/`.
    If an intended change needs approval, run
    `./Approve-And-ActivateRelease.ps1 -UseExistingKey` from the checkout root
    (`-KeyDirectory` selects the signer directory; the default is
@@ -69,16 +84,16 @@ recover a missing key or grant trust in another signer.
 
 Prepare a separate deployment directory and a fresh audit volume under a unique
 Compose project name (`COMPOSE_PROJECT_NAME`). Retain the supplied example
-release history separately from its operational `release-active/`,
-`release-archive/`, `release-candidates/` and `release-trust/` directories.
+release history separately from its operational `.runtime/release-active/`,
+`.runtime/release-archive/`, `.runtime/release-candidates/` and `.runtime/release-trust/` directories.
 For this new history, those operational directories must start empty, with
-`release-active/release.json` absent. Existing installations and their volumes,
+`.runtime/release-active/release.json` absent. Existing installations and their volumes,
 keys and archives must be preserved.
 
 Provision `.env`, build and verify the intended policy snapshot, then run
 `./Approve-And-ActivateRelease.ps1` using a new external `-KeyDirectory`.
 When the private key is absent, the helper creates a development keypair,
-places its public key in `release-trust/`, builds/verifies the image and signs
+places its public key in `.runtime/release-trust/`, builds/verifies the image and signs
 its initial generation-1 approval. The helper does not create an isolated
 project, clear example histories or reset volumes for you. Keep the chosen
 Compose project name set for all later helper, startup and verification commands.
@@ -99,7 +114,7 @@ in `.env` and recreate the control-plane. Otherwise readiness fails closed.
 Rollback is **not** activation of the old approval: sign a new generation
 pointing to the *older archived policy digest*, and activate the new release.
 For manual signing use `python -m tools.sign_release --policy-snapshot policy-archive/<OLD_DIGEST> ...`.
-The activation utility copies that verified archived policy into `policy-active`.
+The activation utility copies that verified archived policy into `.runtime/policy-active`.
 Then recreate **both OPA and control-plane**; no hot reload of unsigned files.
 
 ### Independent public key & checkpoint validation
@@ -183,7 +198,7 @@ python -m tools.generate_release_key --recover-public `
 ```
 
 Release activation now holds `.release-activation.lock` beside
-`release-active/release.json` across the predecessor/generation check, archive
+`.runtime/release-active/release.json` across the predecessor/generation check, archive
 publication, policy staging and final active release publication. The file is
 intentionally retained; the OS releases the actual lock when a process exits.
 All concurrent operators **must** use the same release-active directory and

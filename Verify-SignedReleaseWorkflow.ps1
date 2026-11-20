@@ -16,11 +16,29 @@ function Assert-M6([bool]$ok, [string]$message) {
 $apiLine = Get-Content .env | Where-Object { $_ -match '^CONTROL_PLANE_API_KEY=' } | Select-Object -First 1
 if (-not $apiLine) { throw 'No API key in .env' }
 $key = $apiLine.Split('=',2)[1].Trim()
-$release = Get-Content .\release-active\release.json -Raw | ConvertFrom-Json
-$container = (& podman ps --filter 'name=sovereign-ai-control-plane-control-plane-1' --format '{{.ID}}' |
-    Where-Object { $_ -and $_.Trim() } | Select-Object -First 1)
-if (-not $container) { throw 'No running control-plane container' }
-$container = $container.Trim()
+$release = Get-Content .\.runtime\release-active\release.json -Raw | ConvertFrom-Json
+
+# Resolve the container from the configured Compose project.
+$ids = & podman compose -f deploy/compose.yaml --env-file .env ps -q control-plane
+if ($LASTEXITCODE -ne 0) { throw 'Compose container lookup failed' }
+$container = @($ids | Where-Object { $_ -match '^[0-9a-fA-F]{12,64}$' } |
+    Select-Object -First 1)
+if (-not $container -or -not $container[0]) { throw 'No running control-plane container' }
+$container = [string]$container[0]
+
+# Honor API_PORT from the deployment's .env file.
+$portLine = Get-Content .env | Where-Object { $_ -match '^API_PORT=' } | Select-Object -First 1
+$apiPort = 8000
+if ($portLine) {
+    $rawPort = $portLine.Split('=', 2)[1].Trim().Trim('"')
+    $parsedPort = 0
+    if (-not [int]::TryParse($rawPort, [ref]$parsedPort) -or
+        $parsedPort -lt 1 -or $parsedPort -gt 65535) {
+        throw 'Invalid API_PORT in .env'
+    }
+    $apiPort = $parsedPort
+}
+$baseUrl = "http://127.0.0.1:$apiPort"
 
 Write-Host '[1/5] Signed release matches policy source and approved detector' -ForegroundColor Cyan
 python -m tools.verify_release
@@ -34,16 +52,16 @@ Assert-M6 ($release.release_id -match '^[0-9a-f]{64}$') 'Release content address
 Write-Host '[2/5] Rego unit tests + signed-release readiness' -ForegroundColor Cyan
 & podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
 if ($LASTEXITCODE -ne 0) { throw 'OPA policy tests failed' }
-$ready = Invoke-RestMethod http://127.0.0.1:8000/health/ready
+$ready = Invoke-RestMethod "$baseUrl/health/ready"
 Assert-M6 ($ready.status -eq 'READY') 'Runtime accepted signed policy/detector release'
 
 Write-Host '[3/5] Real decision is bound to approved release' -ForegroundColor Cyan
 $body = @{prompt='Explain key rotation in secure systems'; destination_id='sovereign-model'; purpose='GENERAL'} | ConvertTo-Json -Compress
-$result = Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST `
+$result = Invoke-RestMethod -Uri "$baseUrl/v1/prompts" -Method POST `
     -Headers @{'X-API-Key'=$key} -ContentType 'application/json; charset=utf-8' `
     -Body ([System.Text.Encoding]::UTF8.GetBytes($body))
 Assert-M6 ($result.status -eq 'COMPLETED') 'Approved request completed'
-$history = Invoke-RestMethod -Uri "http://127.0.0.1:8000/v1/requests/$($result.request_id)" `
+$history = Invoke-RestMethod -Uri "$baseUrl/v1/requests/$($result.request_id)" `
     -Headers @{'X-API-Key'=$key}
 $event = $history.events | Where-Object { $_.event.event_type -eq 'DECISION' } | Select-Object -First 1
 Assert-M6 ($null -ne $event -and $event.event.payload.release_evidence_version -eq '1') 'Signed decision contains release approval evidence'
