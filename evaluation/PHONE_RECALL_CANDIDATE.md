@@ -1,5 +1,7 @@
 # High-confidence phone recognition candidate
 
+> **Historical candidate design note.** A source change or merged PR is not an activation. Current installed recognition depends on the independently verified detector digest in the host's signed release; see [release status](../docs/release-status.md).
+
 This change is a separate follow-up to the merged full-span detector improvement
 (PR #24). The frozen 1,200-case synthetic dataset and active signed release stay
 unchanged.
