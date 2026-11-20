@@ -1,5 +1,6 @@
 # Benchmark datasets are byte-addressed; do not convert CRLF on checkout.
 evaluation/datasets/**/cases.jsonl text eol=lf
+evaluation/datasets/**/manifest.json text eol=lf
 
 # Policy source is hashed byte-for-byte; never use Windows CRLF on checkout.
 *.rego text eol=lf
