@@ -112,6 +112,31 @@ pass `--trusted-public-key` and `--trusted-checkpoint` to the offline verifier.
 A checkpoint freshly generated from a possibly compromised archive is *not*
 an independent witness of completeness.
 
+## Large audit evidence packages (bounded operator override)
+
+The default evidence ZIP safety cap is **128 MiB uncompressed**. An accumulated
+SQLite audit database larger than that will cause export to fail safely while
+the active signed release and live audit chain remain valid. For an existing
+audit history of approximately 242 MiB, after approving the image containing
+this capability, run:
+
+```powershell
+.\Verify-SignedReleaseWorkflow.ps1 -EvidenceMaxMiB 512
+```
+
+The operator script passes the **same explicit limit** to the exporting
+control-plane and the network-disabled reviewer. The maximum override is
+1024 MiB; the 2,000-file cap and ZIP safety checks remain in force.
+File hashes are computed in bounded chunks rather than reading the entire
+SQLite snapshot into a single Python byte string. Allocate adequate free
+temporary disk space for the online backup and reviewer extraction.
+
+The exporter/reviewer source files are now included in the image's approved
+detector/enforcement provenance identity. As a result, deploy this fix through
+a **new signed successor release** using the existing signing authority,
+rather than altering files in the running approved image. Do not vacuum,
+truncate, or replace the live audit database to force an export.
+
 ## Limitations and security boundaries
 
 - The developer key generator writes **unencrypted PKCS#8** PEM for local

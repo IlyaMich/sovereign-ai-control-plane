@@ -67,6 +67,33 @@ def run_opa(
         return raw
 
 
+def _event_rows(db_path: str, event_type: str):
+    """Iterate signed event JSON without retaining the full history in memory."""
+    if event_type not in {"DECISION", "OUTCOME"}:
+        raise ValueError("Unsupported audit event type")
+    with closing(
+        sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
+    ) as connection:
+        yield from connection.execute(
+            "SELECT sequence,event_json FROM events WHERE event_type=? ORDER BY sequence",
+            (event_type,),
+        )
+
+
+def _decision_for_output(db_path: str, request_id: str, tenant_id: str) -> dict | None:
+    """Use the audit request index to retrieve only this output's input decision."""
+    with closing(
+        sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)
+    ) as connection:
+        row = connection.execute(
+            "SELECT event_json FROM events "
+            "WHERE request_id=? AND tenant_id=? AND event_type='DECISION' "
+            "ORDER BY sequence LIMIT 1",
+            (request_id, tenant_id),
+        ).fetchone()
+    return json.loads(row[0])["payload"] if row is not None else None
+
+
 def replay_database(
     db_path: str,
     public_key_path: str,
@@ -88,14 +115,7 @@ def replay_database(
 
     # This is read-only and must be a consistent SQLite snapshot, not a live
     # WAL database copied without its companion files.
-    with (
-        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as connection,
-        connection,
-    ):
-        rows = connection.execute(
-            "SELECT sequence,event_json FROM events WHERE event_type='DECISION' ORDER BY sequence"
-        ).fetchall()
-    for sequence, serialized in rows:
+    for sequence, serialized in _event_rows(db_path, "DECISION"):
         try:
             payload = json.loads(serialized)["payload"]
             decision = payload["decision"]
@@ -169,24 +189,15 @@ def replay_database(
     # classification because plaintext model responses are intentionally absent.
     output_replayed = 0
     output_local_denials = 0
-    signed_inputs: dict[tuple[str, str], dict] = {}
-    for _, serialized in rows:
-        event = json.loads(serialized)
-        signed_inputs[(event["request_id"], event["tenant_id"])] = event["payload"]
-    with (
-        closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as connection,
-        connection,
-    ):
-        outcomes = connection.execute(
-            "SELECT sequence,event_json FROM events WHERE event_type='OUTCOME' ORDER BY sequence"
-        ).fetchall()
-    for sequence, serialized in outcomes:
+    for sequence, serialized in _event_rows(db_path, "OUTCOME"):
         try:
             outcome_event = json.loads(serialized)
             payload = outcome_event["payload"]
             if "output_dlp" not in payload:
                 continue  # Historical outcomes precede output DLP v1.
-            original = signed_inputs.get((outcome_event["request_id"], outcome_event["tenant_id"]))
+            original = _decision_for_output(
+                db_path, outcome_event["request_id"], outcome_event["tenant_id"]
+            )
             if original is None or original.get("decision", {}).get("effect") != "PERMIT":
                 raise ReplayError(f"Output evidence without input permit at sequence {sequence}")
             dlp = payload["output_dlp"]

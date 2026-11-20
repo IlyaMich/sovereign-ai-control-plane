@@ -1,11 +1,19 @@
 """Milestone 5: provenance, archive consistency and offline package security."""
 
+import hashlib
 import json
+import sqlite3
 import zipfile
+from contextlib import closing
 
 import pytest
 
-from app.audit.evidence_package import EvidencePackageError, export_package, verify_package
+from app.audit.evidence_package import (
+    EvidencePackageError,
+    _manifest_of,
+    export_package,
+    verify_package,
+)
 from app.detection.evidence import DetectorEvidenceError, verify_detector_references
 from app.detection.provenance import (
     DetectorIntegrityError,
@@ -300,3 +308,61 @@ def test_external_witnessed_checkpoint_rejects_truncation(tmp_path, audit):
             trusted_public_key=public,
             trusted_checkpoint=str(external_checkpoint),
         )
+
+
+def test_manifest_streams_hash_and_refuses_excess_bytes(tmp_path):
+    """The manifest hashes larger files without a per-file read_bytes() allocation."""
+    sample = tmp_path / "audit.sqlite"
+    sample.write_bytes(b"synthetic" * 256)
+    expected = hashlib.sha256(sample.read_bytes()).hexdigest()
+    with pytest.raises(EvidencePackageError, match="size limit"):
+        _manifest_of(tmp_path, max_uncompressed_bytes=128)
+    manifest = _manifest_of(tmp_path, max_uncompressed_bytes=4096)
+    assert manifest["files"] == [
+        {"path": "audit.sqlite", "sha256": expected, "size": sample.stat().st_size}
+    ]
+
+
+@pytest.mark.parametrize("limit", (0, -1, 1025, True, 3.5, "512"))
+def test_evidence_limit_rejects_invalid_overrides(limit):
+    from app.audit.evidence_package import _uncompressed_limit
+
+    with pytest.raises(EvidencePackageError, match="1 to 1024"):
+        _uncompressed_limit(limit)
+
+
+def test_explicit_large_evidence_limit_applies_to_export_and_review(tmp_path, audit):
+    """Large SQLite input requires matching, explicit export/reviewer limits."""
+    with closing(sqlite3.connect(audit.db_path)) as conn, conn:
+        conn.execute("CREATE TABLE synthetic_padding (bytes BLOB NOT NULL)")
+        conn.execute("INSERT INTO synthetic_padding VALUES (zeroblob(2097152))")
+        conn.commit()
+
+    bundle = tmp_path / "large-evidence.zip"
+    public = str(audit.key_path.with_suffix(".pub.pem"))
+    with pytest.raises(EvidencePackageError, match="size limit"):
+        export_package(
+            str(audit.db_path),
+            public,
+            str(tmp_path / "unused-policy"),
+            str(tmp_path / "unused-detectors"),
+            str(bundle),
+            max_uncompressed_mib=1,
+        )
+    assert not bundle.exists()
+
+    exported = export_package(
+        str(audit.db_path),
+        public,
+        str(tmp_path / "unused-policy"),
+        str(tmp_path / "unused-detectors"),
+        str(bundle),
+        max_uncompressed_mib=8,
+    )
+    assert exported["status"] == "EXPORTED"
+    with pytest.raises(EvidencePackageError, match="size limit"):
+        verify_package(str(bundle), max_uncompressed_mib=1)
+
+    verified = verify_package(str(bundle), max_uncompressed_mib=8)
+    assert verified["status"] == "EVIDENCE_PACKAGE_SELF_CONSISTENT"
+    assert verified["audit"]["verified_events"] == 0

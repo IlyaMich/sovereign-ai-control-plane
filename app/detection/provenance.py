@@ -31,6 +31,15 @@ SOURCE_PATHS = (
     "app/enforcement/gateway.py",
     "app/enforcement/pre_egress.py",
     "app/enforcement/redaction.py",
+    # Evidence export/review is part of the approved deployment's forensic
+    # boundary; changing its size guards must change the signed identity too.
+    "app/audit/evidence_package.py",
+    "app/audit/verify.py",
+    "app/detection/evidence.py",
+    "app/release/evidence.py",
+    "app/policy/replay.py",
+    "tools/export_evidence_package.py",
+    "tools/verify_evidence_package.py",
 )
 PACKAGES = (
     "presidio-analyzer",
