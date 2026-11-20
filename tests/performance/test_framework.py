@@ -74,8 +74,13 @@ def test_podman_native_json_snake_case() -> None:
     assert record == {
         "service": "control-plane", "cpu_pct": 12.5, "memory_usage": "120MiB / 4GiB"
     }
-    assert _parse_one({"name": "sovereign-ai-control-plane-opa-1",
-                       "cpu_percent": "--", "mem_usage": "-- / --"})["cpu_pct"] is None
+    unavailable_stats = _parse_one({
+        "name": "sovereign-ai-control-plane-opa-1",
+        "cpu_percent": "--",
+        "mem_usage": "-- / --",
+    })
+    assert unavailable_stats is not None
+    assert unavailable_stats["cpu_pct"] is None
 
 def test_failure_reports_missing_artifacts_and_integrity_issue(tmp_path: Path) -> None:
     directory = tmp_path / "suite"
