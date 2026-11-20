@@ -98,6 +98,14 @@ jobs:
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: 'false'
+      - name: Build patched OPA image for release
+        env:
+          IMAGE: sovereign-opa:manual-${{ github.sha }}
+        run: |
+          docker build -f deploy/OPAContainerfile \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$IMAGE" .
       - name: Validate and test proposed policy without activating it
         run: |
           python -m tools.build_policy_snapshot \
@@ -111,7 +119,7 @@ jobs:
             -v "$RUNNER_TEMP/proposed-policy:/policies:ro" \
             -v "$PWD/tests/rego:/policy-tests:ro" \
             -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
-            --entrypoint /opa openpolicyagent/opa:1.22.4 \
+            --entrypoint /opa "sovereign-opa:manual-${GITHUB_SHA}" \
             test /policies /policy-tests /output-policy-tests -v
       - name: Build exact image intended for approval
         env:
@@ -161,27 +169,42 @@ jobs:
         with:
           version: 'v0.76.2'
           scan-type: image
-          image-ref: openpolicyagent/opa:1.22.4
+          image-ref: sovereign-opa:manual-${{ github.sha }}
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: '1'
           ignore-unfixed: 'false'
-      - name: Freeze both scanned images and the detector manifest
+      - name: Verify reviewer uses the exact scanned OPA binary
+        env:
+          REVIEWER: sovereign-reviewer:manual-${{ github.sha }}
+          OPA_IMAGE: sovereign-opa:manual-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          opa=$(docker create "$OPA_IMAGE" version)
+          reviewer=$(docker create "$REVIEWER" --help)
+          trap 'docker rm -f "$opa" "$reviewer" >/dev/null 2>&1 || true' EXIT
+          docker cp "$opa:/opa" "$RUNNER_TEMP/opa-runtime"
+          docker cp "$reviewer:/usr/local/bin/opa" "$RUNNER_TEMP/opa-reviewer"
+          cmp "$RUNNER_TEMP/opa-runtime" "$RUNNER_TEMP/opa-reviewer"
+      - name: Freeze all scanned images and the detector manifest
         env:
           IMAGE: sovereign-control-plane:manual-${{ github.sha }}
           REVIEWER: sovereign-reviewer:manual-${{ github.sha }}
+          OPA_IMAGE: sovereign-opa:manual-${{ github.sha }}
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/release-image"
           docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/release-image/application-image.tar.gz"
           docker save "$REVIEWER" | gzip -1 > "$RUNNER_TEMP/release-image/reviewer-image.tar.gz"
+          docker save "$OPA_IMAGE" | gzip -1 > "$RUNNER_TEMP/release-image/opa-image.tar.gz"
           container_id=$(docker create "$IMAGE")
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
           docker cp "$container_id:/service/detector-active/manifest.json" \
             "$RUNNER_TEMP/release-image/detector-manifest.json"
           (cd "$RUNNER_TEMP/release-image" && \
-            sha256sum application-image.tar.gz reviewer-image.tar.gz > image.sha256)
+            sha256sum application-image.tar.gz reviewer-image.tar.gz opa-image.tar.gz > image.sha256)
       - name: Transfer frozen image to protected signing job
         uses: actions/upload-artifact@v4
         with:
@@ -233,9 +256,12 @@ jobs:
           (cd release-input && sha256sum -c image.sha256)
           gzip -dc release-input/application-image.tar.gz | docker load
           gzip -dc release-input/reviewer-image.tar.gz | docker load
+          gzip -dc release-input/opa-image.tar.gz | docker load
           docker image inspect "$IMAGE" >/dev/null
           docker image inspect "sovereign-reviewer:manual-${GITHUB_SHA}" >/dev/null
-          for image in "$IMAGE" "sovereign-reviewer:manual-${GITHUB_SHA}"; do
+          docker image inspect "sovereign-opa:manual-${GITHUB_SHA}" >/dev/null
+          docker image inspect "sovereign-opa:manual-${GITHUB_SHA}" >/dev/null
+          for image in "$IMAGE" "sovereign-reviewer:manual-${GITHUB_SHA}" "sovereign-opa:manual-${GITHUB_SHA}"; do
             revision=$(docker image inspect "$image" \
               --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
             test "$revision" = "$GITHUB_SHA"
@@ -346,11 +372,13 @@ jobs:
           }
           gzip -dc signed-package/application-image.tar.gz | docker load
           gzip -dc signed-package/reviewer-image.tar.gz | docker load
+          gzip -dc signed-package/opa-image.tar.gz | docker load
           docker image inspect "sovereign-control-plane:manual-${GITHUB_SHA}" >/dev/null
           docker image inspect "sovereign-reviewer:manual-${GITHUB_SHA}" >/dev/null
           for image in \
             "sovereign-control-plane:manual-${GITHUB_SHA}" \
-            "sovereign-reviewer:manual-${GITHUB_SHA}"; do
+            "sovereign-reviewer:manual-${GITHUB_SHA}" \
+            "sovereign-opa:manual-${GITHUB_SHA}"; do
             revision=$(docker image inspect "$image" \
               --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
             test "$revision" = "$GITHUB_SHA"
@@ -395,11 +423,14 @@ jobs:
               (repository, 'sha-' + os.environ['GITHUB_SHA']),
               (repository + '-audit-reviewer', 'g' + os.environ['GENERATION']),
               (repository + '-audit-reviewer', 'sha-' + os.environ['GITHUB_SHA']),
+              (repository + '-opa', 'g' + os.environ['GENERATION']),
+              (repository + '-opa', 'sha-' + os.environ['GITHUB_SHA']),
           ]
           if os.environ.get('IMAGE_VERSION'):
               refs.extend([
                   (repository, os.environ['IMAGE_VERSION']),
                   (repository + '-audit-reviewer', os.environ['IMAGE_VERSION']),
+                  (repository + '-opa', os.environ['IMAGE_VERSION']),
               ])
           basic = base64.b64encode(
               (os.environ['GITHUB_ACTOR'] + ':' + os.environ['GH_TOKEN']).encode()
@@ -441,6 +472,8 @@ jobs:
           set -euo pipefail
           image="ghcr.io/${GITHUB_REPOSITORY,,}"
           reviewer="${image}-audit-reviewer"
+          opa_image="${image}-opa"
+          source_opa="sovereign-opa:manual-${GITHUB_SHA}"
           source_app="sovereign-control-plane:manual-${GITHUB_SHA}"
           source_reviewer="sovereign-reviewer:manual-${GITHUB_SHA}"
           mkdir -p "$RUNNER_TEMP/ghcr-push"
@@ -474,8 +507,10 @@ jobs:
           }
           publish_image "$source_app" "$image" application
           publish_image "$source_reviewer" "$reviewer" audit-reviewer
+          publish_image "$source_opa" "$opa_image" opa
           echo "application_digest=$(cat "$RUNNER_TEMP/ghcr-push/application.digest")" >> "$GITHUB_OUTPUT"
           echo "reviewer_digest=$(cat "$RUNNER_TEMP/ghcr-push/audit-reviewer.digest")" >> "$GITHUB_OUTPUT"
+          echo "opa_digest=$(cat "$RUNNER_TEMP/ghcr-push/opa.digest")" >> "$GITHUB_OUTPUT"
 
       - name: Record GHCR digests in release artifacts
         shell: bash
@@ -485,6 +520,7 @@ jobs:
           RELEASE_ID: ${{ needs.sign.outputs.release_id }}
           APP_DIGEST: ${{ steps.registry.outputs.application_digest }}
           REVIEWER_DIGEST: ${{ steps.registry.outputs.reviewer_digest }}
+          OPA_DIGEST: ${{ steps.registry.outputs.opa_digest }}
         run: |
           set -euo pipefail
           python - <<'PYCODE'
@@ -516,6 +552,8 @@ jobs:
               'audit_reviewer': entry(root + '-audit-reviewer',
                                       os.environ['REVIEWER_DIGEST'],
                                       ['audit-reviewer']),
+              'opa': entry(root + '-opa',
+                           os.environ['OPA_DIGEST'], ['opa']),
               'note': 'GitHub registry digests are not in the Ed25519 release approval payload.',
           }
           (Path('signed-package') / 'registry-images.json').write_text(
@@ -525,6 +563,7 @@ jobs:
           with (Path('signed-package') / 'RELEASE.txt').open('a') as fh:
               fh.write('Application OCI: ' + document['application']['pull_by_digest'] + '\n')
               fh.write('Reviewer OCI: ' + document['audit_reviewer']['pull_by_digest'] + '\n')
+              fh.write('OPA OCI: ' + document['opa']['pull_by_digest'] + '\n')
           PYCODE
 
       - name: Publish GitHub Release with signed approval and GHCR references
@@ -535,6 +574,7 @@ jobs:
           RELEASE_ID: ${{ needs.sign.outputs.release_id }}
           APP_DIGEST: ${{ steps.registry.outputs.application_digest }}
           REVIEWER_DIGEST: ${{ steps.registry.outputs.reviewer_digest }}
+          OPA_DIGEST: ${{ steps.registry.outputs.opa_digest }}
           GH_REPO: ${{ github.repository }}
         run: |
           set -euo pipefail
@@ -544,6 +584,7 @@ jobs:
             --notes "Manually approved Ed25519 release ${RELEASE_ID} for commit ${GITHUB_SHA}.
           Application GHCR: ghcr.io/${GITHUB_REPOSITORY,,}@${APP_DIGEST}
           Reviewer GHCR: ghcr.io/${GITHUB_REPOSITORY,,}-audit-reviewer@${REVIEWER_DIGEST}
+          OPA GHCR: ghcr.io/${GITHUB_REPOSITORY,,}-opa@${OPA_DIGEST}
           These references identify the already scanned images; no rebuild occurred.
           The release approval signs policy/detector identity, not the OCI manifest digest.
           This workflow does not deploy or activate anything on a production host."

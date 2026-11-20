@@ -189,6 +189,7 @@ def sign_release() -> None:
         for filename in (
             "application-image.tar.gz",
             "reviewer-image.tar.gz",
+            "opa-image.tar.gz",
             "detector-manifest.json",
             "image.sha256",
         ):
@@ -202,7 +203,7 @@ def sign_release() -> None:
         (package / "RELEASE.txt").write_text(
             f"Commit: {os.environ['GITHUB_SHA']}\n"
             f"Generation: {next_generation}\nRelease ID: {release_id}\n"
-            "Images: application-image.tar.gz, reviewer-image.tar.gz\n"
+            "Images: application-image.tar.gz, reviewer-image.tar.gz, opa-image.tar.gz\n"
             "Authority: protected signer state (not Git examples)\n"
             "Activation: signer ledger only; no deployment updated\n",
             encoding="utf-8",
