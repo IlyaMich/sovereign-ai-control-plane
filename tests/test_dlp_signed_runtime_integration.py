@@ -21,7 +21,12 @@ from app.application.orchestrator import RequestOrchestrator
 from app.audit.verify import verify_database
 from app.detection.demo import DemoPatternDetector
 from app.detection.provenance import canonical
-from app.enforcement.gateway import Destination, DestinationRegistry, EnforcementPlanner, HTTPModelGateway
+from app.enforcement.gateway import (
+    Destination,
+    DestinationRegistry,
+    EnforcementPlanner,
+    HTTPModelGateway,
+)
 from app.infrastructure.config import Settings
 from app.policy.opa import OPAPolicyEvaluator
 from app.policy.replay import run_opa
