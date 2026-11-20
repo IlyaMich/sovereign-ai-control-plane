@@ -1,2 +1,11 @@
 # Benchmark datasets are byte-addressed; do not convert CRLF on checkout.
 evaluation/datasets/**/cases.jsonl text eol=lf
+
+# Policy source is hashed byte-for-byte; never use Windows CRLF on checkout.
+*.rego text eol=lf
+policies/**/*.json text eol=lf
+# Legacy checked-in example manifests are byte addressed (not live state).
+policy-active/*.json text eol=lf
+release-active/*.json text eol=lf
+release-archive/*.json text eol=lf
+release-candidates/*.json text eol=lf
