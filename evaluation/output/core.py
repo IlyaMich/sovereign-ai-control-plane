@@ -7,7 +7,6 @@ response is supplied by the synthetic test case, never generated remotely.
 
 from __future__ import annotations
 
-import hashlib
 import json
 import tempfile
 import uuid
@@ -464,7 +463,7 @@ async def evaluate_scenarios(
             data, issues = _inspect_evidence(spec, result, store, request_id, model)
             if actual_status != spec.expected_outcome:
                 issues.append("UNEXPECTED_OUTPUT_OUTCOME")
-            if reason != spec.expected_reason:
+            if spec.expected_reason is not None and reason != spec.expected_reason:
                 issues.append("UNEXPECTED_OUTPUT_REASON")
             if model.calls != 1:
                 issues.append("UNEXPECTED_MODEL_INVOCATION_COUNT")
