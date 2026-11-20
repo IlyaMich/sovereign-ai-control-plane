@@ -5,7 +5,6 @@ import argparse
 import asyncio
 import json
 import math
-import os
 import platform
 import re
 import subprocess
