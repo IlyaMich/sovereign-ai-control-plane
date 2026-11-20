@@ -223,9 +223,13 @@ def replay_database(
                 raise ReplayError(f"Invalid output enforcement evidence at sequence {sequence}")
             # Legacy v1 permits only unmodified clean outputs. Version 2
             # records an explicit REDACT permit with post-mask verification.
-            if dlp["schema_version"] == 1 and final.effect == "PERMIT" and (
-                classified.get("status") != "NO_PRIVATE_DETECTED"
-                or classified.get("findings") != []
+            if (
+                dlp["schema_version"] == 1
+                and final.effect == "PERMIT"
+                and (
+                    classified.get("status") != "NO_PRIVATE_DETECTED"
+                    or classified.get("findings") != []
+                )
             ):
                 raise ReplayError(f"Unsafe output permit at sequence {sequence}")
             if recorded is None:
@@ -243,8 +247,7 @@ def replay_database(
                 expected.effect == "PERMIT"
                 and len(expected.obligations) == 1
                 and expected.obligations[0].type == "REDACT"
-                and set(expected.obligations[0].categories)
-                == {"EMAIL_ADDRESS", "PHONE_NUMBER"}
+                and set(expected.obligations[0].categories) == {"EMAIL_ADDRESS", "PHONE_NUMBER"}
             )
             if dlp["schema_version"] == 2:
                 if (
@@ -255,15 +258,18 @@ def replay_database(
                     or not classified["findings"]
                     or any(
                         f.get("category") not in {"EMAIL_ADDRESS", "PHONE_NUMBER"}
-                        for f in classified["findings"] if isinstance(f, dict)
+                        for f in classified["findings"]
+                        if isinstance(f, dict)
                     )
                     or any(not isinstance(f, dict) for f in classified["findings"])
                 ):
                     raise ReplayError(f"Invalid mask authorization at sequence {sequence}")
                 transform = dlp.get("transformation")
-                if not isinstance(transform, dict) or set(transform) != {
-                    "applied", "verification", "masked_hmac_sha256"
-                } or type(transform["applied"]) is not bool:
+                if (
+                    not isinstance(transform, dict)
+                    or set(transform) != {"applied", "verification", "masked_hmac_sha256"}
+                    or type(transform["applied"]) is not bool
+                ):
                     raise ReplayError(f"Invalid output transformation at sequence {sequence}")
                 if transform["applied"]:
                     checked = transform["verification"]
@@ -278,12 +284,13 @@ def replay_database(
                         or len(fingerprint) != 64
                         or any(ch not in "0123456789abcdef" for ch in fingerprint)
                     ):
-                        raise ReplayError(f"Mask verification evidence invalid at sequence {sequence}")
+                        raise ReplayError(
+                            f"Mask verification evidence invalid at sequence {sequence}"
+                        )
                 elif transform["masked_hmac_sha256"] is not None:
                     raise ReplayError(f"Unapplied mask has fingerprint at sequence {sequence}")
                 if final.effect == "PERMIT" and (
-                    not transform["applied"]
-                    or final.to_dict() != expected.to_dict()
+                    not transform["applied"] or final.to_dict() != expected.to_dict()
                 ):
                     raise ReplayError(f"Unverified mask permitted at sequence {sequence}")
             elif mask_plan or final.obligations:
