@@ -31,7 +31,7 @@ findings on this benchmark would **not** imply universal protection.
 From the repository root, in the detector-capable Python environment:
 
 ```powershell
-python -m pytest -q tests/test_pre_egress_remediation.py tests/evaluation
+python -m pytest -q tests/test_pre_egress_validation.py tests/evaluation
 python -m evaluation.cli validate
 python -m evaluation.cli detect --split all
 python -m evaluation.enforcement.cli --mode controlled --policy opa-cli --opa-bin opa

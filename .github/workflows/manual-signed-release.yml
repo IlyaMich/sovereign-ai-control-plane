@@ -118,7 +118,7 @@ jobs:
           docker run --rm \
             -v "$RUNNER_TEMP/proposed-policy:/policies:ro" \
             -v "$PWD/tests/rego:/policy-tests:ro" \
-            -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
+            -v "$PWD/tests/rego_output:/output-policy-tests:ro" \
             --entrypoint /opa "sovereign-opa:manual-${GITHUB_SHA}" \
             test /policies /policy-tests /output-policy-tests -v
       - name: Build exact image intended for approval

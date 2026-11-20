@@ -27,7 +27,7 @@ def main(argv: list[str] | None = None) -> int:
                     "test",
                     str(root / "active"),
                     "tests/rego",
-                    "tests/rego_output_candidate",
+                    "tests/rego_output",
                 ],
                 check=False,
                 timeout=60,

@@ -3,7 +3,7 @@
 This is an **additive, developer-only benchmark** for the Sovereign AI Control Plane.
 It does **not** change the production detector, OPA policy, signed release artifacts,
 model gateway, or audit database. The detector-only benchmark is Stage 1.
-See [Stage 2](STAGE2.md) for enforcement replay and [Stage 3](STAGE3.md) for stock
+See [Stage 2](../enforcement-evaluation.md) for enforcement replay and [Stage 3](detector-comparison.md) for stock
 Presidio and paired detection-run comparisons. Stage 4 (load/CI) is not implemented.
 
 ## Dataset v1
