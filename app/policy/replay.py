@@ -217,7 +217,7 @@ def replay_database(
                 != original.get("policy_input", {}).get("principal")
                 or policy_input.get("request", {}).get("destination_id")
                 != payload.get("destination_id")
-                or final.obligations
+                or (dlp["schema_version"] == 1 and final.obligations)
                 or dlp["released"] is not (final.effect == "PERMIT")
             ):
                 raise ReplayError(f"Invalid output enforcement evidence at sequence {sequence}")
