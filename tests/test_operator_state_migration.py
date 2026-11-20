@@ -23,9 +23,7 @@ def sample_legacy_state(tmp_path: Path) -> Path:
         b'revision := "migration-test-v1"\n'
         b'decision := {"policy_digest": data.sovereign.policy_meta.digest}\n'
     )
-    info = build_snapshot(
-        policies, root / "policy-archive", root / "policy-active"
-    )
+    info = build_snapshot(policies, root / "policy-archive", root / "policy-active")
     private = tmp_path / "private.pem"
     public = root / "release-trust" / "release-signing.pub.pem"
     new_keypair(private, public)
@@ -55,8 +53,14 @@ def test_operator_state_migration_preserves_approved_identity(tmp_path):
     assert verify_operator_state(root / ".runtime") == before
     assert verify_operator_state(root) == before
     assert (audit_volume / "audit.sqlite").read_bytes() == b"unchanged"
-    for name in ("policy-active", "policy-archive", "release-active",
-                 "release-archive", "release-candidates", "release-trust"):
+    for name in (
+        "policy-active",
+        "policy-archive",
+        "release-active",
+        "release-archive",
+        "release-candidates",
+        "release-trust",
+    ):
         source = root / name
         copied = root / ".runtime" / name
         assert sorted(p.relative_to(source) for p in source.rglob("*") if p.is_file()) == sorted(
@@ -90,3 +94,19 @@ def test_operator_state_migration_refuses_corrupt_policy(tmp_path):
     with pytest.raises(Exception):
         migrate_legacy_state(root, apply=True)
     assert not (root / ".runtime").exists()
+
+
+def test_compose_never_mounts_git_tracked_signed_artifacts():
+    """Fail CI if live services are wired back to the legacy tracked folders."""
+    root = Path(__file__).resolve().parents[1]
+    compose = (root / "deploy" / "compose.yaml").read_text(encoding="utf-8")
+    for name in (
+        "policy-active",
+        "policy-archive",
+        "release-active",
+        "release-archive",
+        "release-trust",
+    ):
+        assert f"source: ../.runtime/{name}" in compose
+        assert f"- ../{name}:" not in compose
+    assert compose.count("create_host_path: false") == 8
