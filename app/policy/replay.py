@@ -138,10 +138,14 @@ def replay_database(
             if final.to_dict() != expected.to_dict():
                 # The local enforcer may tighten a PERMIT into a DENY, never
                 # turn a DENY into a PERMIT. The reason must be explicit.
+                # EXTERNAL_CONTENT_UNVERIFIED is emitted by the pre-egress
+                # guard. Since the original prompt is not retained, this
+                # validates the recorded override, not the underlying scan.
                 reasons = {
                     "INVALID_POLICY_PLAN",
                     "REDACTION_FAILED",
                     "TRANSFORMATION_VERIFICATION_UNAVAILABLE",
+                    "EXTERNAL_CONTENT_UNVERIFIED",
                 }
                 if (
                     final.effect != "DENY"
