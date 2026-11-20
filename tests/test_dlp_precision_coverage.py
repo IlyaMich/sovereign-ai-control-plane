@@ -22,11 +22,14 @@ def test_technical_begin_key_person_false_positive_removed():
     assert refine_person_technical_markers(prompt, (finding,)) == ()
 
 
-@pytest.mark.parametrize("content", [
-    "Meeting with BEGIN KEY at the office.",
-    "The instruction says BEGIN KEY and nothing more.",
-    "A private key holder called BEGIN KEY attended.",
-])
+@pytest.mark.parametrize(
+    "content",
+    [
+        "Meeting with BEGIN KEY at the office.",
+        "The instruction says BEGIN KEY and nothing more.",
+        "A private key holder called BEGIN KEY attended.",
+    ],
+)
 def test_marker_precision_guard_requires_all_context_clues(content):
     finding = _spacy_person(content, "BEGIN KEY")
     assert refine_person_technical_markers(content, (finding,)) == (finding,)
