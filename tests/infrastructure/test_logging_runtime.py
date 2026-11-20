@@ -26,12 +26,12 @@ from app.infrastructure.integrity_executor import (
 )
 from app.policy.opa import OPAPolicyEvaluator
 from app.release.approvals import ReleaseIntegrityError, make_payload, sign_approval
-from tests.test_api import app_with_fakes
-from tests.test_logging import SECRET
-from tests.test_logging import events as events
-from tests.test_orchestrator import service
-from tests.test_policy_snapshots import SOURCE
-from tests.test_release_approvals import D, approval_fixture
+from tests.api.test_api import app_with_fakes
+from tests.application.test_orchestrator import service
+from tests.infrastructure.test_logging import SECRET
+from tests.infrastructure.test_logging import events as events
+from tests.policy.test_policy_snapshots import SOURCE
+from tests.release.test_release_approvals import D, approval_fixture
 
 
 @pytest.mark.asyncio
@@ -337,7 +337,7 @@ def test_release_publication_reports_rollback_result(tmp_path, events, monkeypat
 @pytest.mark.asyncio
 async def test_opa_saturated_executor_logs_capacity_without_trust_failure(events):
     from app.policy.opa import PolicyIntegrityError
-    from tests.test_policy_adapter import context as policy_context
+    from tests.policy.test_policy_adapter import context as policy_context
 
     started, release = threading.Event(), threading.Event()
     executor = BoundedIntegrityExecutor(max_jobs=1, max_waiters=0, worker_threads=1)

@@ -11,8 +11,8 @@ from app.detection.provenance import canonical
 from app.infrastructure.atomic_files import interprocess_lock
 from app.policy.snapshots import build_snapshot
 from app.release.approvals import ReleaseIntegrityError, make_payload, sign_approval
-from tests.test_policy_snapshots import SOURCE
-from tests.test_release_approvals import D, approval_fixture
+from tests.policy.test_policy_snapshots import SOURCE
+from tests.release.test_release_approvals import D, approval_fixture
 
 
 def test_activation_lock_excludes_a_separate_process(tmp_path):

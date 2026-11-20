@@ -11,8 +11,8 @@ from app.api.body_limit import RequestBodyLimitMiddleware
 from app.api.ingress_limit import HTTPIngressLimitMiddleware
 from app.api.main import create_app
 from app.infrastructure.config import IngressLimits, Settings
-from tests.test_api import app_with_fakes
-from tests.test_ingress_bounds import scope
+from tests.api.test_api import app_with_fakes
+from tests.api.test_ingress_bounds import scope
 
 
 @pytest.mark.asyncio

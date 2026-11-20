@@ -76,7 +76,7 @@ avoids.
 From the repository root in the detector-capable Python environment:
 
 ```powershell
-python -m pytest -q tests/test_output_dlp.py tests/test_output_dlp_api.py tests/test_policy_replay.py
+python -m pytest -q tests/enforcement/test_output_dlp.py tests/api/test_output_dlp_api.py tests/policy/test_policy_replay.py
 python -m pytest -q
 python -m ruff check .
 python -m ruff format --check .

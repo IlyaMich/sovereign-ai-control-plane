@@ -239,7 +239,7 @@ def test_external_public_key_enables_authentication(tmp_path, audit):
 def test_exported_package_contains_replayable_rego_and_detector_provenance(tmp_path, audit):
     from app.domain.contracts import Effect, Obligation, PolicyDecision
     from app.policy.snapshots import build_snapshot
-    from tests.test_policy_snapshots import SOURCE
+    from tests.policy.test_policy_snapshots import SOURCE
 
     src = tmp_path / "editable"
     src.mkdir()

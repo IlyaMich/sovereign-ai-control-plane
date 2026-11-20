@@ -11,7 +11,7 @@ from app.audit.async_executor import BoundedAuditExecutor
 from app.domain.contracts import DetectionResult
 from app.infrastructure.config import Settings, TelemetrySettings
 from app.infrastructure.runtime_metrics import ExecutorMetrics, LoopLagMonitor
-from tests.test_api import app_with_fakes
+from tests.api.test_api import app_with_fakes
 
 
 def test_bounded_rolling_metrics_and_percentiles():

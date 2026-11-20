@@ -15,7 +15,7 @@ checked-in active snapshot remains signed for the old release. Do **not**
 overwrite active policy or release files merely to run a test.
 
 ~~~powershell
-python -m pytest -q tests/test_output_dlp.py tests/test_output_dlp_api.py
+python -m pytest -q tests/enforcement/test_output_dlp.py tests/api/test_output_dlp_api.py
 python -m tools.test_output_policy --opa-bin opa
 ~~~
 
@@ -31,26 +31,45 @@ python -m pip install -e '.[dev]'
 python -m pytest -q
 ~~~
 
-`tests/test_presidio_real_integration.py` is skipped if the NLP installation is absent; install the pinned spaCy English model in a dedicated environment to run it. The production image intentionally omits pytest. `make test` is available when Make is installed and the virtual environment has been set up.
+`tests/integration/test_presidio_real_integration.py` is skipped if the NLP installation is absent; install the pinned spaCy English model in a dedicated environment to run it. The production image intentionally omits pytest. `make test` is available when Make is installed and the virtual environment has been set up.
+
+Tests are grouped by subsystem under `tests/api/`, `tests/application/`,
+`tests/audit/`, `tests/detection/`, `tests/enforcement/`, `tests/infrastructure/`,
+`tests/policy/`, `tests/release/`, and `tests/tools/`. Cross-component tests live
+with the subsystem whose behavior they verify. Tests exercising real Presidio
+or a signed runtime with the OPA CLI live in `tests/integration/`; dependency-based
+skips still apply. The existing `tests/evaluation/`, `tests/performance/`,
+`tests/rego/`, and `tests/rego_output/` suites keep their dedicated folders.
+
+Shared fixtures and test doubles remain in `tests/conftest.py`. Each Python test
+folder is a package so cross-suite helper imports remain explicit. The default
+`python -m pytest -q` command discovers all Python suites, including integration
+tests. Run an individual subsystem from the repository root, for example:
+
+~~~powershell
+python -m pytest -q tests/api
+python -m pytest -q tests/detection tests/enforcement
+python -m pytest -q tests/integration
+~~~
 
 Key areas:
 
 | Test area | Files / checks |
 | --- | --- |
-| Detection normalization, unknown/overlap behavior | `tests/test_detection_aggregation.py`, `test_presidio_adapter.py`, `test_presidio_real_integration.py` |
-| API, authorization and sanitized errors | `tests/test_api.py` |
-| Audit sequencing, tamper/truncation | `tests/test_audit_integrity.py` |
-| Decision-before-forwarding and fail-closed orchestration | `tests/test_orchestrator.py`, `test_redaction_and_egress.py` |
-| OPA parsing and Rego | `tests/test_policy_adapter.py`, `tests/rego/decision_test.rego` |
-| Policy integrity, archive replay | `tests/test_policy_snapshots.py`, `test_policy_replay.py`, `test_policy_integrity_enforcement.py` |
-| Detector provenance and portable evidence | `tests/test_provenance_and_evidence_packages.py` |
-| Signed releases, anti-rollback workflow | `tests/test_release_approvals.py`, `test_runtime_release.py` |
-| Idempotency, restart and cancellation behavior | `tests/test_idempotency.py` |
-| Admission, ingress and upload deadlines | `tests/test_request_admission.py`, `test_ingress_bounds.py`, `test_upload_deadline.py` |
-| Bounded detector/audit/integrity workers | `tests/test_detector_executor.py`, `test_audit_executor.py`, `test_audit_capacity_bounds.py`, `test_integrity_executor.py`, `test_integrity_runtime.py` |
-| Runtime diagnostics and logging | `tests/test_runtime_metrics.py`, `test_logging.py`, `test_logging_runtime.py` |
-| Atomic publication and activation races | `tests/test_atomic_publication.py`, `test_release_activation_concurrency.py` |
-| Profiling and overload tool logic | `tests/test_concurrency_performance.py`, `test_overload_and_audit_lookup.py` |
+| Detection normalization, unknown/overlap behavior | `tests/detection/test_detection_aggregation.py`, `tests/detection/test_presidio_adapter.py`, `tests/integration/test_presidio_real_integration.py` |
+| API, authorization and sanitized errors | `tests/api/test_api.py` |
+| Audit sequencing, tamper/truncation | `tests/audit/test_audit_integrity.py` |
+| Decision-before-forwarding and fail-closed orchestration | `tests/application/test_orchestrator.py`, `tests/enforcement/test_redaction_and_egress.py` |
+| OPA parsing and Rego | `tests/policy/test_policy_adapter.py`, `tests/rego/decision_test.rego` |
+| Policy integrity, archive replay | `tests/policy/test_policy_snapshots.py`, `tests/policy/test_policy_replay.py`, `tests/policy/test_policy_integrity_enforcement.py` |
+| Detector provenance and portable evidence | `tests/audit/test_provenance_and_evidence_packages.py` |
+| Signed releases, anti-rollback workflow | `tests/release/test_release_approvals.py`, `tests/release/test_runtime_release.py` |
+| Idempotency, restart and cancellation behavior | `tests/audit/test_idempotency.py` |
+| Admission, ingress and upload deadlines | `tests/api/test_request_admission.py`, `tests/api/test_ingress_bounds.py`, `tests/api/test_upload_deadline.py` |
+| Bounded detector/audit/integrity workers | `tests/application/test_detector_executor.py`, `tests/audit/test_audit_executor.py`, `tests/audit/test_audit_capacity_bounds.py`, `tests/infrastructure/test_integrity_executor.py`, `tests/infrastructure/test_integrity_runtime.py` |
+| Runtime diagnostics and logging | `tests/infrastructure/test_runtime_metrics.py`, `tests/infrastructure/test_logging.py`, `tests/infrastructure/test_logging_runtime.py` |
+| Atomic publication and activation races | `tests/infrastructure/test_atomic_publication.py`, `tests/release/test_release_activation_concurrency.py` |
+| Profiling and overload tool logic | `tests/tools/test_concurrency_performance.py`, `tests/tools/test_overload_and_audit_lookup.py` |
 | Synthetic evaluation validation, scoring and reports | `tests/evaluation/` |
 
 ## Runtime and Rego checks

@@ -1,7 +1,7 @@
 """Targeted precision/recall checks for high-confidence detector recognizers.
 
 Pattern-level checks run without Presidio or spaCy. End-to-end recognition
-is exercised separately by tests/test_presidio_real_integration.py.
+is exercised separately by tests/integration/test_presidio_real_integration.py.
 """
 
 from __future__ import annotations

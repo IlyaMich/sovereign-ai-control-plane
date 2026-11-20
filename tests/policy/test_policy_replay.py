@@ -16,7 +16,7 @@ from app.domain.contracts import (
 from app.enforcement.gateway import Destination, DestinationRegistry, EnforcementPlanner
 from app.policy.replay import ReplayError, replay_database
 from app.policy.snapshots import build_snapshot
-from tests.test_policy_snapshots import SOURCE
+from tests.policy.test_policy_snapshots import SOURCE
 
 
 def setup_record(tmp_path, audit):

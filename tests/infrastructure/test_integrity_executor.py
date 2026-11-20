@@ -16,7 +16,7 @@ from app.infrastructure.integrity_executor import (
 )
 from app.policy.opa import OPAPolicyEvaluator, PolicyIntegrityError
 from app.policy.snapshots import PolicySnapshotStore
-from tests.test_policy_adapter import context
+from tests.policy.test_policy_adapter import context
 
 
 @pytest.mark.parametrize(

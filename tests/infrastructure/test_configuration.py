@@ -19,9 +19,9 @@ from app.domain.contracts import DetectionStatus, Sensitivity
 from app.enforcement.gateway import HTTPModelGateway
 from app.infrastructure.config import HTTPTimeouts, RequestLimits, Settings, simulator_upstream_url
 from app.policy.opa import OPAPolicyEvaluator
-from tests.test_api import app_with_fakes
-from tests.test_policy_adapter import context
-from tests.test_presidio_adapter import StubAnalyzer
+from tests.api.test_api import app_with_fakes
+from tests.detection.test_presidio_adapter import StubAnalyzer
+from tests.policy.test_policy_adapter import context
 
 
 def configured_app(audit, limits):

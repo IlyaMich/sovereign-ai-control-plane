@@ -14,8 +14,8 @@ from app.detection.demo import DemoPatternDetector
 from app.domain.contracts import Principal, PromptCommand, ReleaseVerifier, RequestStatus
 from app.enforcement.gateway import EnforcementPlanner
 from app.infrastructure.integrity_executor import BoundedIntegrityExecutor
+from tests.api.test_api import app_with_fakes
 from tests.conftest import RecordingModel, StaticPolicy
-from tests.test_api import app_with_fakes
 
 
 @pytest.mark.asyncio

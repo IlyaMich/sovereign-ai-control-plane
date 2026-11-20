@@ -18,9 +18,9 @@ from app.domain.contracts import Principal, PromptCommand
 from app.enforcement.gateway import HTTPModelGateway, ModelUnavailable
 from app.infrastructure import logging as operational
 from app.policy.opa import OPAPolicyEvaluator, PolicyEvaluationError
-from tests.test_api import app_with_fakes
-from tests.test_orchestrator import service
-from tests.test_policy_adapter import context as policy_context
+from tests.api.test_api import app_with_fakes
+from tests.application.test_orchestrator import service
+from tests.policy.test_policy_adapter import context as policy_context
 
 SECRET = "SYNTHETIC-PRIVATE-CONTENT-987654321"
 HEADERS = {"X-API-Key": "a-secret-for-tests-that-is-long-enough"}

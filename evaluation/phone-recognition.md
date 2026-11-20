@@ -42,7 +42,7 @@ run (the validated PR #24 candidate run, provided the dataset, model and
 environment are equivalent).
 
 ```powershell
-python -m pytest -q tests/test_phone_recall.py tests/test_detection_aggregation.py tests/test_presidio_real_integration.py
+python -m pytest -q tests/detection/test_phone_recall.py tests/detection/test_detection_aggregation.py tests/integration/test_presidio_real_integration.py
 python -m pytest -q
 python -m evaluation.cli validate
 python -m evaluation.cli detect --split all --output-dir evaluation/runs/phone-candidate-v1

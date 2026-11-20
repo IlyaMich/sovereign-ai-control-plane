@@ -44,7 +44,7 @@ as representative production recall or as proof of no false positives.
 In a detector-capable local environment, with the pinned spaCy model installed:
 
 ```powershell
-python -m pytest -q tests/test_detector_recall_patterns.py tests/test_presidio_real_integration.py
+python -m pytest -q tests/detection/test_detector_recall_patterns.py tests/integration/test_presidio_real_integration.py
 python -m evaluation.cli validate
 python -m evaluation.cli detect --split all --output-dir evaluation/runs/recall-candidate-v1
 ```

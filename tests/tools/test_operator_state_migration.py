@@ -123,7 +123,7 @@ def test_operator_state_migration_checks_every_archived_file(tmp_path, monkeypat
 
 def test_compose_never_mounts_git_tracked_signed_artifacts():
     """Fail CI if live services are wired back to the legacy tracked folders."""
-    root = Path(__file__).resolve().parents[1]
+    root = Path(__file__).resolve().parents[2]
     compose = (root / "deploy" / "compose.yaml").read_text(encoding="utf-8")
     for name in (
         "policy-active",

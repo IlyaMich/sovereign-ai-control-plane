@@ -115,12 +115,12 @@ Run the already implemented regression tests against a safe test database:
 
 ```powershell
 python -m pytest -q `
-  tests/test_ingress_bounds.py `
-  tests/test_audit_capacity_bounds.py `
-  tests/test_integrity_executor.py `
-  tests/test_integrity_runtime.py `
-  tests/test_audit_executor.py `
-  tests/test_request_admission.py
+  tests/api/test_ingress_bounds.py `
+  tests/audit/test_audit_capacity_bounds.py `
+  tests/infrastructure/test_integrity_executor.py `
+  tests/infrastructure/test_integrity_runtime.py `
+  tests/audit/test_audit_executor.py `
+  tests/api/test_request_admission.py
 ```
 
 These cover ingress saturation, audit waiter/auxiliary limits, cancellation,

@@ -4,7 +4,7 @@ from fastapi.testclient import TestClient
 
 from app.api.main import Components, create_app
 from app.infrastructure.config import Settings
-from tests.test_output_dlp import make_service
+from tests.enforcement.test_output_dlp import make_service
 
 
 def _client(audit, generated):
