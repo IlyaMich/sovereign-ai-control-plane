@@ -50,7 +50,6 @@ def _hash_file(path: Path) -> str:
     return digest.hexdigest()
 
 
-
 class PackageEntry(TypedDict):
     path: str
     sha256: str
