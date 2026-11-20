@@ -58,10 +58,15 @@ def _decision_refs(path: Path) -> tuple[set[str], set[str], set[str]]:
     releases: set[str] = set()
     with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as conn, conn:
         entries = conn.execute(
-            "SELECT event_json FROM events WHERE event_type='DECISION'"
+            "SELECT event_type,event_json FROM events WHERE event_type IN ('DECISION', 'OUTCOME')"
         ).fetchall()
-    for (raw,) in entries:
+    for event_type, raw in entries:
         payload = json.loads(raw)["payload"]
+        if event_type == "OUTCOME":
+            dlp = payload.get("output_dlp")
+            if isinstance(dlp, dict) and dlp.get("policy_snapshot") is not None:
+                policies.add(dlp["policy_snapshot"]["sha256"])
+            continue
         if payload.get("policy_snapshot") is not None:
             policies.add(payload["policy_snapshot"]["sha256"])
         if payload.get("detector_evidence_version") == "1":
@@ -173,6 +178,7 @@ def verify_package(
     *,
     opa_binary: str = "opa",
     evaluator: Callable | None = None,
+    output_evaluator: Callable | None = None,
     trusted_public_key: str | None = None,
     trusted_checkpoint: str | None = None,
     trusted_release_public_key: str | None = None,
@@ -232,6 +238,7 @@ def verify_package(
             opa_binary,
             evaluator=evaluator,
             detector_archive_root=str(root / "detector-archive"),
+            output_evaluator=output_evaluator,
         )
         release_info = verify_release_references(
             str(root / "audit.sqlite"),
