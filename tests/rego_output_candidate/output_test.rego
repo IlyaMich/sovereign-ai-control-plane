@@ -64,3 +64,61 @@ test_output_unknown_destination_is_denied if {
   response := authz.output_decision with input as modified
   response.effect == "DENY"
 }
+
+test_masking_disabled_for_private_email if {
+  modified := object.union(output_clean, {
+    "masking_enabled": false,
+    "classification": object.union(output_clean.classification, {
+      "status": "PRIVATE",
+      "findings": [{"category": "EMAIL_ADDRESS", "start": 5, "end": 21}],
+    }),
+  })
+  result := authz.output_decision with input as modified
+  result.effect == "DENY"
+  result.reason_codes == ["OUTPUT_PRIVATE_DATA_BLOCKED"]
+}
+
+test_opt_in_email_can_mask if {
+  modified := object.union(output_clean, {
+    "masking_enabled": true,
+    "classification": object.union(output_clean.classification, {
+      "status": "PRIVATE",
+      "findings": [{"category": "EMAIL_ADDRESS", "start": 5, "end": 21}],
+    }),
+  })
+  result := authz.output_decision with input as modified
+  result.effect == "PERMIT"
+  result.reason_codes == ["OUTPUT_MASKING_REQUIRED"]
+  count(result.obligations) == 1
+  result.obligations[0].type == "REDACT"
+  "EMAIL_ADDRESS" in result.obligations[0].categories
+  "PHONE_NUMBER" in result.obligations[0].categories
+}
+
+test_opt_in_rejects_credentials_mixed_with_email if {
+  modified := object.union(output_clean, {
+    "masking_enabled": true,
+    "classification": object.union(output_clean.classification, {
+      "status": "PRIVATE",
+      "findings": [
+        {"category": "EMAIL_ADDRESS", "start": 5, "end": 21},
+        {"category": "API_CREDENTIAL", "start": 30, "end": 50},
+      ],
+    }),
+  })
+  result := authz.output_decision with input as modified
+  result.effect == "DENY"
+  result.reason_codes == ["OUTPUT_PRIVATE_DATA_BLOCKED"]
+}
+
+test_opt_in_rejects_person_and_credit_card if {
+  modified := object.union(output_clean, {
+    "masking_enabled": true,
+    "classification": object.union(output_clean.classification, {
+      "status": "PRIVATE",
+      "findings": [{"category": "PERSON", "start": 5, "end": 12}],
+    }),
+  })
+  result := authz.output_decision with input as modified
+  result.effect == "DENY"
+}
