@@ -64,11 +64,27 @@ flowchart TD
 
 The default Compose network is private. The API binds to `127.0.0.1:8000`; OPA and model ports are not published. The optional `egress-test` profile creates a separate simulated network. **Neither a Compose network nor a policy label establishes real-world data residency.**
 
+## Protect live signed state from Git checkouts
+
+**Host-side live policy, release, trust and archive files now live in the
+Git-ignored `.runtime/` directory, not the Git-tracked legacy examples.**
+This prevents a `git pull` or GitHub Desktop checkout from rolling back the
+live release or changing its policy bytes. Container bind mounts reject
+missing state directories rather than silently creating empty ones.
+
+**Existing deployments must migrate before using the updated Compose mounts.**
+Do not run `git clean -fdx` or delete the checkout without backing up
+`.runtime`. For the verified, copy-only migration, operator preflight,
+new-install instructions and follow-on release workflow see
+[Git-safe operator state migration](docs/operator-state-migration.md).
+The running image can remain approved across this host-only migration; no
+new signature or generation is needed simply to move the bind sources.
+
 ## Start an existing signed-release installation
 
 Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and enough resources for local spaCy. Building the detector image requires network access to install dependencies and the pinned `en_core_web_sm` model; request processing does not download the model.
 
-**Keep `.env`, the `audit-data` volume, policy archives, and the existing release signing key.** The example `release-active/` files in Git are not a substitute for possession of the corresponding trusted private key. For a brand-new independent installation, provision an appropriate release authority and initialize a clean deployment history instead of attempting to sign over another authority's previously active approval.
+**Keep `.env`, `.runtime/`, the `audit-data` volume and the existing release signing key.** The legacy example `release-active/` files in Git are not a substitute for possession of the corresponding trusted private key. For a brand-new independent installation, provision an appropriate release authority and initialize a clean deployment history instead of attempting to sign over another authority's previously active approval.
 
 ~~~powershell
 # From the repository root, with .env and a trusted release key already provisioned:
