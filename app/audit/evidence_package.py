@@ -219,12 +219,12 @@ def verify_package(
         root = Path(tmp)
         with zipfile.ZipFile(package_path, "r") as z:
             infos = z.infolist()
-            if (
-                not infos
-                or len(infos) > MAX_FILES
-                or sum(info.file_size for info in infos) > limit
-            ):
+            if not infos or len(infos) > MAX_FILES:
                 raise EvidencePackageError("Evidence ZIP exceeds safety limits")
+            if sum(info.file_size for info in infos) > limit:
+                raise EvidencePackageError(
+                    "Evidence ZIP exceeds configured uncompressed size limit"
+                )
             names: set[str] = set()
             for info in infos:
                 if (
