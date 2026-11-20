@@ -142,7 +142,7 @@ def test_readiness_uses_configured_timeout(audit):
 
     def handler(request):
         observed.append(request.extensions["timeout"])
-        return httpx.Response(200, json={"result": {"policy_revision": "redaction-baseline-v3"}})
+        return httpx.Response(200, json={"result": {"policy_revision": "redaction-response-dlp-v4"}})
 
     components = app_with_fakes(audit).state.components
     components.settings = replace(components.settings, http=HTTPTimeouts(readiness=4.5))
