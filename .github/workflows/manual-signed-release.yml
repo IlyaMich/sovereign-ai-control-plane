@@ -117,7 +117,17 @@ jobs:
           exit-code: '1'
           ignore-unfixed: 'false'
       - name: Verify Python dependency scan coverage
+        if: always()
         run: python -m tools.verify_dependency_scan trivy-filesystem.json
+
+      - name: Retain release filesystem security report
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: release-filesystem-security-report
+          path: trivy-filesystem.json
+          if-no-files-found: error
+          retention-days: 7
       - name: Validate and test proposed policy without activating it
         run: |
           python -m tools.build_policy_snapshot \
