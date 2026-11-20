@@ -32,11 +32,11 @@ from app.domain.contracts import (
 )
 from app.enforcement.gateway import EnforcementPlanner, ExternalContentUnverified, InvalidPlan
 from app.enforcement.redaction import RedactionError, redact
+from app.infrastructure.dlp_metrics import DLPMetrics
 from app.infrastructure.integrity_executor import (
     BoundedIntegrityExecutor,
     integrity_unavailable_code,
 )
-from app.infrastructure.dlp_metrics import DLPMetrics
 from app.infrastructure.logging import event
 from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
