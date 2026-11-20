@@ -42,6 +42,17 @@ from app.policy.opa import PolicyIntegrityError
 from app.release.approvals import ReleaseIntegrityError, summary
 
 
+def detection_service_error(result: DetectionResult) -> str | None:
+    """Unsupported input/low confidence are policy denials; broken detection is a service error."""
+    failures = {
+        "DETECTION_UNAVAILABLE",
+        "DETECTION_CAPACITY_EXCEEDED",
+        "RECOGNIZER_COVERAGE_INCOMPLETE",
+        "DETECTION_RESULT_INVALID",
+    }
+    return next((code for code in result.reason_codes if code in failures), None)
+
+
 class RequestOrchestrator:
     def __init__(
         self,
@@ -126,9 +137,11 @@ class RequestOrchestrator:
         return verify()
 
     async def process(self, command: PromptCommand) -> ProcessedRequest:
+        service_error = None
         try:
             classification = await self._detect(command.prompt)
         except DetectorCapacityExceeded:
+            service_error = "DETECTION_CAPACITY_EXCEEDED"
             event(
                 "detector_capacity_exceeded",
                 level=logging.WARNING,
@@ -146,8 +159,10 @@ class RequestOrchestrator:
                 stage="detection",
             )
             classification = DetectionResult.unknown()
+            service_error = "DETECTION_UNAVAILABLE"
 
         self.dlp_metrics.input_detection(classification.status)
+        service_error = service_error or detection_service_error(classification)
         policy_input = PolicyContext(command, classification)
         approved_release = None
         release_untrusted = False
@@ -167,6 +182,7 @@ class RequestOrchestrator:
                     else "RELEASE_VERIFICATION_FAILED"
                 )
         if release_untrusted:
+            service_error = release_error_code
             event(
                 "request_safety_failure",
                 level=logging.WARNING
@@ -184,6 +200,7 @@ class RequestOrchestrator:
                 decision = await self.policy.evaluate(policy_input)
             except PolicyIntegrityError as exc:
                 unavailable = integrity_unavailable_code(exc)
+                service_error = unavailable or "POLICY_INTEGRITY_FAILURE"
                 event(
                     "request_safety_failure",
                     level=logging.WARNING if unavailable else logging.ERROR,
@@ -200,6 +217,7 @@ class RequestOrchestrator:
                     error_code="POLICY_UNAVAILABLE",
                 )
                 decision = PolicyDecision.deny("POLICY_UNAVAILABLE")
+                service_error = "POLICY_UNAVAILABLE"
 
         opa_decision = decision if decision.policy_digest else None
         forwarded_prompt = command.prompt
@@ -241,6 +259,7 @@ class RequestOrchestrator:
                 error_code="INVALID_POLICY_PLAN",
             )
             decision = PolicyDecision.deny("INVALID_POLICY_PLAN")
+            service_error = "INVALID_POLICY_PLAN"
             transformed = False
             forwarded_prompt = command.prompt
         except RedactionError:
@@ -251,6 +270,7 @@ class RequestOrchestrator:
                 error_code="REDACTION_FAILED",
             )
             decision = PolicyDecision.deny("REDACTION_FAILED")
+            service_error = "REDACTION_FAILED"
             transformed = False
             forwarded_prompt = command.prompt
         except Exception:
@@ -261,6 +281,7 @@ class RequestOrchestrator:
                 error_code="TRANSFORMATION_VERIFICATION_UNAVAILABLE",
             )
             decision = PolicyDecision.deny("TRANSFORMATION_VERIFICATION_UNAVAILABLE")
+            service_error = "TRANSFORMATION_VERIFICATION_UNAVAILABLE"
             transformed = False
             forwarded_prompt = command.prompt
 
@@ -289,6 +310,7 @@ class RequestOrchestrator:
                     ),
                 )
                 decision = PolicyDecision.deny("UNTRUSTED_RELEASE")
+                service_error = unavailable or "UNTRUSTED_RELEASE"
                 opa_decision = None  # An untrusted evaluation must not be used for replay.
                 forwarded_prompt = command.prompt
                 transformed = False
@@ -357,6 +379,7 @@ class RequestOrchestrator:
                 decision,
                 decision_receipt,
                 outcome_receipt,
+                service_error=service_error,
             )
 
         try:
@@ -390,6 +413,7 @@ class RequestOrchestrator:
                 decision,
                 decision_receipt,
                 outcome_receipt,
+                service_error="MODEL_UNAVAILABLE",
             )
 
         # Legacy fixture adapters may omit output_policy. The managed application
@@ -415,6 +439,7 @@ class RequestOrchestrator:
             if not valid_content:
                 output_classification = DetectionResult.unknown("OUTPUT_INVALID_CONTENT")
                 output_decision = PolicyDecision.deny("OUTPUT_INVALID_CONTENT")
+                service_error = "OUTPUT_INVALID_CONTENT"
             else:
                 detection_started = time.perf_counter()
                 try:
@@ -428,10 +453,13 @@ class RequestOrchestrator:
                     )
                     self.dlp_metrics.failure("OUTPUT_DETECTOR_UNAVAILABLE")
                     output_classification = DetectionResult.unknown("OUTPUT_DETECTION_UNAVAILABLE")
+                    service_error = "OUTPUT_DETECTION_UNAVAILABLE"
                 finally:
                     output_detection_ms = 1000.0 * (time.perf_counter() - detection_started)
 
                 if output_classification.status == DetectionStatus.UNKNOWN:
+                    if detection_service_error(output_classification):
+                        service_error = "OUTPUT_DETECTION_UNAVAILABLE"
                     output_decision = PolicyDecision.deny("OUTPUT_DETECTION_UNKNOWN")
                 else:
                     output_context = OutputPolicyContext(
@@ -449,6 +477,7 @@ class RequestOrchestrator:
                         )
                         self.dlp_metrics.failure("OUTPUT_POLICY_UNAVAILABLE")
                         output_decision = PolicyDecision.deny("OUTPUT_POLICY_UNAVAILABLE")
+                        service_error = "OUTPUT_POLICY_UNAVAILABLE"
 
             assert output_classification is not None and output_decision is not None
             self.dlp_metrics.output_detection(
@@ -476,6 +505,7 @@ class RequestOrchestrator:
                     )
                     if not valid_mask:
                         output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+                        service_error = "OUTPUT_INVALID_POLICY_PLAN"
                     else:
                         try:
                             released_content = redact(
@@ -497,12 +527,14 @@ class RequestOrchestrator:
                         except Exception:
                             self.dlp_metrics.failure("OUTPUT_MASK_VERIFY_FAILED")
                             output_decision = PolicyDecision.deny("OUTPUT_MASK_VERIFICATION_FAILED")
+                            service_error = "OUTPUT_MASK_VERIFICATION_FAILED"
                 elif (
                     output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
                     or output_classification.findings
                     or output_context is None
                 ):
                     output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+                    service_error = "OUTPUT_INVALID_POLICY_PLAN"
 
             # A signed release must remain trusted *after* model execution.
             # No output is released against a changed or unavailable authority.
@@ -529,6 +561,7 @@ class RequestOrchestrator:
                         error_code="OUTPUT_UNTRUSTED_RELEASE",
                     )
                     output_decision = PolicyDecision.deny("OUTPUT_UNTRUSTED_RELEASE")
+                    service_error = "OUTPUT_UNTRUSTED_RELEASE"
 
             released = output_decision.effect == Effect.PERMIT
             # Output evidence contains *only* structure, identities, and a keyed
@@ -611,6 +644,7 @@ class RequestOrchestrator:
                 model_id=model_result.model_id,
                 output_classification=output_classification,
                 output_decision=output_decision,
+                service_error=service_error,
             )
 
         outcome_receipt = await self._commit(

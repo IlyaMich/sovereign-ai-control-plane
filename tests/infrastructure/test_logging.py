@@ -293,11 +293,32 @@ def test_readiness_logs_only_state_transitions(audit, events):
         upstream_client = httpx.AsyncClient(transport=httpx.MockTransport(upstream))
         app.state.components.client = upstream_client
         try:
-            assert client.get("/health/ready").status_code == 503
-            assert client.get("/health/ready").status_code == 503
+            assert (
+                client.get(
+                    "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+                ).status_code
+                == 503
+            )
+            assert (
+                client.get(
+                    "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+                ).status_code
+                == 503
+            )
             healthy[0] = True
-            assert client.get("/health/ready").status_code == 200
-            assert client.get("/health/ready").status_code == 200
+            app.state.readiness_probe.completed_at = float("-inf")
+            assert (
+                client.get(
+                    "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+                ).status_code
+                == 200
+            )
+            assert (
+                client.get(
+                    "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+                ).status_code
+                == 200
+            )
             transitions = [e for e in events if e["event"] == "readiness_changed"]
             assert [(e["state"], e["stage"]) for e in transitions] == [
                 ("NOT_READY", "policy"),

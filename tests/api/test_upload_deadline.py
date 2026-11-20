@@ -176,7 +176,13 @@ async def test_configured_deadline_reaches_api_before_authentication(audit, monk
     ) as client:
         response = await client.post("/v1/prompts", content=chunks())
         assert response.status_code == 408
-        assert response.json() == {"detail": "Request body timed out"}
+        assert response.json() == {
+            "status": "ERROR",
+            "reason_codes": ["REQUEST_BODY_TIMEOUT"],
+            "detail": "Request Timeout",
+            "correlation_id": response.headers["x-correlation-id"],
+        }
+        assert response.headers["cache-control"] == "no-store"
         assert app.state.http_admission.active == 0
         assert app.state.admission.active == 0
         assert components.orchestrator.model.calls == []

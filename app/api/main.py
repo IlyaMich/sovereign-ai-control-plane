@@ -10,17 +10,35 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from functools import partial
 from pathlib import Path
+from typing import Any
 
 import httpx
-from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi import FastAPI, Header, HTTPException, Request, Response, Security
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
+from fastapi.security import APIKeyHeader
+from prometheus_client import CONTENT_TYPE_LATEST
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.api.admission import InFlightAdmission
 from app.api.body_limit import RequestBodyLimitMiddleware
+from app.api.errors import error_response
 from app.api.ingress_limit import HTTPIngressLimitMiddleware
 from app.api.logging import RequestLoggingMiddleware
-from app.api.schemas import PromptInput, prompt_input_model
+from app.api.readiness import ReadinessProbe
+from app.api.schemas import (
+    DiagnosticsResponse,
+    DLPDiagnosticsResponse,
+    ErrorResponse,
+    HealthResponse,
+    IdempotencyStatusResponse,
+    PromptFailureResponse,
+    PromptInput,
+    PromptResponse,
+    RequestHistoryResponse,
+    error_responses,
+    prompt_input_model,
+)
 from app.application.detector_executor import BoundedDetectorExecutor
 from app.application.orchestrator import RequestOrchestrator
 from app.audit.async_executor import BoundedAuditExecutor
@@ -39,12 +57,14 @@ from app.enforcement.gateway import (
     EnforcementPlanner,
     HTTPModelGateway,
 )
+from app.infrastructure.api_metrics import APIMetrics
 from app.infrastructure.config import Settings
 from app.infrastructure.integrity_executor import (
     BoundedIntegrityExecutor,
     integrity_unavailable_code,
 )
 from app.infrastructure.logging import configure_logging, context, event, logging_snapshot
+from app.infrastructure.resilience import ResilientHTTP
 from app.infrastructure.runtime_metrics import LoopLagMonitor
 from app.policy.opa import OPAPolicyEvaluator
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
@@ -69,11 +89,15 @@ class Components:
     audit_executor: BoundedAuditExecutor | None = None
     idempotency: IdempotencyStore | None = None
     integrity_executor: BoundedIntegrityExecutor | None = None
+    api_metrics: APIMetrics | None = None
+    resilient_http: ResilientHTTP | None = None
 
 
 def make_components() -> Components:
     event("startup_stage", stage="configuration")
     settings = Settings.from_env()
+    api_metrics = APIMetrics()
+    resilient_http = ResilientHTTP(settings.operations, api_metrics)
     client = httpx.AsyncClient(trust_env=False)
     event("startup_stage", stage="audit")
     audit = SQLiteAuditStore(settings.db_path, settings.signing_key_path)
@@ -139,6 +163,7 @@ def make_components() -> Components:
         snapshot_store,
         release_store,
         timeout=settings.http.opa,
+        resilient_http=resilient_http,
         integrity_executor=integrity_executor,
     )
     orchestrator = RequestOrchestrator(
@@ -148,7 +173,13 @@ def make_components() -> Components:
         max_model_output_bytes=settings.limits.max_forwarded_prompt_bytes,
         output_masking_enabled=settings.output_masking_enabled,
         audit=audit,
-        model=HTTPModelGateway(client, settings.model_url, registry, timeout=settings.http.model),
+        model=HTTPModelGateway(
+            client,
+            settings.model_url,
+            registry,
+            timeout=settings.http.model,
+            resilient_http=resilient_http,
+        ),
         planner=EnforcementPlanner(frozenset(d.id for d in destinations), registry),
         release_store=release_store,
         detection_executor=executor,
@@ -164,6 +195,8 @@ def make_components() -> Components:
         audit_executor,
         idempotency,
         integrity_executor,
+        api_metrics,
+        resilient_http,
     )
 
 
@@ -175,6 +208,12 @@ def create_app(components: Components | None = None) -> FastAPI:
     except Exception:
         event("startup_failed", level=logging.ERROR, error_code="INITIALIZATION_FAILED")
         raise
+    api_metrics = deps.api_metrics or APIMetrics()
+    resilient_http = deps.resilient_http or ResilientHTTP(deps.settings.operations, api_metrics)
+    deps.api_metrics = api_metrics
+    deps.resilient_http = resilient_http
+    readiness_probe = ReadinessProbe(deps.settings.operations.readiness_cache_seconds)
+    api_key_header = APIKeyHeader(name="X-API-Key", scheme_name="ApiKeyAuth", auto_error=False)
     readiness_state = None
 
     def readiness(state, stage, error_code=None):
@@ -192,6 +231,7 @@ def create_app(components: Components | None = None) -> FastAPI:
 
     admission = InFlightAdmission(deps.settings.admission.max_inflight_requests)
     http_admission = InFlightAdmission(deps.settings.ingress.max_active_http_requests)
+    operations_admission = InFlightAdmission(deps.settings.operations.max_operations_requests)
     lag = LoopLagMonitor(
         interval_seconds=deps.settings.telemetry.loop_lag_interval_seconds,
         sample_window=deps.settings.telemetry.sample_window,
@@ -205,6 +245,7 @@ def create_app(components: Components | None = None) -> FastAPI:
             yield
         finally:
             event("shutdown_started", stage="runtime")
+            await readiness_probe.aclose()
             await lag.aclose()
             try:
                 if deps.integrity_executor is not None:
@@ -227,6 +268,7 @@ def create_app(components: Components | None = None) -> FastAPI:
         version="0.6.0",
         description="Milestone 6: independently signed release approvals and evidence.",
         lifespan=lifespan,
+        responses=error_responses(400, 401, 404, 405, 408, 409, 413, 422, 429, 500, 503),
     )
     app.add_middleware(
         RequestBodyLimitMiddleware,
@@ -234,11 +276,15 @@ def create_app(components: Components | None = None) -> FastAPI:
         body_read_timeout_seconds=deps.settings.ingress.body_read_timeout_seconds,
     )
     # Logging wraps ingress; ingress wraps body buffering and FastAPI routing.
-    app.add_middleware(HTTPIngressLimitMiddleware, admission=http_admission)
-    app.add_middleware(RequestLoggingMiddleware)
+    app.add_middleware(
+        HTTPIngressLimitMiddleware, admission=http_admission, operations=operations_admission
+    )
+    app.add_middleware(RequestLoggingMiddleware, metrics=api_metrics)
     app.state.components = deps
     app.state.admission = admission
     app.state.http_admission = http_admission
+    app.state.operations_admission = operations_admission
+    app.state.readiness_probe = readiness_probe
     app.state.loop_lag = lag
 
     async def idempotency_io(operation):
@@ -252,18 +298,27 @@ def create_app(components: Components | None = None) -> FastAPI:
     async def validation_error(request: Request, exc: RequestValidationError):
         # FastAPI's default validation errors can contain submitted field values.
         event("validation_rejected", error_code="INVALID_BODY", limited=True)
-        return JSONResponse(status_code=422, content={"detail": "Invalid request body"})
+        return error_response(422, detail="Invalid request body")
 
     @app.exception_handler(AuditUnavailable)
     async def audit_unavailable(request: Request, exc: AuditUnavailable):
         event("audit_unavailable", level=logging.ERROR, error_code="AUDIT_UNAVAILABLE")
-        return JSONResponse(
-            status_code=503,
-            content={"status": "ERROR", "reason_codes": ["AUDIT_UNAVAILABLE"]},
-        )
+        return error_response(503, "AUDIT_UNAVAILABLE")
+
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        # Only static, application-controlled messages are exposed.
+        details = {
+            "Invalid Idempotency-Key": "INVALID_IDEMPOTENCY_KEY",
+            "Idempotency unavailable": "IDEMPOTENCY_UNAVAILABLE",
+        }
+        code = details.get(exc.detail) if isinstance(exc.detail, str) else None
+        return error_response(exc.status_code, code, headers=exc.headers)
 
     def authenticate(api_key: str | None) -> Principal:
-        if not api_key or not hmac.compare_digest(api_key, deps.settings.api_key):
+        if not api_key or not hmac.compare_digest(
+            api_key.encode("utf-8"), deps.settings.api_key.encode("utf-8")
+        ):
             event(
                 "authentication_rejected",
                 level=logging.WARNING,
@@ -273,15 +328,14 @@ def create_app(components: Components | None = None) -> FastAPI:
             raise HTTPException(status_code=401, detail="Unauthorized")
         return Principal("local-tester", "local-tenant", ("tester",))
 
-    @app.get("/v1/diagnostics/concurrency")
+    @app.get("/v1/diagnostics/concurrency", response_model=DiagnosticsResponse)
     async def concurrency_diagnostics(
-        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        x_api_key: str | None = Security(api_key_header),
     ):
         authenticate(x_api_key)
         # No prompts, keys, request IDs, destinations or model content are exposed.
-        return JSONResponse(
-            headers={"Cache-Control": "no-store"},
-            content={
+        return DiagnosticsResponse.model_validate(
+            {
                 "scope": "process",
                 "logging": logging_snapshot(),
                 "http_ingress": {
@@ -295,6 +349,12 @@ def create_app(components: Components | None = None) -> FastAPI:
                     "active": admission.active,
                     "peak_active": admission.peak_active,
                     "rejected": admission.rejected,
+                },
+                "operations": {
+                    "limit": operations_admission.limit,
+                    "active": operations_admission.active,
+                    "peak_active": operations_admission.peak_active,
+                    "rejected": operations_admission.rejected,
                 },
                 "detector": (
                     deps.detector_executor.metrics.snapshot()
@@ -317,43 +377,52 @@ def create_app(components: Components | None = None) -> FastAPI:
                     if deps.integrity_executor is not None
                     else None
                 ),
-            },
+            }
         )
 
-    @app.get("/v1/diagnostics/dlp")
+    @app.get("/v1/diagnostics/dlp", response_model=DLPDiagnosticsResponse)
     async def dlp_diagnostics(
-        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        x_api_key: str | None = Security(api_key_header),
     ):
         authenticate(x_api_key)
-        return JSONResponse(
-            headers={"Cache-Control": "no-store"},
-            content=deps.orchestrator.dlp_metrics.snapshot(),
-        )
+        return DLPDiagnosticsResponse.model_validate(deps.orchestrator.dlp_metrics.snapshot())
 
-    @app.get("/health/live")
+    @app.get("/health/live", response_model=HealthResponse)
     async def live():
         return {"status": "UP"}
 
-    @app.get("/health/ready")
-    async def ready():
+    @app.get("/health/ready", response_model=HealthResponse)
+    async def ready(x_api_key: str | None = Security(api_key_header)):
+        authenticate(x_api_key)
+        status_code, body = await readiness_probe.run(check_readiness)
+        if status_code != 200:
+            return error_response(status_code, body["reason_codes"][0], status="NOT_READY")
+        return HealthResponse.model_validate(body)
+
+    async def check_readiness():
         # A policy endpoint probe is stronger than merely checking that OPA is running.
         if deps.client is None:
-            return {"status": "TEST_MODE"}
+            return 200, {"status": "TEST_MODE"}
         stage = "policy"
         try:
-            response = await deps.client.post(
+            response = await resilient_http.request(
+                deps.client,
+                "opa",
+                "POST",
                 deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/decision",
                 json={"input": {}},
                 timeout=deps.settings.http.readiness,
+                probe=True,
             )
             response.raise_for_status()
-            result = response.json().get("result")
+            policy_payload = response.json()
+            result = policy_payload.get("result") if isinstance(policy_payload, dict) else None
             if not isinstance(result, dict):
                 raise ValueError("OPA policy result missing")
             stage = "integrity"
             # All filesystem reads, signatures, and the full installed-model
             # byte scan run off-loop. Overlapping readiness probes coalesce,
-            # but each subsequent probe performs a fresh live verification.
+            # and each cache miss performs a fresh live verification.
             policy = deps.orchestrator.policy
             detector = deps.orchestrator.detector
 
@@ -397,13 +466,20 @@ def create_app(components: Components | None = None) -> FastAPI:
             # A pre-DLP snapshot may still serve the input entrypoint. It
             # must not appear READY when the output entrypoint is missing.
             if deps.orchestrator.output_policy is not None:
-                output_response = await deps.client.post(
+                output_response = await resilient_http.request(
+                    deps.client,
+                    "opa",
+                    "POST",
                     deps.settings.opa_url.rstrip("/") + "/v1/data/sovereign/authz/output_decision",
                     json={"input": {"stage": "OUTPUT"}},
                     timeout=deps.settings.http.readiness,
+                    probe=True,
                 )
                 output_response.raise_for_status()
-                output_result = output_response.json().get("result")
+                output_payload = output_response.json()
+                output_result = (
+                    output_payload.get("result") if isinstance(output_payload, dict) else None
+                )
                 if (
                     not isinstance(output_result, dict)
                     or output_result.get("effect") != "DENY"
@@ -415,11 +491,15 @@ def create_app(components: Components | None = None) -> FastAPI:
             if deps.audit_executor is not None:
                 await deps.audit_executor.check_writable()
             else:
-                deps.audit.check_writable()
+                await asyncio.to_thread(deps.audit.check_writable)
             stage = "model"
-            model = await deps.client.get(
+            model = await resilient_http.request(
+                deps.client,
+                "model",
+                "GET",
                 deps.settings.model_url.rstrip("/") + "/health",
                 timeout=deps.settings.http.readiness,
+                probe=True,
             )
             model.raise_for_status()
         except (
@@ -441,13 +521,13 @@ def create_app(components: Components | None = None) -> FastAPI:
                 "model": "MODEL_READINESS_FAILED",
             }.get(stage, "INTEGRITY_READINESS_FAILED")
             readiness("NOT_READY", stage, code)
-            return JSONResponse(status_code=503, content={"status": "NOT_READY"})
+            return 503, {"status": "NOT_READY", "reason_codes": [code]}
         readiness("READY", "runtime")
-        return {"status": "READY"}
+        return 200, {"status": "READY"}
 
     async def submit(
         payload: PromptInput,
-        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        x_api_key: str | None = Security(api_key_header),
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ):
         principal = authenticate(x_api_key)
@@ -458,10 +538,8 @@ def create_app(components: Components | None = None) -> FastAPI:
                 limited=True,
                 error_code="CAPACITY_EXCEEDED",
             )
-            return JSONResponse(
-                status_code=429,
-                headers={"Retry-After": "1"},
-                content={"status": "REJECTED", "reason_codes": ["CAPACITY_EXCEEDED"]},
+            return error_response(
+                429, "CAPACITY_EXCEEDED", status="REJECTED", headers={"Retry-After": "1"}
             )
         try:
             request_id = str(uuid.uuid4())
@@ -475,19 +553,14 @@ def create_app(components: Components | None = None) -> FastAPI:
                     event(
                         "idempotency_rejected", error_code="INVALID_IDEMPOTENCY_KEY", limited=True
                     )
-                    return JSONResponse(
-                        status_code=400, content={"detail": "Invalid Idempotency-Key"}
-                    )
+                    return error_response(400, "INVALID_IDEMPOTENCY_KEY")
                 if deps.idempotency is None:
                     event(
                         "idempotency_unavailable",
                         level=logging.ERROR,
                         error_code="IDEMPOTENCY_UNAVAILABLE",
                     )
-                    return JSONResponse(
-                        status_code=503,
-                        content={"status": "ERROR", "reason_codes": ["IDEMPOTENCY_UNAVAILABLE"]},
-                    )
+                    return error_response(503, "IDEMPOTENCY_UNAVAILABLE")
                 claimed = await idempotency_io(
                     partial(
                         deps.idempotency.claim,
@@ -504,14 +577,7 @@ def create_app(components: Components | None = None) -> FastAPI:
                     event(
                         "idempotency_conflict", error_code="IDEMPOTENCY_KEY_CONFLICT", limited=True
                     )
-                    return JSONResponse(
-                        status_code=409,
-                        headers={"Cache-Control": "no-store"},
-                        content={
-                            "status": "REJECTED",
-                            "reason_codes": ["IDEMPOTENCY_KEY_CONFLICT"],
-                        },
-                    )
+                    return error_response(409, "IDEMPOTENCY_KEY_CONFLICT", status="REJECTED")
                 if claimed.state == ClaimState.EXISTING:
                     if log_context is not None:
                         log_context["request_id"] = claimed.request_id
@@ -520,14 +586,11 @@ def create_app(components: Components | None = None) -> FastAPI:
                         error_code="IDEMPOTENCY_ALREADY_ACCEPTED",
                         limited=True,
                     )
-                    return JSONResponse(
-                        status_code=409,
-                        headers={"Cache-Control": "no-store"},
-                        content={
-                            "status": "REPLAY_PREVENTED",
-                            "reason_codes": ["IDEMPOTENCY_ALREADY_ACCEPTED"],
-                            "request_id": claimed.request_id,
-                        },
+                    return error_response(
+                        409,
+                        "IDEMPOTENCY_ALREADY_ACCEPTED",
+                        status="REPLAY_PREVENTED",
+                        request_id=claimed.request_id,
                     )
             command = PromptCommand(
                 request_id, payload.prompt, payload.destination_id, payload.purpose, principal
@@ -535,7 +598,7 @@ def create_app(components: Components | None = None) -> FastAPI:
             result = await deps.orchestrator.process(command)
         finally:
             admission.leave()
-        body = {
+        body: dict[str, Any] = {
             "request_id": result.request_id,
             "status": result.status.value,
             "classification": result.classification.to_dict(),
@@ -561,15 +624,54 @@ def create_app(components: Components | None = None) -> FastAPI:
             RequestStatus.ERROR: 502,
             RequestStatus.OUTPUT_BLOCKED: 403,
         }[result.status]
-        return JSONResponse(status_code=http_code, content=body)
+        if result.service_error is not None:
+            http_code = (
+                502
+                if result.service_error in {"MODEL_UNAVAILABLE", "OUTPUT_INVALID_CONTENT"}
+                else 503
+            )
+            body["status"] = "ERROR"
+        validated: PromptResponse
+        if http_code >= 400:
+            denial = result.output_decision or result.decision
+            body.update(
+                reason_codes=[result.service_error]
+                if result.service_error
+                else list(denial.reason_codes),
+                detail="Service unavailable" if http_code >= 500 else "Request blocked by policy",
+                correlation_id=(context.get() or {}).get("correlation_id"),
+            )
+            validated = PromptFailureResponse.model_validate(body)
+        else:
+            validated = PromptResponse.model_validate(body)
+        return JSONResponse(
+            status_code=http_code, content=validated.model_dump(mode="json", exclude_unset=True)
+        )
 
     # Bind the configured schema before FastAPI inspects the endpoint annotations.
     submit.__annotations__["payload"] = prompt_input_model(deps.settings.limits.max_prompt_bytes)
-    app.post("/v1/prompts")(submit)
+    app.post(
+        "/v1/prompts",
+        response_model=PromptResponse,
+        responses={
+            403: {
+                "model": PromptFailureResponse,
+                "description": "Policy denial; no output disclosed",
+            },
+            502: {
+                "model": PromptFailureResponse,
+                "description": "Model execution failed or uncertain",
+            },
+            503: {
+                "model": PromptFailureResponse | ErrorResponse,
+                "description": "Service unavailable",
+            },
+        },
+    )(submit)
 
-    @app.get("/v1/idempotency/status")
+    @app.get("/v1/idempotency/status", response_model=IdempotencyStatusResponse)
     async def idempotency_status(
-        x_api_key: str | None = Header(default=None, alias="X-API-Key"),
+        x_api_key: str | None = Security(api_key_header),
         idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
     ):
         principal = authenticate(x_api_key)
@@ -594,22 +696,46 @@ def create_app(components: Components | None = None) -> FastAPI:
         else:
             events = await asyncio.to_thread(deps.audit.get_events, request_id, principal.tenant_id)
         state, outcome = audit_state(events)
-        return JSONResponse(
-            headers={"Cache-Control": "no-store"},
-            content={"request_id": request_id, "audit_state": state, "execution_status": outcome},
+        return IdempotencyStatusResponse.model_validate(
+            {"request_id": request_id, "audit_state": state, "execution_status": outcome}
         )
 
-    @app.get("/v1/requests/{request_id}")
-    async def get_request(
-        request_id: uuid.UUID, x_api_key: str | None = Header(default=None, alias="X-API-Key")
-    ):
+    @app.get("/v1/requests/{request_id}", response_model=RequestHistoryResponse)
+    async def get_request(request_id: uuid.UUID, x_api_key: str | None = Security(api_key_header)):
         principal = authenticate(x_api_key)
         if deps.audit_executor is not None:
             events = await deps.audit_executor.get_events(str(request_id), principal.tenant_id)
         else:
-            events = deps.audit.get_events(str(request_id), principal.tenant_id)
+            events = await asyncio.to_thread(
+                deps.audit.get_events, str(request_id), principal.tenant_id
+            )
         if not events:
             raise HTTPException(status_code=404, detail="Not found")
         return {"request_id": str(request_id), "events": events}
+
+    @app.get(
+        "/metrics",
+        response_class=Response,
+        responses={200: {"content": {CONTENT_TYPE_LATEST: {"schema": {"type": "string"}}}}},
+    )
+    async def metrics(x_api_key: str | None = Security(api_key_header)):
+        authenticate(x_api_key)
+        unresolved = await idempotency_io(deps.audit.count_unresolved)
+        content = api_metrics.render(
+            {"http": http_admission, "prompts": admission, "operations": operations_admission},
+            {
+                "detector": deps.detector_executor.metrics.snapshot()
+                if deps.detector_executor
+                else None,
+                "audit": deps.audit_executor.metrics.snapshot() if deps.audit_executor else None,
+                "integrity": deps.integrity_executor.snapshot()
+                if deps.integrity_executor
+                else None,
+            },
+            resilient_http.circuits,
+            lag.snapshot(),
+            unresolved,
+        )
+        return Response(content=content, headers={"Content-Type": CONTENT_TYPE_LATEST})
 
     return app

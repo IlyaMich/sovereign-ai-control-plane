@@ -19,6 +19,7 @@ from app.domain.contracts import (
 from app.enforcement.pre_egress import external_content_signals
 from app.infrastructure.config import HTTPTimeouts
 from app.infrastructure.logging import event, failure_code
+from app.infrastructure.resilience import ResilientHTTP
 
 
 class InvalidPlan(Exception):
@@ -129,9 +130,11 @@ class HTTPModelGateway:
         model_url: str,
         registry: DestinationRegistry | None = None,
         *,
+        resilient_http: ResilientHTTP | None = None,
         timeout: float = HTTPTimeouts.model,
     ):
         self._client = client
+        self._http = resilient_http
         self._timeout = timeout
         self.registry = registry or DestinationRegistry(
             (Destination("sovereign-model", model_url, "INTERNAL"),)
@@ -160,11 +163,21 @@ class HTTPModelGateway:
             raise ModelUnavailable("External payload failed independent safety review")
         started = time.perf_counter()
         try:
-            response = await self._client.post(
-                destination.url.rstrip("/") + "/generate",
-                json={"request_id": request_id, "prompt": prompt},
-                timeout=self._timeout,
-            )
+            if self._http is None:
+                response = await self._client.post(
+                    destination.url.rstrip("/") + "/generate",
+                    json={"request_id": request_id, "prompt": prompt},
+                    timeout=self._timeout,
+                )
+            else:
+                response = await self._http.request(
+                    self._client,
+                    "model",
+                    "POST",
+                    destination.url.rstrip("/") + "/generate",
+                    json={"request_id": request_id, "prompt": prompt},
+                    timeout=self._timeout,
+                )
             response.raise_for_status()
             payload = response.json()
             if (

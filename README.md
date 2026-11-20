@@ -100,7 +100,7 @@ podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane
 
 # Run the EXACT approved image. Do not rebuild after signing:
 podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
+Invoke-RestMethod http://127.0.0.1:8000/health/ready -Headers @{"X-API-Key"=$env:CONTROL_PLANE_API_KEY}
 .\Verify-SignedReleaseWorkflow.ps1
 ~~~
 

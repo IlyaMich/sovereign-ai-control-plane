@@ -48,6 +48,7 @@ _ROUTES = {
     "/v1/diagnostics/concurrency",
     "/health/live",
     "/health/ready",
+    "/metrics",
 }
 _lock = threading.Lock()
 _listener: QueueListener | None = None

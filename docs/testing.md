@@ -78,7 +78,7 @@ Run after installing/activating the **approved** release image; do not rebuild i
 
 ~~~powershell
 podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready
+Invoke-RestMethod http://127.0.0.1:8000/health/ready -Headers @{"X-API-Key"=$env:CONTROL_PLANE_API_KEY}
 podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
 podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
 python -m tools.verify_policy_snapshot

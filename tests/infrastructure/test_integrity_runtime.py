@@ -99,10 +99,19 @@ async def test_readiness_file_scan_is_nonblocking_and_coalesced(audit):
         async with httpx.AsyncClient(
             transport=httpx.ASGITransport(app=app), base_url="http://test"
         ) as client:
-            first = asyncio.create_task(client.get("/health/ready"))
+            first = asyncio.create_task(
+                client.get(
+                    "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+                )
+            )
             try:
                 assert await asyncio.to_thread(started.wait, 2)
-                second = asyncio.create_task(client.get("/health/ready"))
+                second = asyncio.create_task(
+                    client.get(
+                        "/health/ready",
+                        headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"},
+                    )
+                )
                 # Liveness remains responsive while installed-byte hashing blocks.
                 assert (await asyncio.wait_for(client.get("/health/live"), 0.5)).status_code == 200
                 await asyncio.sleep(0.02)
@@ -111,7 +120,8 @@ async def test_readiness_file_scan_is_nonblocking_and_coalesced(audit):
                 release.set()
             assert (await first).status_code == 200
             assert (await second).status_code == 200
-            assert deps.integrity_executor.snapshot()["readiness_coalesced"] >= 1
+            # The entire readiness probe now coalesces before the integrity lane.
+            assert deps.integrity_executor.snapshot()["readiness_scans"] == 1
     await deps.integrity_executor.aclose()
 
 

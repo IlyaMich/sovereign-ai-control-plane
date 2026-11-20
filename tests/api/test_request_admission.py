@@ -100,7 +100,13 @@ async def test_overload_rejects_before_audit_and_recovers(audit):
             overload = await client.post("/v1/prompts", headers=HEADERS, json=PAYLOAD)
             assert overload.status_code == 429
             assert overload.headers.get("retry-after") == "1"
-            assert overload.json() == {"status": "REJECTED", "reason_codes": ["CAPACITY_EXCEEDED"]}
+            assert overload.json() == {
+                "status": "REJECTED",
+                "reason_codes": ["CAPACITY_EXCEEDED"],
+                "detail": "Too Many Requests",
+                "correlation_id": overload.headers["x-correlation-id"],
+            }
+            assert overload.headers["cache-control"] == "no-store"
             assert model.invocations == 1
             assert app.state.admission.active == 1
         finally:

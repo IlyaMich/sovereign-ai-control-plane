@@ -256,8 +256,18 @@ def test_readiness_preserves_failing_component_and_limits_error_logs(audit, even
             ReleaseVerifier, SimpleNamespace(verify_active=broken)
         )
     with TestClient(app) as client:
-        assert client.get("/health/ready").status_code == 503
-        assert client.get("/health/ready").status_code == 503
+        assert (
+            client.get(
+                "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+            ).status_code
+            == 503
+        )
+        assert (
+            client.get(
+                "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+            ).status_code
+            == 503
+        )
     transitions = [e for e in events if e["event"] == "readiness_changed"]
     assert len(transitions) == 1
     assert transitions[0]["stage"] == component

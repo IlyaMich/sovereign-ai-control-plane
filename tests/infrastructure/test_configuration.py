@@ -150,7 +150,12 @@ def test_readiness_uses_configured_timeout(audit):
     components.settings = replace(components.settings, http=HTTPTimeouts(readiness=4.5))
     components.client = httpx.AsyncClient(transport=httpx.MockTransport(handler))
     with TestClient(create_app(components)) as client:
-        assert client.get("/health/ready").status_code == 200
+        assert (
+            client.get(
+                "/health/ready", headers={"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
+            ).status_code
+            == 200
+        )
     assert len(observed) == 2
     assert all(set(item.values()) == {4.5} for item in observed)
 

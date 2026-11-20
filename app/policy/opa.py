@@ -26,6 +26,7 @@ from app.infrastructure.integrity_executor import (
     integrity_unavailable_code,
 )
 from app.infrastructure.logging import event, failure_code
+from app.infrastructure.resilience import ResilientHTTP
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError
 
@@ -49,10 +50,12 @@ class OPAPolicyEvaluator:
         snapshots: PolicySnapshotStore | None = None,
         releases: ReleaseVerifier | None = None,
         *,
+        resilient_http: ResilientHTTP | None = None,
         timeout: float = HTTPTimeouts.opa,
         integrity_executor: BoundedIntegrityExecutor | None = None,
     ):
         self._client = client
+        self._http = resilient_http
         self._timeout = timeout
         self._url = base_url.rstrip("/") + "/v1/data/sovereign/authz/decision"
         self._output_url = base_url.rstrip("/") + "/v1/data/sovereign/authz/output_decision"
@@ -98,9 +101,19 @@ class OPAPolicyEvaluator:
                 if releases is not None
                 else None
             )
-            response = await self._client.post(
-                url, json={"input": context.to_dict()}, timeout=self._timeout
-            )
+            if self._http is None:
+                response = await self._client.post(
+                    url, json={"input": context.to_dict()}, timeout=self._timeout
+                )
+            else:
+                response = await self._http.request(
+                    self._client,
+                    "opa",
+                    "POST",
+                    url,
+                    json={"input": context.to_dict()},
+                    timeout=self._timeout,
+                )
             response.raise_for_status()
             data = response.json()
             raw = data["result"]
