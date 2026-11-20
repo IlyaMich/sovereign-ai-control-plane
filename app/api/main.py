@@ -383,6 +383,24 @@ def create_app(components: Components | None = None) -> FastAPI:
                 raise ValueError("OPA policy does not match active archived snapshot")
             if result.get("policy_revision") != deps.settings.expected_policy_revision:
                 raise ValueError("Expected OPA policy revision not loaded")
+            # A pre-DLP snapshot may still serve the input entrypoint. It
+            # must not appear READY when the output entrypoint is missing.
+            if deps.orchestrator.output_policy is not None:
+                output_response = await deps.client.post(
+                    deps.settings.opa_url.rstrip("/")
+                    + "/v1/data/sovereign/authz/output_decision",
+                    json={"input": {"stage": "OUTPUT"}},
+                    timeout=deps.settings.http.readiness,
+                )
+                output_response.raise_for_status()
+                output_result = output_response.json().get("result")
+                if (
+                    not isinstance(output_result, dict)
+                    or output_result.get("effect") != "DENY"
+                    or output_result.get("policy_digest") != result.get("policy_digest")
+                    or output_result.get("policy_revision") != result.get("policy_revision")
+                ):
+                    raise ValueError("Output DLP policy missing or not bound to active policy")
             stage = "audit"
             if deps.audit_executor is not None:
                 await deps.audit_executor.check_writable()
