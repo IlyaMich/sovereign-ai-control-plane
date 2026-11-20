@@ -557,6 +557,32 @@ async def evaluate_scenarios(
             spec.expected_outcome == "COMPLETED" and row["blocked"]
             for spec, row in zip(scenarios, rows, strict=True)
         )
+        clean_expected_release = sum(
+            spec.expected_outcome == "COMPLETED" for spec in scenarios
+        )
+        injected = [row for row in rows if row["fault"]]
+        failures_by_type: dict[str, dict[str, int]] = {}
+        for fault in sorted({str(row["fault"]) for row in injected}):
+            cohort = [row for row in injected if row["fault"] == fault]
+            failures_by_type[fault] = {
+                "cases": len(cohort),
+                "withheld": sum(not row["released"] for row in cohort),
+                "unexpected_release": sum(row["released"] for row in cohort),
+                "violations": sum(bool(row["issues"]) for row in cohort),
+            }
+        evidence_mismatches = sum(
+            any(
+                issue in row["issues"]
+                for issue in (
+                    "MISSING_OR_UNORDERED_SIGNED_EVENTS",
+                    "MISSING_OUTPUT_DLP_EVIDENCE",
+                    "OUTPUT_EVIDENCE_MISMATCH",
+                    "MODEL_INVOKED_BEFORE_SIGNED_DECISION",
+                    "PLAINTEXT_MODEL_OUTPUT_IN_AUDIT",
+                )
+            )
+            for row in rows
+        )
         return {
             "schema_version": 1,
             "evaluation_mode": "response-side-dlp",
@@ -576,10 +602,30 @@ async def evaluate_scenarios(
                 "error_count": sum(row["actual_outcome"] in {"ERROR", "EXCEPTION"} for row in rows),
                 "unsafe_sensitive_release_count": unsafe,
                 "false_block_count": false_blocks,
+                "unsafe_release_rate_on_sensitive": (
+                    unsafe / sensitive if sensitive else None
+                ),
+                "false_block_rate_on_expected_releases": (
+                    false_blocks / clean_expected_release
+                    if clean_expected_release else None
+                ),
+                "blocked_rate": (
+                    sum(row["blocked"] for row in rows) / len(rows)
+                ),
+                "failure_handling": {
+                    "injected_cases": len(injected),
+                    "withheld": sum(not row["released"] for row in injected),
+                    "unexpected_release": sum(row["released"] for row in injected),
+                    "by_fault": failures_by_type,
+                },
                 "output_detection": detection,
                 "issues": dict(sorted(counts.items())),
             },
             "evidence": {
+                "per_case_evidence_mismatches": evidence_mismatches,
+                "output_evidence_cases": sum(
+                    row["output_evidence_present"] for row in rows
+                ),
                 "exported_events": exported["events"],
                 "signed_events_verified": verified["audit"]["verified_events"],
                 "input_policy_decisions_replayed": verified["audit"]["policy_decisions_replayed"],
