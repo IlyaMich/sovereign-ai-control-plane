@@ -3,6 +3,7 @@
 These tests use ephemeral SQLite, a fixture policy and an in-memory model.
 They never contact OPA or a real external model.
 """
+
 from __future__ import annotations
 
 import re
@@ -15,21 +16,33 @@ from app.audit.sqlite_store import SQLiteAuditStore
 from app.detection.config import DetectorConfig
 from app.detection.provenance import SOURCE_PATHS
 from app.domain.contracts import (
-    DetectionResult, DetectionStatus, Effect, Finding, ModelResult, Obligation,
-    PolicyDecision, Principal, PromptCommand, Sensitivity,
+    DetectionResult,
+    DetectionStatus,
+    Effect,
+    Finding,
+    ModelResult,
+    Obligation,
+    PolicyDecision,
+    Principal,
+    PromptCommand,
+    Sensitivity,
 )
 from app.enforcement.gateway import (
-    Destination, DestinationRegistry, EnforcementPlanner, HTTPModelGateway,
+    Destination,
+    DestinationRegistry,
+    EnforcementPlanner,
+    HTTPModelGateway,
     ModelUnavailable,
 )
 from app.enforcement.pre_egress import external_content_signals
 from evaluation.dataset import load_dataset
 
-
-REGISTRY = DestinationRegistry((
-    Destination("sovereign-model", "http://sovereign-model:9000", "INTERNAL"),
-    Destination("external-simulator", "http://external-simulator:9010", "EXTERNAL_SIMULATED"),
-))
+REGISTRY = DestinationRegistry(
+    (
+        Destination("sovereign-model", "http://sovereign-model:9000", "INTERNAL"),
+        Destination("external-simulator", "http://external-simulator:9010", "EXTERNAL_SIMULATED"),
+    )
+)
 
 
 class FixtureDetector:
@@ -40,22 +53,44 @@ class FixtureDetector:
         if self.partial_name and "Taylor" in prompt:
             offset = prompt.index("Taylor")
             return DetectionResult(
-                DetectionStatus.PRIVATE, Sensitivity.MEDIUM,
+                DetectionStatus.PRIVATE,
+                Sensitivity.MEDIUM,
                 (Finding("PERSON", offset, offset + len("Taylor"), "fixture", 0.99),),
-                ("EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD", "US_SSN",
-                 "API_CREDENTIAL", "PRIVATE_KEY"),
-                "presidio-spacy-v1", (), "test-config",
+                (
+                    "EMAIL_ADDRESS",
+                    "PHONE_NUMBER",
+                    "PERSON",
+                    "CREDIT_CARD",
+                    "US_SSN",
+                    "API_CREDENTIAL",
+                    "PRIVATE_KEY",
+                ),
+                "presidio-spacy-v1",
+                (),
+                "test-config",
             )
         return DetectionResult(
-            DetectionStatus.NO_PRIVATE_DETECTED, Sensitivity.NONE, (),
-            ("EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD", "US_SSN",
-             "API_CREDENTIAL", "PRIVATE_KEY"),
-            "presidio-spacy-v1", (), "test-config",
+            DetectionStatus.NO_PRIVATE_DETECTED,
+            Sensitivity.NONE,
+            (),
+            (
+                "EMAIL_ADDRESS",
+                "PHONE_NUMBER",
+                "PERSON",
+                "CREDIT_CARD",
+                "US_SSN",
+                "API_CREDENTIAL",
+                "PRIVATE_KEY",
+            ),
+            "presidio-spacy-v1",
+            (),
+            "test-config",
         )
 
 
 class PermissiveExternalFixture:
     async def evaluate(self, context):
+        obligations: tuple[Obligation, ...]
         if context.classification.status == DetectionStatus.PRIVATE:
             obligations = (
                 Obligation("REDACT", categories=("PERSON",)),
@@ -79,11 +114,17 @@ async def _invoke(tmp_path, prompt: str, *, partial_name=False, destination="ext
     audit = SQLiteAuditStore(str(tmp_path / "audit.sqlite"), str(tmp_path / "audit.pem"))
     model = RecordingModel()
     orch = RequestOrchestrator(
-        FixtureDetector(partial_name), PermissiveExternalFixture(), audit, model,
+        FixtureDetector(partial_name),
+        PermissiveExternalFixture(),
+        audit,
+        model,
         EnforcementPlanner(frozenset({"external-simulator", "sovereign-model"}), REGISTRY),
     )
     command = PromptCommand(
-        "remediation-req", prompt, destination, "GENERAL",
+        "remediation-req",
+        prompt,
+        destination,
+        "GENERAL",
         Principal("test", "test-tenant", ("tester",)),
     )
     result = await orch.process(command)
@@ -103,7 +144,9 @@ async def test_ssn_shaped_negative_is_denied_before_external_model(tmp_path):
 @pytest.mark.asyncio
 async def test_partial_multiline_name_denied_despite_planned_redaction(tmp_path):
     result, calls, events = await _invoke(
-        tmp_path, "Review <Taylor\nNguyen> before exporting", partial_name=True,
+        tmp_path,
+        "Review <Taylor\nNguyen> before exporting",
+        partial_name=True,
     )
     assert result.status.value == "BLOCKED"
     assert result.decision.reason_codes == ("EXTERNAL_CONTENT_UNVERIFIED",)
@@ -114,7 +157,9 @@ async def test_partial_multiline_name_denied_despite_planned_redaction(tmp_path)
 @pytest.mark.asyncio
 async def test_single_line_person_partial_detection_cannot_be_redacted_externally(tmp_path):
     result, calls, _events = await _invoke(
-        tmp_path, "Review Taylor Nguyen before exporting", partial_name=True,
+        tmp_path,
+        "Review Taylor Nguyen before exporting",
+        partial_name=True,
     )
     assert result.status.value == "BLOCKED"
     assert result.decision.reason_codes == ("EXTERNAL_CONTENT_UNVERIFIED",)
@@ -167,14 +212,17 @@ def test_generalized_recognizer_rules_match_shapes_not_sample_ids():
         ("US_SSN", "431-27-8492"),
         ("PERSON", "Morgan\nPatel"),
     ):
-        assert any(re.search(regex, sample) and score >= cfg.threshold
-                   for _name, regex, score in patterns[category])
-    assert not any(re.search(regex, "000-00-0000") for _name, regex, _score in
-                   patterns["US_SSN"])
+        assert any(
+            re.search(regex, sample) and score >= cfg.threshold
+            for _name, regex, score in patterns[category]
+        )
+    assert not any(re.search(regex, "000-00-0000") for _name, regex, _score in patterns["US_SSN"])
     # Presidio may enable global IGNORECASE flags; the custom name shape must
     # remain case-sensitive and avoid turning arbitrary multiline prose into PII.
-    assert not any(re.search(regex, "ordinary\nprose", flags=re.IGNORECASE)
-                   for _name, regex, _score in patterns["PERSON"])
+    assert not any(
+        re.search(regex, "ordinary\nprose", flags=re.IGNORECASE)
+        for _name, regex, _score in patterns["PERSON"]
+    )
 
 
 def test_release_manifest_covers_egress_gate_and_planner_source():

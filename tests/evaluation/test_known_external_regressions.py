@@ -3,6 +3,7 @@
 A passing pre-egress guard test does NOT establish universal PII detection.
 Full Rego-backed replay must still run against the new signed release candidate.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -13,9 +14,15 @@ from evaluation.dataset import load_dataset
 # Frozen v1 benchmark case IDs verified against the archived 1200-case replay.
 KNOWN_UNSAFE = (
     *(f"STANDARD_SENSITIVE-{i:04d}" for i in range(216, 256, 3)),
-    "ADVERSARIAL-0003", "ADVERSARIAL-0012", "ADVERSARIAL-0021",
-    "ADVERSARIAL-0030", "ADVERSARIAL-0075", "ADVERSARIAL-0084",
-    "ADVERSARIAL-0093", "ADVERSARIAL-0102", "ADVERSARIAL-0111",
+    "ADVERSARIAL-0003",
+    "ADVERSARIAL-0012",
+    "ADVERSARIAL-0021",
+    "ADVERSARIAL-0030",
+    "ADVERSARIAL-0075",
+    "ADVERSARIAL-0084",
+    "ADVERSARIAL-0093",
+    "ADVERSARIAL-0102",
+    "ADVERSARIAL-0111",
     "ADVERSARIAL-0120",
 )
 
@@ -41,23 +48,29 @@ def test_partial_redaction_cannot_erase_source_signal():
     )
 
 
-@pytest.mark.parametrize("source", [
-    "The account lists 123-45-6789",
-    "The account lists 219 09 9999",
-    "The account lists 111.22.3333",
-    "Please review: <Avery\nChen>",
-    "Please review: <AVERY\nCHEN>",
-])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "The account lists 123-45-6789",
+        "The account lists 219 09 9999",
+        "The account lists 111.22.3333",
+        "Please review: <Avery\nChen>",
+        "Please review: <AVERY\nCHEN>",
+    ],
+)
 def test_generalized_suspicious_external_forms_are_blocked(source):
     assert external_content_signals(source, source)
 
 
-@pytest.mark.parametrize("source", [
-    "Documentation references 000-00-0000 as an invalid placeholder",
-    "Internal work: Explain latency and throughput",
-    "Contact [REDACTED_EMAIL_ADDRESS] for details",
-    "First\nsecond is not a proper name pair",
-])
+@pytest.mark.parametrize(
+    "source",
+    [
+        "Documentation references 000-00-0000 as an invalid placeholder",
+        "Internal work: Explain latency and throughput",
+        "Contact [REDACTED_EMAIL_ADDRESS] for details",
+        "First\nsecond is not a proper name pair",
+    ],
+)
 def test_expected_clean_payloads_are_not_screened(source):
     assert external_content_signals(source, source) == ()
 
@@ -80,10 +93,21 @@ async def test_all_24_fail_closed_with_a_deliberately_blind_detector():
     class BlindDetector:
         def detect(self, prompt: str) -> DetectionResult:
             return DetectionResult(
-                DetectionStatus.NO_PRIVATE_DETECTED, Sensitivity.NONE, (),
-                ("EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD",
-                 "US_SSN", "API_CREDENTIAL", "PRIVATE_KEY"),
-                "presidio-spacy-v1", (), "blind-detector-fixture",
+                DetectionStatus.NO_PRIVATE_DETECTED,
+                Sensitivity.NONE,
+                (),
+                (
+                    "EMAIL_ADDRESS",
+                    "PHONE_NUMBER",
+                    "PERSON",
+                    "CREDIT_CARD",
+                    "US_SSN",
+                    "API_CREDENTIAL",
+                    "PRIVATE_KEY",
+                ),
+                "presidio-spacy-v1",
+                (),
+                "blind-detector-fixture",
             )
 
     selected = tuple(c for c in load_dataset().cases if c.id in KNOWN_UNSAFE)
