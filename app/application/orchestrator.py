@@ -441,7 +441,7 @@ class RequestOrchestrator:
 
             # A signed release must remain trusted *after* model execution.
             # No output is released against a changed or unavailable authority.
-            if self.release_store is not None:
+            if self.release_store is not None and output_decision.effect == Effect.PERMIT:
                 try:
                     if approved_release is None:
                         raise ReleaseIntegrityError("No approved release")
@@ -490,7 +490,7 @@ class RequestOrchestrator:
                 "decision": output_decision.to_dict(),
                 "output_hmac_sha256": (
                     self.audit.fingerprint("model-output-v1\\x00" + content)
-                    if isinstance(content, str)
+                    if valid_content
                     else None
                 ),
                 "released": released,
