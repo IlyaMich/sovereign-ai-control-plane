@@ -1,10 +1,12 @@
-# Response-side DLP: approved v4 allow/block and opt-in v5 masking
+# Response-side DLP: source implementation and signed-release boundary
 
-Response-side allow/block enforcement is implemented and active in the approved
-v4 signed deployment. The repository now contains **v5 source with optional
-masking** and detector refinements. That source has no runtime effect until
-it is built, evaluated and approved in a new signed successor release.
-The output-masking option remains off unless an operator explicitly enables it.
+The source implements output allow/block and optional v5 email/phone masking,
+but **running behavior is determined by the installed, verified signed release**.
+An earlier operator report described v4 allow/block approval; the checked-in
+generation-7 policy is only a historical v3 example and lacks the output-policy
+entrypoint. The source v5 revision requires a reviewed signed successor release
+on an existing installation. `OUTPUT_MASKING_ENABLED=false` is the default.
+See [release status](release-status.md) before claiming a host is running DLP.
 
 ## Decision flow
 
@@ -14,9 +16,10 @@ The output-masking option remains off unless an operator explicitly enables it.
    bounded Presidio detector. Generated text is never submitted to OPA.
 4. Evaluate `data.sovereign.authz.output_decision` using normalized output
    findings, trusted principal, destination, purpose and `stage=OUTPUT`.
-5. Independently enforce that only a complete `NO_PRIVATE_DETECTED`
-   classification, with no findings, can authorize response release. Verify
-   that the active signed release still matches the detector and policy.
+5. Independently enforce that release is allowed only for a complete clean
+   original classification, **or** for explicitly authorized masking with a
+   mandatory clean second scan; all other classifications fail closed. Verify
+   the active signed release still matches the detector and policy.
 6. Commit a signed `OUTCOME` with output classification, exact policy
    input/evaluation, final enforcement rationale, release flag, and a
    domain-separated keyed output fingerprint. **Only after this commit** is
@@ -32,7 +35,7 @@ runtime has no separate `OUTPUT_DLP_ENABLED` toggle.
 | --- | --- | --- |
 | Complete clean classification and Rego `PERMIT` | Release | HTTP 200, status `COMPLETED` |
 | v5 opt-in Rego `REDACT` permit for email/phone only; post-mask scan clean | Release sanitized text | HTTP 200, status `COMPLETED` |
-| `PRIVATE`, including email/credentials | Withhold | HTTP 403, status `OUTPUT_BLOCKED` |
+| `PRIVATE` without valid masking authorization, including credentials | Withhold | HTTP 403, status `OUTPUT_BLOCKED` |
 | `UNKNOWN`, unsupported script, detector failure | Withhold | HTTP 403, `OUTPUT_BLOCKED` |
 | OPA failure or invalid output obligations | Withhold | HTTP 403, `OUTPUT_BLOCKED` |
 | Missing/changed active release | Withhold | HTTP 403, `OUTPUT_BLOCKED` |
@@ -87,8 +90,8 @@ python -m tools.test_output_policy --opa-bin opa
 `tools.test_output_policy` builds a **temporary** content-addressed snapshot
 from `policies/` and runs both existing input and new output Rego tests,
 without changing `policy-active/`, release metadata or signing keys.
-The old active-policy Rego suite remains separately runnable until the
-operator activates the new signed release.
+The installed active-policy Rego suite remains separately runnable; source
+policy tests do not imply activation of the new signed release.
 
 Before runtime deployment:
 
@@ -104,13 +107,13 @@ Before runtime deployment:
 7. Verify readiness, clean-output delivery, synthetic private-output block,
    and exported-evidence replay.
 
-Do not mutate signed `policy-active`, `release-active`, or live container
-files before that approval. Do not use `podman compose down -v`.
+Do not mutate signed `.runtime/policy-active`, `.runtime/release-active`,
+or live container files before that approval. Do not use `podman compose down -v`.
 
 ## Limitations
 
-Approved v4 supports output **allow/block**. Candidate v5 additionally
-supports opt-in output masking for email and phone findings only, followed by
+The current **v5 source** supports opt-in output masking for email and phone
+findings only, conditional on a matching signed release, followed by
 a separate clean scan and release re-verification. Mixing these with credentials,
 private keys, PERSON, cards, SSNs or other categories still causes a block.
 `OUTPUT_MASKING_ENABLED=false` is the safe default. Transform failures cause
