@@ -63,9 +63,12 @@ def test_operator_state_migration_preserves_approved_identity(tmp_path):
     ):
         source = root / name
         copied = root / ".runtime" / name
-        assert sorted(p.relative_to(source) for p in source.rglob("*") if p.is_file()) == sorted(
-            p.relative_to(copied) for p in copied.rglob("*") if p.is_file()
-        )
+        source_files = sorted(p for p in source.rglob("*") if p.is_file())
+        copied_files = sorted(p for p in copied.rglob("*") if p.is_file())
+        assert [p.relative_to(source) for p in source_files] == [
+            p.relative_to(copied) for p in copied_files
+        ]
+        assert [p.read_bytes() for p in source_files] == [p.read_bytes() for p in copied_files]
 
 
 def test_operator_state_migration_refuses_existing_destination(tmp_path):
@@ -94,6 +97,26 @@ def test_operator_state_migration_refuses_corrupt_policy(tmp_path):
     with pytest.raises(Exception):
         migrate_legacy_state(root, apply=True)
     assert not (root / ".runtime").exists()
+
+
+def test_operator_state_migration_checks_every_archived_file(tmp_path, monkeypatch):
+    """A corrupted historical candidate must not be silently copied."""
+    from tools import operator_state
+
+    root = sample_legacy_state(tmp_path)
+    real_copy = operator_state.shutil.copytree
+
+    def corrupt_one_copy(source, destination):
+        result = real_copy(source, destination)
+        if Path(source).name == "release-candidates":
+            (Path(destination) / "release-g1.json").write_bytes(b"changed")
+        return result
+
+    monkeypatch.setattr(operator_state.shutil, "copytree", corrupt_one_copy)
+    with pytest.raises(ValueError, match="archive bytes differ"):
+        migrate_legacy_state(root, apply=True)
+    assert not (root / ".runtime").exists()
+    assert verify_operator_state(root)["generation"] == 1
 
 
 def test_compose_never_mounts_git_tracked_signed_artifacts():
