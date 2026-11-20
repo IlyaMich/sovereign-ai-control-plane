@@ -63,6 +63,7 @@ def test_full_pem_recognizer_does_not_join_mismatched_boundaries() -> None:
         "Madison, Wisconsin",
         "New York, New York",
         "St. Louis, Missouri",
+        "Salt Lake City, Utah",
         "Ft. Worth, Texas",
         "Seattle, Washington",
     ),
@@ -86,6 +87,13 @@ def test_city_and_full_state_are_one_location_span(value: str) -> None:
 )
 def test_city_state_pattern_avoids_unstructured_mentions(text: str) -> None:
     assert _pattern("LOCATION", "us-city-full-state").search(text) is None
+
+
+def test_location_span_does_not_consume_capitalized_instruction() -> None:
+    text = "Review Madison, Wisconsin before exporting."
+    match = _pattern("LOCATION", "us-city-full-state").search(text)
+    assert match is not None
+    assert match.group(0) == "Madison, Wisconsin"
 
 
 def test_new_patterns_match_only_annotated_spans_in_frozen_dataset() -> None:
