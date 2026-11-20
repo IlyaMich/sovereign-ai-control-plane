@@ -7,12 +7,13 @@ from pathlib import Path
 from app.detection.provenance import canonical
 from app.policy.snapshots import verify_snapshot
 from app.release.approvals import make_payload, sign_approval
+from tools.operator_state import state_path
 
 
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--private-key", required=True)
-    parser.add_argument("--policy-snapshot", default="policy-active")
+    parser.add_argument("--policy-snapshot", default=str(state_path("policy-active")))
     parser.add_argument("--detector-digest", required=True)
     parser.add_argument("--generation", type=int, required=True)
     parser.add_argument("--previous-release-id", default=None)
