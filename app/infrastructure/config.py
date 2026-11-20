@@ -289,6 +289,7 @@ class Settings:
     db_path: str = "/var/lib/sovereign/audit.sqlite"
     signing_key_path: str = "/var/lib/sovereign/audit-key.pem"
     enable_external_simulator: bool = False
+    output_masking_enabled: bool = False
     egress_gateway_url: str = "http://egress-gateway:9010"
     expected_policy_revision: str = "redaction-response-dlp-v4"
     active_policy_path: str = "/policy-active"
@@ -331,6 +332,7 @@ class Settings:
             signing_key_path=os.environ.get(
                 "AUDIT_SIGNING_KEY_PATH", "/var/lib/sovereign/audit-key.pem"
             ),
+            output_masking_enabled=os.environ.get("OUTPUT_MASKING_ENABLED", "false").lower() == "true",
             enable_external_simulator=os.environ.get("ENABLE_EXTERNAL_SIMULATOR", "false").lower()
             == "true",
             egress_gateway_url=os.environ.get("EGRESS_GATEWAY_URL", "http://egress-gateway:9010"),
