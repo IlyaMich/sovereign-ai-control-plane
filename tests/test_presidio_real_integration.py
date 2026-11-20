@@ -77,7 +77,7 @@ def test_real_presidio_confident_phone_and_mixed_sensitive_prompt():
         result = detector.detect(text)
         assert result.status.value == "PRIVATE", result.reason_codes
         expected_start = text.index("202")
-        expected_end = expected_start + len("202-555-0102".replace("-", " " if "202 555" in text else "-"))
+        expected_end = expected_start + len("202-555-0102")
         assert any(
             entity.category == "PHONE_NUMBER"
             and (entity.start, entity.end) == (expected_start, expected_end)
