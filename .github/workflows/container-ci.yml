@@ -1,0 +1,74 @@
+name: Container CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  schedule:
+    - cron: '0 3 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  image-security:
+    name: Container security (High+)
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@v3
+      - name: Build exact candidate application image
+        run: docker build -f deploy/Containerfile -t sovereign-control-plane:ci .
+      - name: Verify installed detector identity
+        run: |
+          docker run --rm --entrypoint python sovereign-control-plane:ci \
+            -m tools.verify_detector_manifest \
+            --manifest /service/detector-active/manifest.json
+      - name: Scan application image — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: image
+          image-ref: sovereign-control-plane:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+          format: table
+      - name: Build reviewer image
+        run: docker build -f deploy/ReviewerContainerfile -t sovereign-reviewer:ci .
+      - name: Scan reviewer image — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: image
+          image-ref: sovereign-reviewer:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+          format: table
+      - name: Scan pinned OPA runtime — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: image
+          image-ref: openpolicyagent/opa:1.8.0
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+          format: table
+      - name: Validate Compose
+        env:
+          CONTROL_PLANE_API_KEY: synthetic-ci-key-never-for-production
+        run: docker compose -f deploy/compose.yaml config -q

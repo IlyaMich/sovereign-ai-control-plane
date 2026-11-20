@@ -1,0 +1,549 @@
+# MANUAL ONLY. Does not deploy to a running control plane.
+# The signing job must use an isolated signer; NEVER route pull_request jobs to it.
+name: Manual Signed Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      main_sha:
+        description: 'Exact 40-character SHA currently at the head of main'
+        required: true
+        type: string
+      confirmation:
+        description: 'Type SIGN to authorize a signing request'
+        required: true
+        type: string
+      image_version:
+        description: 'Optional OCI tag like v0.6.0 (must match pyproject.toml version)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sovereign-manual-signed-release
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == 'refs/heads/main' && inputs.confirmation == 'SIGN'
+    name: Verify, scan, and freeze image
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Refuse branch or moving-main release
+        env:
+          REQUESTED_SHA: ${{ inputs.main_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$REQUESTED_SHA" =~ ^[0-9a-f]{40}$ ]] || exit 1
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+          main_head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
+          test "$main_head" = "$REQUESTED_SHA"
+      - name: Validate optional semantic version tag
+        env:
+          IMAGE_VERSION: ${{ inputs.image_version }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -n "$IMAGE_VERSION" ]]; then
+            [[ "$IMAGE_VERSION" =~ ^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]] || {
+              echo 'Image version must be vMAJOR.MINOR.PATCH' >&2; exit 1;
+            }
+            python - <<'PYCODE'
+          import os
+          import tomllib
+          with open('pyproject.toml', 'rb') as fh:
+              expected = 'v' + tomllib.load(fh)['project']['version']
+          if os.environ['IMAGE_VERSION'] != expected:
+              raise SystemExit('Image version must match pyproject.toml [project].version')
+          PYCODE
+          fi
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install tools, project, and pinned spaCy model
+        run: |
+          python -m pip install -e '.[dev]' 'bandit>=1.8,<2'
+          python -m pip install \
+            'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
+          python -m pip freeze > requirements-ci.txt
+      - name: Quality and complete test suite
+        run: |
+          python -m ruff check .
+          python -m ruff check .github/scripts
+          python -m py_compile .github/scripts/sign_release_ci.py
+          python -m ruff format --check .
+          python -m mypy
+          python -m pytest -q
+          python -m evaluation.cli validate
+      - name: Bandit — block High severity
+        run: python -m bandit -r app simulator tools .github/scripts -lll
+      - name: Trivy filesystem — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: fs
+          scan-ref: .
+          scanners: vuln,secret,misconfig
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+      - name: Validate and test proposed policy without activating it
+        run: |
+          python -m tools.build_policy_snapshot \
+            --source policies \
+            --archive "$RUNNER_TEMP/proposed-policy-archive" \
+            --active "$RUNNER_TEMP/proposed-policy"
+          python -m tools.verify_policy_snapshot \
+            --archive "$RUNNER_TEMP/proposed-policy-archive" \
+            --active "$RUNNER_TEMP/proposed-policy"
+          docker run --rm \
+            -v "$RUNNER_TEMP/proposed-policy:/policies:ro" \
+            -v "$PWD/tests/rego:/policy-tests:ro" \
+            -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
+            --entrypoint /opa openpolicyagent/opa:1.8.0 \
+            test /policies /policy-tests /output-policy-tests -v
+      - name: Build exact image intended for approval
+        env:
+          IMAGE: sovereign-control-plane:manual-${{ github.sha }}
+        run: |
+          docker build -f deploy/Containerfile \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$IMAGE" .
+      - name: Verify installed detector provenance
+        env:
+          IMAGE: sovereign-control-plane:manual-${{ github.sha }}
+        run: |
+          docker run --rm --entrypoint python "$IMAGE" \
+            -m tools.verify_detector_manifest \
+            --manifest /service/detector-active/manifest.json
+      - name: Trivy application image — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: image
+          image-ref: sovereign-control-plane:manual-${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+      - name: Build reviewer image for security assurance
+        env:
+          IMAGE: sovereign-reviewer:manual-${{ github.sha }}
+        run: |
+          docker build -f deploy/ReviewerContainerfile \
+            --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" \
+            --label "org.opencontainers.image.revision=${GITHUB_SHA}" \
+            -t "$IMAGE" .
+      - name: Trivy reviewer image — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: image
+          image-ref: sovereign-reviewer:manual-${{ github.sha }}
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+      - name: Trivy OPA image — block High/Critical
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          version: 'v0.76.2'
+          scan-type: image
+          image-ref: openpolicyagent/opa:1.8.0
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+          ignore-unfixed: 'false'
+      - name: Freeze both scanned images and the detector manifest
+        env:
+          IMAGE: sovereign-control-plane:manual-${{ github.sha }}
+          REVIEWER: sovereign-reviewer:manual-${{ github.sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/release-image"
+          docker save "$IMAGE" | gzip -1 > "$RUNNER_TEMP/release-image/application-image.tar.gz"
+          docker save "$REVIEWER" | gzip -1 > "$RUNNER_TEMP/release-image/reviewer-image.tar.gz"
+          container_id=$(docker create "$IMAGE")
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          docker cp "$container_id:/service/detector-active/manifest.json" \
+            "$RUNNER_TEMP/release-image/detector-manifest.json"
+          (cd "$RUNNER_TEMP/release-image" && \
+            sha256sum application-image.tar.gz reviewer-image.tar.gz > image.sha256)
+      - name: Transfer frozen image to protected signing job
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanned-image-${{ github.sha }}
+          path: ${{ runner.temp }}/release-image/
+          if-no-files-found: error
+          retention-days: 7
+          compression-level: 0
+
+  sign:
+    name: Sign N+1 with independent authority
+    needs: prepare
+    # Configure required reviewers in repository environment settings.
+    environment: signed-release
+    # Dedicated isolated Linux runner. Must NOT run PR or general CI jobs.
+    runs-on: [self-hosted, linux, x64, release-signer]
+    timeout-minutes: 60
+    outputs:
+      generation: ${{ steps.approve.outputs.generation }}
+      release_id: ${{ steps.approve.outputs.release_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Verify main has not changed during the approval window
+        env:
+          REQUESTED_SHA: ${{ inputs.main_sha }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$REQUESTED_SHA"
+          main_head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
+          test "$main_head" = "$REQUESTED_SHA"
+      - name: Download approved image from this workflow run
+        uses: actions/download-artifact@v4
+        with:
+          name: scanned-image-${{ github.sha }}
+          path: release-input
+      - name: Validate frozen image checksum, load, and verify detector identity
+        id: detector
+        shell: bash
+        env:
+          IMAGE: sovereign-control-plane:manual-${{ github.sha }}
+        run: |
+          set -euo pipefail
+          (cd release-input && sha256sum -c image.sha256)
+          gzip -dc release-input/application-image.tar.gz | docker load
+          gzip -dc release-input/reviewer-image.tar.gz | docker load
+          docker image inspect "$IMAGE" >/dev/null
+          docker image inspect "sovereign-reviewer:manual-${GITHUB_SHA}" >/dev/null
+          for image in "$IMAGE" "sovereign-reviewer:manual-${GITHUB_SHA}"; do
+            revision=$(docker image inspect "$image" \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+            test "$revision" = "$GITHUB_SHA"
+          done
+          digest=$(docker run --rm --entrypoint python "$IMAGE" \
+            -m tools.verify_detector_manifest \
+            --manifest /service/detector-active/manifest.json | python -c 'import json,sys; print(json.load(sys.stdin)["detector_artifact_digest"])')
+          expected=$(python -c 'import json; print(json.load(open("release-input/detector-manifest.json"))["digest"])')
+          test "$digest" = "$expected"
+          echo "digest=$digest" >> "$GITHUB_OUTPUT"
+      - name: Sign against protected operator-owned release history
+        id: approve
+        shell: bash
+        env:
+          DETECTOR_DIGEST: ${{ steps.detector.outputs.digest }}
+          EXPECTED_PUBLIC_SHA256: ${{ vars.RELEASE_SIGNER_PUBLIC_KEY_SHA256 }}
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # The signer retains an authoritative state directory OUTSIDE checkout.
+          # A fresh Git checkout must never supply the predecessor generation.
+          python .github/scripts/sign_release_ci.py
+      - name: Export verified, signed release package
+        uses: actions/upload-artifact@v4
+        with:
+          name: signed-release-g${{ steps.approve.outputs.generation }}
+          path: signed-package/
+          retention-days: 30
+          if-no-files-found: error
+          compression-level: 0
+
+  publish:
+    name: Publish frozen images to GHCR and signed GitHub Release
+    needs: sign
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      contents: write
+      packages: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Install release verifier dependency
+        run: python -m pip install 'cryptography>=43,<47'
+      - name: Download the verified signed release package
+        uses: actions/download-artifact@v4
+        with:
+          name: signed-release-g${{ needs.sign.outputs.generation }}
+          path: signed-package
+
+      - name: Verify frozen image checksums and release identity
+        shell: bash
+        env:
+          GENERATION: ${{ needs.sign.outputs.generation }}
+          RELEASE_ID: ${{ needs.sign.outputs.release_id }}
+          GH_TOKEN: ${{ github.token }}
+          EXPECTED_PUBLIC_SHA256: ${{ vars.RELEASE_SIGNER_PUBLIC_KEY_SHA256 }}
+        run: |
+          set -euo pipefail
+          (cd signed-package && sha256sum -c image.sha256)
+          test ! -e signed-package/.runtime
+          python - <<'PYCODE'
+          from pathlib import Path
+          import tarfile
+          archive = Path('signed-package/release-state.tar.gz')
+          with tarfile.open(archive, 'r:gz') as tf:
+              for member in tf.getmembers():
+                  name = Path(member.name)
+                  if (name.is_absolute() or '..' in name.parts
+                      or name.parts[:1] != ('.runtime',)
+                      or not (member.isdir() or member.isfile())):
+                      raise SystemExit('Unsafe signed release-state archive entry')
+              tf.extractall('signed-package', filter='data')
+          PYCODE
+          [[ "$EXPECTED_PUBLIC_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+            echo 'Configure RELEASE_SIGNER_PUBLIC_KEY_SHA256 repository variable' >&2; exit 1;
+          }
+          test "$(sha256sum signed-package/.runtime/release-trust/release-signing.pub.pem | cut -d' ' -f1)" = "$EXPECTED_PUBLIC_SHA256"
+          python -m tools.verify_release \
+            --trust signed-package/.runtime/release-trust \
+            --active signed-package/.runtime/release-active/release.json \
+            --archive signed-package/.runtime/release-archive \
+            --policy-active signed-package/.runtime/policy-active \
+            --policy-archive signed-package/.runtime/policy-archive
+          python - <<'PYCODE'
+          import json
+          import os
+          from pathlib import Path
+
+          package = Path('signed-package')
+          approval = json.loads((package / 'release.json').read_text())
+          manifest = json.loads((package / 'detector-manifest.json').read_text())
+          assert approval['release_id'] == os.environ['RELEASE_ID']
+          assert approval['payload']['generation'] == int(os.environ['GENERATION'])
+          assert approval['payload']['detector_digest'] == manifest['digest']
+          assert approval['payload']['purpose'] == 'ACTIVATE'
+          PYCODE
+          # Authentication above is pinned to an independently configured GitHub
+          # repository fingerprint, not to an arbitrary key in the release bundle.
+          main_head=$(gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha)
+          test "$main_head" = "$GITHUB_SHA" || {
+            echo 'main changed after signing; refusing registry publication' >&2; exit 1;
+          }
+          gzip -dc signed-package/application-image.tar.gz | docker load
+          gzip -dc signed-package/reviewer-image.tar.gz | docker load
+          docker image inspect "sovereign-control-plane:manual-${GITHUB_SHA}" >/dev/null
+          docker image inspect "sovereign-reviewer:manual-${GITHUB_SHA}" >/dev/null
+          for image in \
+            "sovereign-control-plane:manual-${GITHUB_SHA}" \
+            "sovereign-reviewer:manual-${GITHUB_SHA}"; do
+            revision=$(docker image inspect "$image" \
+              --format '{{ index .Config.Labels "org.opencontainers.image.revision" }}')
+            test "$revision" = "$GITHUB_SHA"
+          done
+          live_digest=$(docker run --rm --entrypoint python \
+            "sovereign-control-plane:manual-${GITHUB_SHA}" \
+            -m tools.verify_detector_manifest \
+            --manifest /service/detector-active/manifest.json \
+            | python -c 'import json,sys; print(json.load(sys.stdin)["detector_artifact_digest"])')
+          expected_digest=$(python -c 'import json; print(json.load(open("signed-package/detector-manifest.json"))["digest"])')
+          test "$live_digest" = "$expected_digest"
+
+      - name: Authenticate to GitHub Container Registry
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "$GH_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+
+      - name: Refuse to overwrite existing GHCR image tags
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          IMAGE_VERSION: ${{ inputs.image_version }}
+          GENERATION: ${{ needs.sign.outputs.generation }}
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          # Registry API HEAD distinguishes an absent tag (404) from a registry
+          # outage/authorization failure. Fail closed on every other response.
+          import base64
+          import json
+          import os
+          import urllib.error
+          import urllib.parse
+          import urllib.request
+
+          repository = os.environ['GITHUB_REPOSITORY'].lower()
+          refs = [
+              (repository, 'g' + os.environ['GENERATION']),
+              (repository, 'sha-' + os.environ['GITHUB_SHA']),
+              (repository + '-audit-reviewer', 'g' + os.environ['GENERATION']),
+              (repository + '-audit-reviewer', 'sha-' + os.environ['GITHUB_SHA']),
+          ]
+          if os.environ.get('IMAGE_VERSION'):
+              refs.extend([
+                  (repository, os.environ['IMAGE_VERSION']),
+                  (repository + '-audit-reviewer', os.environ['IMAGE_VERSION']),
+              ])
+          basic = base64.b64encode(
+              (os.environ['GITHUB_ACTOR'] + ':' + os.environ['GH_TOKEN']).encode()
+          ).decode()
+          for name, tag in refs:
+              scope = urllib.parse.quote('repository:' + name + ':pull', safe='')
+              url = 'https://ghcr.io/token?service=ghcr.io&scope=' + scope
+              req = urllib.request.Request(url, headers={'Authorization': 'Basic ' + basic})
+              with urllib.request.urlopen(req, timeout=30) as response:
+                  bearer = json.load(response)['token']
+              req = urllib.request.Request(
+                  f'https://ghcr.io/v2/{name}/manifests/{tag}',
+                  headers={
+                      'Authorization': 'Bearer ' + bearer,
+                      'Accept': ', '.join([
+                          'application/vnd.oci.image.index.v1+json',
+                          'application/vnd.oci.image.manifest.v1+json',
+                          'application/vnd.docker.distribution.manifest.list.v2+json',
+                          'application/vnd.docker.distribution.manifest.v2+json',
+                      ]),
+                  },
+                  method='HEAD',
+              )
+              try:
+                  with urllib.request.urlopen(req, timeout=30) as response:
+                      raise SystemExit(f'Refusing to overwrite existing GHCR tag: {name}:{tag}')
+              except urllib.error.HTTPError as exc:
+                  if exc.code != 404:
+                      raise
+          PYCODE
+
+      - name: Push the scanned image bytes, without rebuilding
+        id: registry
+        shell: bash
+        env:
+          IMAGE_VERSION: ${{ inputs.image_version }}
+          GENERATION: ${{ needs.sign.outputs.generation }}
+        run: |
+          set -euo pipefail
+          image="ghcr.io/${GITHUB_REPOSITORY,,}"
+          reviewer="${image}-audit-reviewer"
+          source_app="sovereign-control-plane:manual-${GITHUB_SHA}"
+          source_reviewer="sovereign-reviewer:manual-${GITHUB_SHA}"
+          mkdir -p "$RUNNER_TEMP/ghcr-push"
+
+          publish_image() {
+            local source="$1" name="$2" label="$3"
+            local release_tag="${name}:g${GENERATION}"
+            local commit_tag="${name}:sha-${GITHUB_SHA}"
+            docker tag "$source" "$release_tag"
+            docker tag "$source" "$commit_tag"
+            docker push "$release_tag" | tee "$RUNNER_TEMP/ghcr-push/${label}.log"
+            docker push "$commit_tag" | tee -a "$RUNNER_TEMP/ghcr-push/${label}.log"
+            if [[ -n "$IMAGE_VERSION" ]]; then
+              docker tag "$source" "${name}:${IMAGE_VERSION}"
+              docker push "${name}:${IMAGE_VERSION}" | tee -a "$RUNNER_TEMP/ghcr-push/${label}.log"
+            fi
+            # This is the OCI manifest digest (NOT the detector digest or image ID).
+            local digest
+            digest=$(docker buildx imagetools inspect "$release_tag" \
+              --format '{{.Manifest.Digest}}')
+            [[ "$digest" =~ ^sha256:[0-9a-f]{64}$ ]] || exit 1
+            local tags=("$commit_tag")
+            if [[ -n "$IMAGE_VERSION" ]]; then
+              tags+=("${name}:${IMAGE_VERSION}")
+            fi
+            for tag in "${tags[@]}"; do
+              test "$(docker buildx imagetools inspect "$tag" \
+                --format '{{.Manifest.Digest}}')" = "$digest"
+            done
+            printf '%s' "$digest" > "$RUNNER_TEMP/ghcr-push/${label}.digest"
+          }
+          publish_image "$source_app" "$image" application
+          publish_image "$source_reviewer" "$reviewer" audit-reviewer
+          echo "application_digest=$(cat "$RUNNER_TEMP/ghcr-push/application.digest")" >> "$GITHUB_OUTPUT"
+          echo "reviewer_digest=$(cat "$RUNNER_TEMP/ghcr-push/audit-reviewer.digest")" >> "$GITHUB_OUTPUT"
+
+      - name: Record GHCR digests in release artifacts
+        shell: bash
+        env:
+          IMAGE_VERSION: ${{ inputs.image_version }}
+          GENERATION: ${{ needs.sign.outputs.generation }}
+          RELEASE_ID: ${{ needs.sign.outputs.release_id }}
+          APP_DIGEST: ${{ steps.registry.outputs.application_digest }}
+          REVIEWER_DIGEST: ${{ steps.registry.outputs.reviewer_digest }}
+        run: |
+          set -euo pipefail
+          python - <<'PYCODE'
+          import json
+          import os
+          from pathlib import Path
+          root = 'ghcr.io/' + os.environ['GITHUB_REPOSITORY'].lower()
+          gen = 'g' + os.environ['GENERATION']
+          sha = 'sha-' + os.environ['GITHUB_SHA']
+          version = os.environ.get('IMAGE_VERSION')
+          def entry(name, digest, services):
+              return {
+                  'repository': name,
+                  'release_tag': f'{name}:{gen}',
+                  'commit_tag': f'{name}:{sha}',
+                  'version_tag': f'{name}:{version}' if version else None,
+                  'digest': digest,
+                  'pull_by_digest': f'{name}@{digest}',
+                  'services': services,
+              }
+          document = {
+              'release_id': os.environ['RELEASE_ID'],
+              'generation': int(os.environ['GENERATION']),
+              'commit': os.environ['GITHUB_SHA'],
+              'application': entry(root, os.environ['APP_DIGEST'], [
+                  'control-plane', 'sovereign-model', 'egress-gateway',
+                  'external-simulator',
+              ]),
+              'audit_reviewer': entry(root + '-audit-reviewer',
+                                      os.environ['REVIEWER_DIGEST'],
+                                      ['audit-reviewer']),
+              'note': 'GitHub registry digests are not in the Ed25519 release approval payload.',
+          }
+          (Path('signed-package') / 'registry-images.json').write_text(
+              json.dumps(document, indent=2, sort_keys=True) + '\n',
+              encoding='utf-8',
+          )
+          with (Path('signed-package') / 'RELEASE.txt').open('a') as fh:
+              fh.write('Application OCI: ' + document['application']['pull_by_digest'] + '\n')
+              fh.write('Reviewer OCI: ' + document['audit_reviewer']['pull_by_digest'] + '\n')
+          PYCODE
+
+      - name: Publish GitHub Release with signed approval and GHCR references
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GENERATION: ${{ needs.sign.outputs.generation }}
+          RELEASE_ID: ${{ needs.sign.outputs.release_id }}
+          APP_DIGEST: ${{ steps.registry.outputs.application_digest }}
+          REVIEWER_DIGEST: ${{ steps.registry.outputs.reviewer_digest }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          gh release create "signed-g${GENERATION}" signed-package/* \
+            --target "$GITHUB_SHA" \
+            --title "Signed release generation ${GENERATION}" \
+            --notes "Manually approved Ed25519 release ${RELEASE_ID} for commit ${GITHUB_SHA}.
+          Application GHCR: ghcr.io/${GITHUB_REPOSITORY,,}@${APP_DIGEST}
+          Reviewer GHCR: ghcr.io/${GITHUB_REPOSITORY,,}-audit-reviewer@${REVIEWER_DIGEST}
+          These references identify the already scanned images; no rebuild occurred.
+          The release approval signs policy/detector identity, not the OCI manifest digest.
+          This workflow does not deploy or activate anything on a production host."
