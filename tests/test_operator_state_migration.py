@@ -18,8 +18,8 @@ def sample_legacy_state(tmp_path: Path) -> Path:
     policies = root / "policies"
     policies.mkdir()
     (policies / "decision.rego").write_bytes(
-        b'package sovereign.authz\n'
-        b'import rego.v1\n'
+        b"package sovereign.authz\n"
+        b"import rego.v1\n"
         b'revision := "migration-test-v1"\n'
         b'decision := {"policy_digest": data.sovereign.policy_meta.digest}\n'
     )
@@ -84,7 +84,7 @@ def test_operator_state_migration_refuses_existing_destination(tmp_path):
 
 def test_operator_state_migration_refuses_invalid_legacy_approval(tmp_path):
     root = sample_legacy_state(tmp_path)
-    (root / "release-active" / "release.json").write_bytes(b'{}')
+    (root / "release-active" / "release.json").write_bytes(b"{}")
     with pytest.raises(Exception):
         migrate_legacy_state(root, apply=True)
     assert not (root / ".runtime").exists()
@@ -106,8 +106,10 @@ def test_operator_state_migration_checks_every_archived_file(tmp_path, monkeypat
     root = sample_legacy_state(tmp_path)
     real_copy = operator_state.shutil.copytree
 
-    def corrupt_one_copy(source, destination):
-        result = real_copy(source, destination)
+    def corrupt_one_copy(source, destination, *args, **kwargs):
+        # shutil.copytree recursively calls its module-level name on Windows,
+        # passing positional options during nested directory traversal.
+        result = real_copy(source, destination, *args, **kwargs)
         if Path(source).name == "release-candidates":
             (Path(destination) / "release-g1.json").write_bytes(b"changed")
         return result
