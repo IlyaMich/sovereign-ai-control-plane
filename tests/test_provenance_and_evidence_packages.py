@@ -4,6 +4,7 @@ import hashlib
 import json
 import sqlite3
 import zipfile
+from contextlib import closing
 
 import pytest
 
@@ -309,7 +310,6 @@ def test_external_witnessed_checkpoint_rejects_truncation(tmp_path, audit):
         )
 
 
-
 def test_manifest_streams_hash_and_refuses_excess_bytes(tmp_path):
     """The manifest hashes larger files without a per-file read_bytes() allocation."""
     sample = tmp_path / "audit.sqlite"
@@ -324,7 +324,7 @@ def test_manifest_streams_hash_and_refuses_excess_bytes(tmp_path):
 
 
 @pytest.mark.parametrize("limit", (0, -1, 1025, True, 3.5, "512"))
-def test_evidence_limit_rejects_invalid_overrides(tmp_path, limit):
+def test_evidence_limit_rejects_invalid_overrides(limit):
     from app.audit.evidence_package import _uncompressed_limit
 
     with pytest.raises(EvidencePackageError, match="1 to 1024"):
@@ -333,7 +333,7 @@ def test_evidence_limit_rejects_invalid_overrides(tmp_path, limit):
 
 def test_explicit_large_evidence_limit_applies_to_export_and_review(tmp_path, audit):
     """Large SQLite input requires matching, explicit export/reviewer limits."""
-    with sqlite3.connect(audit.db_path) as conn:
+    with closing(sqlite3.connect(audit.db_path)) as conn, conn:
         conn.execute("CREATE TABLE synthetic_padding (bytes BLOB NOT NULL)")
         conn.execute("INSERT INTO synthetic_padding VALUES (zeroblob(2097152))")
         conn.commit()
