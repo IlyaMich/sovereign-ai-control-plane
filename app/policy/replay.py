@@ -169,6 +169,10 @@ def replay_database(
     # classification because plaintext model responses are intentionally absent.
     output_replayed = 0
     output_local_denials = 0
+    signed_inputs: dict[tuple[str, str], dict] = {}
+    for _, serialized in rows:
+        event = json.loads(serialized)
+        signed_inputs[(event["request_id"], event["tenant_id"])] = event["payload"]
     with (
         closing(sqlite3.connect(f"file:{Path(db_path).resolve()}?mode=ro", uri=True)) as connection,
         connection,
@@ -178,9 +182,15 @@ def replay_database(
         ).fetchall()
     for sequence, serialized in outcomes:
         try:
-            payload = json.loads(serialized)["payload"]
+            outcome_event = json.loads(serialized)
+            payload = outcome_event["payload"]
             if "output_dlp" not in payload:
                 continue  # Historical outcomes precede output DLP v1.
+            original = signed_inputs.get(
+                (outcome_event["request_id"], outcome_event["tenant_id"])
+            )
+            if original is None or original.get("decision", {}).get("effect") != "PERMIT":
+                raise ReplayError(f"Output evidence without input permit at sequence {sequence}")
             dlp = payload["output_dlp"]
             recorded = dlp["policy_evaluation"]
             final = parse_decision(dlp["decision"])
@@ -193,6 +203,8 @@ def replay_database(
                 or policy_input.get("classification") != classified
                 or payload.get("model_invoked") is not True
                 or payload.get("execution_status") != "COMPLETED"
+                or policy_input.get("request") != original.get("policy_input", {}).get("request")
+                or policy_input.get("principal") != original.get("policy_input", {}).get("principal")
                 or policy_input.get("request", {}).get("destination_id")
                 != payload.get("destination_id")
                 or final.obligations
@@ -220,6 +232,12 @@ def replay_database(
                 "sha256": digest, "revision": expected.policy_revision
             }:
                 raise ReplayError(f"Invalid output policy snapshot at sequence {sequence}")
+            approved = original.get("release_snapshot")
+            if approved is not None and (
+                approved.get("policy_digest") != digest
+                or approved.get("detector_digest") != classified.get("artifact_digest")
+            ):
+                raise ReplayError(f"Output artifacts diverge from signed release at sequence {sequence}")
             snapshot = archive.find(digest)
             answer = (
                 output_evaluator(snapshot, policy_input)
