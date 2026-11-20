@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Short, sequential three-scenario end-to-end smoke test for artifact retention and complete signed-audit verification (not capacity measurement).",
+  "levels": [
+    1
+  ],
+  "duration_s": 15,
+  "runs": 1,
+  "interval_s": 0.75,
+  "scenarios": [
+    "local_permit",
+    "credential_deny",
+    "unsupported_input"
+  ],
+  "allow_overload": false
+}
