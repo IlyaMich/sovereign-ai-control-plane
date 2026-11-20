@@ -539,6 +539,14 @@ async def evaluate_scenarios(
                 "fault": spec.fault or None,
                 "expected_detection_status": spec.case.expected_status,
                 "observed_detection_status": observed,
+                # Names of the predicted categories and recognizers are safe to
+                # export; never serialize matched model-output spans or values.
+                "observed_categories": sorted({e.category for e in entities}),
+                "observed_recognizers": (
+                    sorted({f.recognizer for f in result.output_classification.findings})
+                    if result is not None and result.output_classification is not None
+                    else []
+                ),
                 "expected_outcome": spec.expected_outcome,
                 "actual_outcome": actual_status,
                 "reason_code": reason,
