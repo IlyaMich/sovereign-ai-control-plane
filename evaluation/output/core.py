@@ -39,6 +39,7 @@ from app.enforcement.gateway import EnforcementPlanner
 from app.policy.replay import run_opa
 from app.policy.snapshots import SnapshotInfo, build_snapshot
 from evaluation.dataset import Case, Entity
+from evaluation.runner import _git_head
 from evaluation.scoring import Prediction, score
 
 INPUT_PROMPT = "Explain the purpose of deterministic audit verification."
@@ -441,6 +442,7 @@ async def evaluate_scenarios(
         store = SQLiteAuditStore(str(root / "audit.sqlite"), str(root / "audit-key.pem"))
         rows: list[dict[str, Any]] = []
         predictions: list[Prediction] = []
+        detector_identities: set[tuple[str, str, str]] = set()
         for spec in scenarios:
             request_id = str(uuid.uuid4())
             model = SimulatedModel(
@@ -478,6 +480,12 @@ async def evaluate_scenarios(
                 )
                 observed = classification.status.value
                 reasons = classification.reason_codes
+                if classification.status != DetectionStatus.UNKNOWN:
+                    detector_identities.add((
+                        classification.detector_version,
+                        classification.config_digest,
+                        classification.artifact_digest,
+                    ))
             else:
                 entities, observed, reasons = (), "UNKNOWN", ()
             predictions.append(Prediction(
@@ -560,6 +568,8 @@ async def evaluate_scenarios(
             opa_binary=opa_bin or "opa",
         )
         counts = Counter(issue for row in rows for issue in row["issues"])
+        if len(detector_identities) > 1:
+            counts["DETECTOR_IDENTITY_CHANGED_DURING_EVALUATION"] += 1
         labels = tuple(spec.case for spec in scenarios)
         detection = score(labels, predictions)
         expected_evaluations = sum(
@@ -629,6 +639,11 @@ async def evaluate_scenarios(
             "detector_mode": detector_mode,
             "policy_mode": "opa-cli" if opa_bin else "fixture-policy-not-opa",
             "dataset_sha256": dataset_sha256,
+            "git_commit": _git_head(Path(__file__).resolve().parents[2]),
+            "detector_identities": [
+                {"version": version, "config_digest": config, "artifact_digest": artifact}
+                for version, config, artifact in sorted(detector_identities)
+            ],
             "policy_digest": info.policy_digest,
             "policy_revision": info.policy_revision,
             "cases": len(rows),
