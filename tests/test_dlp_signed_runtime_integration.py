@@ -55,7 +55,8 @@ def _signed_app(tmp_path: Path, audit, response_text: str, *, masking: bool):
     releases = ReleaseStore(
         tmp_path / "release-active" / "release.json",
         tmp_path / "release-archive",
-        trust, snap,
+        trust,
+        snap,
     )
     doc = sign_approval(
         make_payload(info.policy_digest, info.policy_revision, digest, 1, None), private
@@ -73,8 +74,13 @@ def _signed_app(tmp_path: Path, audit, response_text: str, *, masking: bool):
                 config_digest="test-only-signed-classifier",
                 artifact_digest=digest,
                 coverage=(
-                    "EMAIL_ADDRESS", "PHONE_NUMBER", "PERSON", "CREDIT_CARD",
-                    "US_SSN", "API_CREDENTIAL", "PRIVATE_KEY",
+                    "EMAIL_ADDRESS",
+                    "PHONE_NUMBER",
+                    "PERSON",
+                    "CREDIT_CARD",
+                    "US_SSN",
+                    "API_CREDENTIAL",
+                    "PRIVATE_KEY",
                 ),
             )
 
@@ -89,14 +95,16 @@ def _signed_app(tmp_path: Path, audit, response_text: str, *, masking: bool):
                 if request.url.path.endswith("output_decision")
                 else "data.sovereign.authz.decision"
             )
-            return httpx.Response(
-                200, json={"result": run_opa(binary, snap.active, data, entry)}
-            )
+            return httpx.Response(200, json={"result": run_opa(binary, snap.active, data, entry)})
         if request.url.host == "model" and request.url.path == "/generate":
             calls["model"] += 1
-            return httpx.Response(200, json={
-                "model_id": "sovereign-model", "output": response_text,
-            })
+            return httpx.Response(
+                200,
+                json={
+                    "model_id": "sovereign-model",
+                    "output": response_text,
+                },
+            )
         raise AssertionError("Unexpected simulated network destination")
 
     client = httpx.AsyncClient(transport=httpx.MockTransport(transport), trust_env=False)
@@ -117,22 +125,24 @@ def _signed_app(tmp_path: Path, audit, response_text: str, *, masking: bool):
     return app, key, calls, public, releases
 
 
-@pytest.mark.parametrize("response_text,masking,expected_status,expected_model_output", [
-    ("A normal public answer.", False, "COMPLETED", True),
-    ("Email jane@example.com", False, "OUTPUT_BLOCKED", False),
-    ("Email jane@example.com", True, "COMPLETED", True),
-    ("Email jane@example.com and -----BEGIN PRIVATE KEY-----", True, "OUTPUT_BLOCKED", False),
-])
+@pytest.mark.parametrize(
+    "response_text,masking,expected_status,expected_model_output",
+    [
+        ("A normal public answer.", False, "COMPLETED", True),
+        ("Email jane@example.com", False, "OUTPUT_BLOCKED", False),
+        ("Email jane@example.com", True, "COMPLETED", True),
+        ("Email jane@example.com and -----BEGIN PRIVATE KEY-----", True, "OUTPUT_BLOCKED", False),
+    ],
+)
 def test_signed_runtime_api_output_scenarios(
     tmp_path, audit, response_text, masking, expected_status, expected_model_output
 ):
-    app, key, calls, public, releases = _signed_app(
-        tmp_path, audit, response_text, masking=masking
-    )
+    app, key, calls, public, releases = _signed_app(tmp_path, audit, response_text, masking=masking)
     with TestClient(app) as client:
         headers = {"X-API-Key": key}
         result = client.post(
-            "/v1/prompts", headers=headers,
+            "/v1/prompts",
+            headers=headers,
             json={"prompt": "Explain the purpose of the approved policy."},
         )
         assert result.status_code == (200 if expected_status == "COMPLETED" else 403)
@@ -142,19 +152,21 @@ def test_signed_runtime_api_output_scenarios(
         assert calls["model"] == 1
         assert calls["opa"] >= 2
         assert "jane@example.com" not in result.text if response_text.startswith("Email") else True
-        events = client.get(
-            f"/v1/requests/{body['request_id']}", headers=headers
-        )
+        events = client.get(f"/v1/requests/{body['request_id']}", headers=headers)
         assert events.status_code == 200
         assert "jane@example.com" not in events.text
         assert [e["event"]["event_type"] for e in events.json()["events"]] == [
-            "DECISION", "OUTCOME"
+            "DECISION",
+            "OUTCOME",
         ]
         if masking and expected_status == "COMPLETED" and "jane@" in response_text:
             assert "[REDACTED_EMAIL_ADDRESS]" in body["output"]
-            assert events.json()["events"][-1]["event"]["payload"]["output_dlp"][
-                "transformation"
-            ]["applied"] is True
+            assert (
+                events.json()["events"][-1]["event"]["payload"]["output_dlp"]["transformation"][
+                    "applied"
+                ]
+                is True
+            )
 
     audit_public = str(audit.key_path.with_suffix(".pub.pem"))
     assert verify_database(str(audit.db_path), audit_public)["verified_events"] == 2
