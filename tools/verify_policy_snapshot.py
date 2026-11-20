@@ -5,12 +5,13 @@ import json
 import sys
 
 from app.policy.snapshots import PolicySnapshotStore, SnapshotError
+from tools.operator_state import state_path
 
 
 def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--active", default="policy-active")
-    parser.add_argument("--archive", default="policy-archive")
+    parser.add_argument("--active", default=str(state_path("policy-active")))
+    parser.add_argument("--archive", default=str(state_path("policy-archive")))
     args = parser.parse_args()
     try:
         result = PolicySnapshotStore(args.active, args.archive).verify_active()
