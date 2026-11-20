@@ -38,8 +38,12 @@ class DLPMetrics:
 
     def failure(self, kind: str) -> None:
         # An allowlist prevents diagnostic cardinality or sensitive text leakage.
-        if kind not in {"OUTCOME_AUDIT_UNAVAILABLE", "OUTPUT_DETECTOR_UNAVAILABLE",
-                        "OUTPUT_POLICY_UNAVAILABLE", "OUTPUT_MASK_VERIFY_FAILED"}:
+        if kind not in {
+            "OUTCOME_AUDIT_UNAVAILABLE",
+            "OUTPUT_DETECTOR_UNAVAILABLE",
+            "OUTPUT_POLICY_UNAVAILABLE",
+            "OUTPUT_MASK_VERIFY_FAILED",
+        }:
             raise ValueError("Unknown DLP failure kind")
         self.failures[kind] += 1
 
