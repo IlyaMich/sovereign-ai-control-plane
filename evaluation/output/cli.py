@@ -19,7 +19,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from evaluation.dataset import DEFAULT_DATASET, DatasetError, load_dataset
+from evaluation.dataset import DEFAULT_DATASET, load_dataset
 from evaluation.output.core import (
     OutputScenario,
     controlled_scenarios,
@@ -211,7 +211,7 @@ def main(argv: list[str] | None = None) -> int:
             or report["metrics"]["unsafe_sensitive_release_count"]
             or report["metrics"]["issues"]
         ) else 0
-    except (DatasetError, OSError, ValueError, RuntimeError, ImportError) as exc:
+    except Exception as exc:
         # Never print original generated text or third-party exception messages.
         print(f"Response DLP evaluation failed: {type(exc).__name__}", file=sys.stderr)
         return 2
