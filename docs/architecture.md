@@ -12,7 +12,7 @@ A local, fail-closed AI request security gateway intended to demonstrate policy-
 | --- | --- |
 | Untrusted | API client and supplied prompt, purpose, requested destination ID |
 | Local application | FastAPI ingress, `RequestOrchestrator`, Presidio/spaCy, deterministic redactor, plan validation |
-| Local policy | Locally built, pinned patched OPA v1.22.4 serving the read-only `policy-active/` container mount from operator-owned `.runtime/policy-active/` |
+| Local policy | Locally built, pinned patched OPA v1.22.4 loading `/policies` from operator-owned `.runtime/policy-active/`; the API separately mounts the same host files at `/policy-active` |
 | Local execution | `sovereign-model` simulator |
 | Optional simulated egress | `egress-gateway` and `external-simulator` on a second private Podman network |
 | Durable evidence | SQLite `audit-data` volume, append chain and Ed25519 audit receipts |
