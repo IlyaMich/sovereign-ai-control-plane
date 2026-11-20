@@ -2,9 +2,9 @@
 
 A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, inspects model responses before releasing them, and records independently checkable evidence.
 
-**Current implementation: M6 signed releases plus M7 operational features; API version 0.6.0.** M1-M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. M7 adds bounded concurrency, durable opt-in idempotency, diagnostics, upload deadlines, serialized release publication, and profiling tools. These implemented features do not establish completion of the M7 performance acceptance criteria. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
+**Source implementation: API version 0.6.0, M6 signed releases, M7 operational features and response-side DLP.** M1-M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. M7 adds bounded concurrency, durable opt-in idempotency, diagnostics, upload deadlines, serialized release publication, and profiling tools. These implemented features do not establish completion of the M7 performance acceptance criteria. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
 
-Response-side allow/block DLP is implemented and deployed with the approved v4 release. The new v5 source adds **operator-disabled-by-default output masking**, detector precision and monitoring; it requires a separately reviewed and signed successor release to activate. See [response-side DLP](docs/response-side-dlp.md).
+Response-side DLP is implemented in source, including **operator-disabled-by-default v5 output masking** and detector refinements. Earlier operator reports describe v4 approval, but the **tracked generation-7 approval is a historical v3 example** and is not the host's live release. Source changes require a separately reviewed and signed successor approval to activate. See [release status](docs/release-status.md) and [response-side DLP](docs/response-side-dlp.md).
 
 ## Capabilities at a glance
 
@@ -16,7 +16,7 @@ Response-side allow/block DLP is implemented and deployed with the approved v4 r
 | Detection | Local Presidio/spaCy, custom recognizers, deterministic normalized findings, coverage and `UNKNOWN` | Best-effort English ASCII scope; false negatives remain possible |
 | Policy | Direct OPA/Rego with default deny; content-addressed archived policy snapshots | Rego inputs are structured detection metadata, not raw prompt text |
 | Enforcement | `PERMIT`/`DENY`, ordered `REDACT` then `ROUTE`, post-redaction rescan, destination registry | External route is **test-only simulator**, disabled by default |
-| Response DLP (approved v4; masking v5 candidate) | Inspect generated responses locally, enforce OPA output allow/block, sign audit outcome before release; v5 can selectively mask email/phone | New v5 policy/detector image must be approved before activation; best-effort classification |
+| Response DLP (v5 source; runtime depends on approval) | Inspect generated responses locally, enforce OPA output allow/block, sign audit outcome before release; v5 can selectively mask email/phone | Source or passing tests do not prove installed signed approval; best-effort classification |
 | Audit | SQLite WAL, signed SHA-256 event chain, decision committed before model invocation, separate outcome events | Keys live on the local host; a lost outcome can remain unresolved |
 | Provenance | Detector model/source manifest, exact policy digest and archived replay | Artifact identity does not prove classifier correctness |
 | Releases | Separate Ed25519 release approval for policy/detector identities, activation generation and predecessor | Local generation checks are not hardware-backed anti-rollback |
@@ -41,8 +41,8 @@ flowchart TD
         Effect -- PERMIT --> Router["Approved model gateway"]
         Router --> Local["Local sovereign simulator"]
         Router --> Egress["Test-only egress gateway"]
-        Local --> Outcome["Signed OUTCOME"]
-        Blocked --> Outcome
+        Local --> Inspect["Output Presidio + OPA DLP"]
+        Blocked --> Outcome["Signed OUTCOME"]
         Outcome --> Audit[("SQLite signed audit chain")]
         Decision -. "Precommit" .-> Audit
     end
@@ -51,7 +51,8 @@ flowchart TD
         External["External simulator"]
     end
     Egress --> External
-    External --> Outcome
+    External --> Inspect
+    Inspect --> Outcome
 
     Signer["Offline release signer"] --> Approval["Signed policy + detector release approval"]
     Approval -. "Verified by runtime" .-> Policy
@@ -88,7 +89,7 @@ Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and e
 
 ~~~powershell
 # From the repository root, with .env and a trusted release key already provisioned:
-python -m pip install "cryptography>=43,<47"
+python -m pip install "cryptography>=50.0.2,<51"
 python -m tools.verify_policy_snapshot
 python -m tools.verify_release
 
@@ -207,6 +208,8 @@ A result of `EVIDENCE_PACKAGE_SELF_CONSISTENT` with `REPLAY_VERIFIED` confirms t
 The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1-M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
 
 ## Documentation
+
+Start with the [documentation guide](docs/README.md) for the canonical current operational references, [release-status reconciliation](docs/release-status.md), [reviewer walkthrough](docs/submission-reviewer-guide.md), evaluation guides, historical records, and [submission-readiness audit](docs/submission-documentation-audit.md). Historical milestone instructions are not substitutes for the current signed-release workflow.
 
 - [Current architecture and request lifecycle](docs/architecture.md)
 - [Current threat model and sovereignty limitations](docs/threat-model.md)

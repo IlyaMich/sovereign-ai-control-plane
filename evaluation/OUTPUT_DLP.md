@@ -42,13 +42,13 @@ input and output decisions against that snapshot. It never uses or modifies
 
 The `--policy opa-cli` mode launches a host executable through
 `subprocess.run()`. The running Compose OPA container does **not** make an
-`opa.exe` command available to Windows. To match `deploy/compose.yaml`,
-install the official OPA **v1.8.0** Windows x64 release in a folder outside
-the repository (example: `$env:LOCALAPPDATA\\Programs\\OPA\\1.8.0`).
-Pass the absolute path using `--opa-bin`; no PATH modification is required.
-Verify the binary checksum against the official GitHub release asset before
-execution. Do not download the unpinned `latest` binary for reproducible
-benchmark comparisons.
+`opa.exe` command available to Windows. The current Compose build pins a
+[patched OPA v1.22.4 executable](../docs/PATCHED_OPA.md), which is **not** the
+unmodified upstream v1.22.4 Windows binary. For reproducible parity, build or
+use an independently validated executable from that pinned source/patch (or
+explicitly disclose the mismatch). Pass its path using `--opa-bin`; no PATH
+modification is required. Verify provenance and checksum before execution.
+Do not download an unpinned `latest` binary.
 
 A missing executable now yields an explicit setup error and exit code 2.
 Do not edit `.runtime/` or rebuild the OPA container to run this check.
@@ -88,7 +88,7 @@ untouched. If detector precision is improved later, compare a fresh evaluation
 to this documented baseline and use the approved signing/release workflow for
 any production detector changes.
 
-The local OPA 1.8.0 CLI controlled run also passed all 15 scenarios, with
+The **historical** local OPA 1.8.0 CLI controlled run also passed all 15 scenarios, with
 29 independently verified temporary audit events and seven output-policy
 decisions replayed.
 
@@ -200,7 +200,7 @@ immutable event chain. It verifies the audit chain using the corresponding
 public key, exports a portable evidence ZIP, and passes a separate copy of the
 public key and its audit head to `verify_package`. The verifier independently
 replays input and output decisions with either the declared fixture evaluator
-or the actual OPA 1.8 CLI.
+or the explicitly selected local OPA CLI (record its exact binary/version).
 
 A **fixture policy replay** confirms recording/serialization consistency and
 cryptographic signatures, **not correctness of real OPA Rego**.
@@ -238,7 +238,7 @@ before accepting a new benchmark definition.
 
 ## Remaining follow-up
 
-The v5 candidate adds isolated FastAPI/OPA CLI/model-gateway integration
+The v5 source includes isolated FastAPI/OPA CLI/model-gateway integration
 scenarios using test-only signed release approvals and audit evidence
 (`tests/test_dlp_signed_runtime_integration.py`). They are not a full
 production approved-image test: before declaring production-representative

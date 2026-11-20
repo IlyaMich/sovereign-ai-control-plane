@@ -43,10 +43,15 @@ admission, or a signed production release was tested**.
 
 ## 3. Reproduce policy decisions with the actual OPA executable
 
-Install/use an appropriate **local OPA 1.8.x CLI** (`opa version`). Without
-calling the production OPA HTTP service, the suite verifies the existing
-`policy-active` snapshot and its archive, then evaluates it through `opa eval`.
-It does not modify, rebuild, or re-sign any active release.
+Install/use a compatible **local OPA CLI** (`opa version`). The current
+container source pins the [patched OPA v1.22.4 build](../docs/PATCHED_OPA.md);
+record the exact CLI binary/version you used, rather than assuming the older
+1.8.x instruction matches the running image. Without contacting OPA HTTP, the
+CLI verifies and evaluates the explicit **tracked example** `policy-active/`
+and `policy-archive/` paths by default. They are not an operator's actual
+Git-ignored `.runtime/` state; pass `--policy-active` and `--policy-archive`
+explicitly to test a separately authorized snapshot. The suite never modifies,
+rebuilds or re-signs an active release.
 
 ```powershell
 python -m evaluation.enforcement.cli --mode controlled --policy opa-cli --opa-bin opa
@@ -69,7 +74,7 @@ written to the evaluation run directory.
 # Short smoke run with fixture policy
 python -m evaluation.enforcement.cli --mode replay --split development --limit 20
 
-# Entire 1,200-case dataset, real detector, actual pinned Rego snapshot
+# Entire 1,200-case dataset, real detector, explicitly selected local Rego snapshot
 python -m evaluation.enforcement.cli --mode replay --split all --policy opa-cli --opa-bin opa
 ```
 

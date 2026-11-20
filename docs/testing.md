@@ -8,11 +8,11 @@ From the repository root: `.env` with a strong `CONTROL_PLANE_API_KEY`; Podman +
 
 The local runtime is intentionally English ASCII-only and simulated models are used for inference. External model integration is not tested by the simulated egress profile.
 
-## Candidate response-side DLP verification
+## Source response-side DLP verification
 
-The proposed output policy has a new Rego entrypoint and revision, but the
-checked-in active snapshot remains signed for the old release. Do **not**
-overwrite active policy or release files merely to run a test.
+The source policy has an output entrypoint and v5 revision; the checked-in active
+snapshot is a **historical v3 example**, not the operator-owned signed release.
+Do **not** overwrite `.runtime` policy or release files merely to run a test.
 
 ~~~powershell
 python -m pytest -q tests/test_output_dlp.py tests/test_output_dlp_api.py
@@ -67,7 +67,7 @@ python -m tools.verify_release
 .\Verify-SignedReleaseWorkflow.ps1
 ~~~
 
-The documented M6 validation on Windows produced `RELEASE_VERIFIED`, Rego `PASS: 14/14`, `READY`, an approved signed request, and an offline evidence report with `REPLAY_VERIFIED`. Test counts reflect that run and are not a hard-coded guarantee for future test additions.
+The historical, operator-reported M6 validation on Windows produced `RELEASE_VERIFIED`, Rego `PASS: 14/14`, `READY`, an approved signed request, and an offline evidence report with `REPLAY_VERIFIED`. Test counts reflect that run and are not a hard-coded guarantee for future test additions.
 
 The additional historical `Verify-RedactionAndEgress.ps1`, `Verify-PolicyEvidenceAndReplay.ps1` and `Verify-DetectorProvenanceAndEvidence.ps1` scripts cover redaction/network isolation, policy snapshot replay and detector provenance; they are useful regression checks, but **the current signed-release startup and activation procedure supersedes their older `up --build` commands**.
 
@@ -111,6 +111,6 @@ The historical M6 results above do not validate later M7 changes.
 
 ## Gaps not covered by current automated tests
 
-Real enterprise identity/tenant isolation, real local-model inference quality, external provider identity/residency, mTLS and authenticated egress, output DLP, distributed audit durability, production-scale capacity/SLO guarantees, full supply-chain attestation, audit signer compromise recovery, and periodic external checkpoint witnessing.
+Real enterprise identity/tenant isolation, real local-model inference quality, external provider identity/residency, mTLS and authenticated egress, **production-installed output DLP assurance beyond the synthetic/integration tests**, distributed audit durability, production-scale capacity/SLO guarantees, full supply-chain attestation, audit signer compromise recovery, and periodic external checkpoint witnessing.
 
-See [current architecture](architecture.md), [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).
+See [current architecture](architecture.md), [release status](release-status.md), [CI/reproducibility](ci-and-reproducibility.md), [submission evidence](submission-evidence.md), [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).

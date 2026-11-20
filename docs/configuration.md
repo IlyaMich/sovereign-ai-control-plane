@@ -9,7 +9,7 @@ variables; they do not automatically load `.env`.
 | `MAX_PROMPT_BYTES` | 8192 | Maximum ingress prompt size in UTF-8 bytes |
 | `MAX_REQUEST_BODY_BYTES` | 16384 | Maximum complete ingress request, including JSON overhead |
 | `MAX_FORWARDED_PROMPT_BYTES` | 8192 | Maximum prompt accepted by all model simulators and egress gateway |
-| `OUTPUT_MASKING_ENABLED` | false | Opt-in v5-only selective email/phone masking, followed by mandatory clean rescan and signed outcome |
+| `OUTPUT_MASKING_ENABLED` | false | Opt-in masking supported by v5 source policy; requires a matching signed runtime release and clean post-mask rescan |
 | `MAX_INFLIGHT_REQUESTS` | 8 | Maximum admitted prompt requests per API process (1-1024), fail-fast 429 |
 | `MAX_ACTIVE_HTTP_REQUESTS` | 32 | Active HTTP ASGI scopes per process, before reading the body; 503 on saturation |
 | `BODY_READ_TIMEOUT_SECONDS` | 10 | Total body-read deadline for POST/PUT/PATCH; 408 on expiry, releasing ingress capacity |
@@ -223,5 +223,6 @@ trusted operator configuration, not client-controlled. Invalid flag values
 fail startup. A masked response is returned only after replacing every recorded
 span, verifying the transformed bytes remain within the output limit, a
 second detector result is clean, the detector identity stays unchanged and
-signed OUTCOME evidence is committed. Production signed v4 continues to be
-valid until the operator explicitly activates the reviewed successor release.
+signed OUTCOME evidence is committed. An existing valid signed v4 installation can remain on its own approved image;
+this source repository cannot attest the operator's actual `.runtime` state.
+See [release status](release-status.md) before reporting deployed capabilities.

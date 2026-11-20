@@ -1,4 +1,4 @@
-# Detection Evaluation — Stage 1
+# Synthetic detection evaluation — Stage 1 and related suites
 
 ## Response-side DLP evaluation (additive extension)
 
@@ -13,16 +13,14 @@ python -m evaluation.output.cli --mode dataset --split development --limit 20
 python -m pytest -q tests/evaluation/test_output_evaluation.py
 ```
 
-Both modes use synthetic, in-memory model responses and private temporary
-audit keys. They do not change the existing Stage 1 dataset, running
-deployment or signed operational state. The evaluation-signed audit evidence
-is distinct from a production-signed release approval.
-
-
-This is an **additive, developer-only benchmark** for the Sovereign AI Control Plane.
-It does **not** change the production detector, OPA policy, signed release artifacts,
-model gateway, or audit database. It is **not** an enforcement/egress benchmark (Stage 2),
-a detector comparison (Stage 3), or a load/CI benchmark (Stage 4).
+Both output modes use synthetic, in-memory model responses and private temporary
+audit keys; they do not change the running deployment or signed operational
+state. The evaluation-signed audit evidence is distinct from production-signed
+approval. The **Stage 1 detector CLI** below is a developer-only benchmark; it
+does not exercise enforcement or live egress. Those have their own documented
+[Stage 2](STAGE2.md), [Stage 3](adapters/STAGE3.md), [response evaluation](OUTPUT_DLP.md)
+and [performance suite](../performance/README.md), none of which proves
+production approval.
 
 ## Dataset v1
 
@@ -157,11 +155,13 @@ rate are reported separately. Out-of-scope non-ASCII cases are excluded from
 entity scores; their expected `UNKNOWN` frequency is reported separately.
 
 `unsafe_negative_rate` here means **known-sensitive input classified
-`NO_PRIVATE_DETECTED`**, not a confirmed external data leak. Stage 2 will
-exercise OPA and actual forwarding and measure unsafe egress independently.
+`NO_PRIVATE_DETECTED`**, not a confirmed external data leak. The existing
+[Stage 2 in-memory simulated egress harness](STAGE2.md) separately evaluates
+OPA and unsafe external forwarding; it does not contact real providers.
 
 Latency is a sequential per-call diagnostic in Stage 1, **not a throughput or
-concurrency benchmark**. Performance/load calibration belongs to Stage 4.
+concurrency benchmark**. Use the separate [performance framework](../performance/README.md)
+for load characterization, preserving its signed evidence and reviewer-kit dependency.
 
 ## Release-safety invariants
 
