@@ -1,8 +1,10 @@
-# Response-side DLP (candidate, output-policy v4)
+# Response-side DLP: approved v4 allow/block and opt-in v5 masking
 
-This change extends request-side enforcement without replacing the existing
-signed policy, detector provenance, or audit sequence. **It is not active until
-a new signed policy and detector release is approved and deployed.**
+Response-side allow/block enforcement is implemented and active in the approved
+v4 signed deployment. The repository now contains **v5 source with optional
+masking** and detector refinements. That source has no runtime effect until
+it is built, evaluated and approved in a new signed successor release.
+The output-masking option remains off unless an operator explicitly enables it.
 
 ## Decision flow
 
@@ -29,6 +31,7 @@ runtime has no separate `OUTPUT_DLP_ENABLED` toggle.
 | Output result | Action | External behavior |
 | --- | --- | --- |
 | Complete clean classification and Rego `PERMIT` | Release | HTTP 200, status `COMPLETED` |
+| v5 opt-in Rego `REDACT` permit for email/phone only; post-mask scan clean | Release sanitized text | HTTP 200, status `COMPLETED` |
 | `PRIVATE`, including email/credentials | Withhold | HTTP 403, status `OUTPUT_BLOCKED` |
 | `UNKNOWN`, unsupported script, detector failure | Withhold | HTTP 403, `OUTPUT_BLOCKED` |
 | OPA failure or invalid output obligations | Withhold | HTTP 403, `OUTPUT_BLOCKED` |
@@ -60,7 +63,10 @@ Output evidence is nested in the signed `OUTCOME.output_dlp` object:
 - `released`: whether the application returned the model text
 
 No raw model output, recognizer-matched substring, API key, or prompt is
-persisted to signed evidence. A verifier can reproduce the **Rego output
+persisted to signed evidence. For approved masks, schema-2 evidence includes
+the exact signed REDACT obligation, whether masking was applied, the second
+classification, and a domain-separated keyed fingerprint of sanitized text;
+schema-1 unmasked historical outcomes remain valid. A verifier can reproduce the **Rego output
 decision** from signed metadata and archived policy, but **cannot rerun output
 PII classification** without storing model text, which this design deliberately
 avoids.
@@ -87,7 +93,7 @@ operator activates the new signed release.
 Before runtime deployment:
 
 1. Complete tests and inspect code diff.
-2. Review `EXPECTED_POLICY_REVISION=redaction-response-dlp-v4` in the
+2. Review `EXPECTED_POLICY_REVISION=redaction-response-dlp-v5` in the
    deployment environment (the old local `.env` may still pin v3).
 3. Stop the old control-plane and OPA as required by the release process.
 4. Build a **new** policy snapshot from `policies/`, build the intended
@@ -103,10 +109,15 @@ files before that approval. Do not use `podman compose down -v`.
 
 ## Limitations
 
-This first version supports output **allow/block**, not output redaction.
+Approved v4 supports output **allow/block**. Candidate v5 additionally
+supports opt-in output masking for email and phone findings only, followed by
+a separate clean scan and release re-verification. Mixing these with credentials,
+private keys, PERSON, cards, SSNs or other categories still causes a block.
+`OUTPUT_MASKING_ENABLED=false` is the safe default. Transform failures cause
+`OUTPUT_MASK_VERIFICATION_FAILED` and never release partially sanitized text.
 False negatives remain possible with all best-effort classifiers. Output
 classification is English/ASCII-only and reuses the same model and recognizers
 as ingress. Output DLP applies at the API response boundary; it does **not**
 retroactively prevent data already sent to a selected external model.
-A production provider integration also needs streaming-response buffering,
+A production provider integration still needs streaming-response buffering,
 strict response byte limits, request cancellation and workload identity.
