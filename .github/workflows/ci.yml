@@ -33,7 +33,10 @@ jobs:
           python -m ruff check .
           python -m ruff check .github/scripts
       - name: Ruff format
-        run: python -m ruff format --check .
+        run: |
+          # Display the exact correction when a file is not formatted.
+          python -m ruff format --diff .github/scripts/sign_release_ci.py || true
+          python -m ruff format --check .
       - name: Mypy
         run: python -m mypy
       - name: Check CI signer script syntax
