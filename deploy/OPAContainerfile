@@ -1,0 +1,14 @@
+# Locally rebuilt upstream OPA: pinned v1.22.4 commit, patched x/net.
+# No changes to policy semantics or High/Critical scanner thresholds.
+FROM docker.io/library/golang:1.27.4-alpine3.23 AS opa-builder
+RUN apk add --no-cache git ca-certificates
+COPY deploy/build_patched_opa.sh /build-patched-opa.sh
+RUN sh /build-patched-opa.sh
+
+FROM scratch
+COPY --from=opa-builder /out/opa /opa
+COPY --from=opa-builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/ca-certificates.crt
+USER 10001:10001
+EXPOSE 8181
+ENTRYPOINT ["/opa"]
+CMD ["run"]

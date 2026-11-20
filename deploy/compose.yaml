@@ -96,7 +96,10 @@ services:
       - sovereign-internal
 
   opa:
-    image: docker.io/openpolicyagent/opa:1.8.0
+    image: sovereign-opa:local
+    build:
+      context: ..
+      dockerfile: deploy/OPAContainerfile
     command: ["run", "--server", "--addr=0.0.0.0:8181", "/policies"]
     volumes:
       - type: bind

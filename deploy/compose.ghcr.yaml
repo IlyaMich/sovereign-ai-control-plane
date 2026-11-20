@@ -1,0 +1,33 @@
+# Pull prebuilt release images from GitHub Container Registry for a local environment.
+# The original deploy/compose.yaml stays the default development configuration.
+# Supply OCI digest-pinned image references in the environment (or a local .env):
+#   CONTROL_PLANE_IMAGE=ghcr.io/ilyamich/sovereign-ai-control-plane@sha256:...
+#   AUDIT_REVIEWER_IMAGE=ghcr.io/ilyamich/sovereign-ai-control-plane-audit-reviewer@sha256:...
+#   OPA_IMAGE=ghcr.io/ilyamich/sovereign-ai-control-plane-opa@sha256:...
+# IMPORTANT: the base Compose file still has build entries. Always use `up --no-build`.
+# The signed release state and independently pinned public release verification key
+# must match the pulled image's detector manifest for startup/readiness to work.
+services:
+  opa:
+    image: ${OPA_IMAGE:?Set OPA_IMAGE from registry-images.json}
+    pull_policy: always
+
+  control-plane:
+    image: ${CONTROL_PLANE_IMAGE:?Set CONTROL_PLANE_IMAGE from registry-images.json}
+    pull_policy: always
+
+  sovereign-model:
+    image: ${CONTROL_PLANE_IMAGE:?Set CONTROL_PLANE_IMAGE from registry-images.json}
+    pull_policy: always
+
+  egress-gateway:
+    image: ${CONTROL_PLANE_IMAGE:?Set CONTROL_PLANE_IMAGE from registry-images.json}
+    pull_policy: always
+
+  external-simulator:
+    image: ${CONTROL_PLANE_IMAGE:?Set CONTROL_PLANE_IMAGE from registry-images.json}
+    pull_policy: always
+
+  audit-reviewer:
+    image: ${AUDIT_REVIEWER_IMAGE:?Set AUDIT_REVIEWER_IMAGE from registry-images.json}
+    pull_policy: always

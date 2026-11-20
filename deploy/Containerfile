@@ -1,7 +1,10 @@
-FROM docker.io/library/python:3.12-slim
+FROM docker.io/library/python:3.12.16-alpine3.23
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PIP_NO_CACHE_DIR=1 TLDEXTRACT_PUBLIC_SUFFIX_LIST_URLS=""
 ARG DETECTOR_MANIFEST_PATH=/service/detector-active/manifest.json
 ENV DETECTOR_MANIFEST_PATH=${DETECTOR_MANIFEST_PATH}
+# Most Python NLP extension wheels are distributed as musllinux binaries.
+# Upgrade installed Alpine packages to current security-patched versions.
+RUN apk upgrade --no-cache && apk add --no-cache libstdc++
 WORKDIR /service
 COPY pyproject.toml ./
 COPY app/ ./app/
@@ -15,5 +18,10 @@ RUN python -c "import spacy; n=spacy.load('en_core_web_sm'); assert n.meta['vers
 # Capture installed *bytes* after installing all detector dependencies.
 RUN python -m tools.build_detector_manifest --output "$DETECTOR_MANIFEST_PATH"
 RUN python -m tools.verify_detector_manifest --manifest "$DETECTOR_MANIFEST_PATH"
+# Own new audit volumes as the application UID. Existing root-owned volumes
+# require a controlled ownership migration before switching to this image.
+RUN mkdir -p /var/lib/sovereign && chown 10001:10001 /var/lib/sovereign
+ENV HOME=/tmp XDG_CACHE_HOME=/tmp/.cache
+USER 10001:10001
 EXPOSE 8000
 CMD ["python", "-m", "tools.run_control_plane"]
