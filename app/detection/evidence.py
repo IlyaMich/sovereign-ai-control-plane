@@ -54,7 +54,9 @@ def verify_detector_references(db_path: str, archive_root: str | None) -> dict:
                 if isinstance(transform, dict) and transform.get("applied"):
                     checked = transform.get("verification")
                     if not isinstance(checked, dict) or checked.get("artifact_digest") != digest:
-                        raise DetectorEvidenceError("Post-redaction scan changed detector artifacts")
+                        raise DetectorEvidenceError(
+                            "Post-redaction scan changed detector artifacts"
+                        )
                 count += 1
             except (KeyError, TypeError, ValueError, DetectorIntegrityError) as exc:
                 raise DetectorEvidenceError(f"Detector evidence invalid at sequence {seq}") from exc
