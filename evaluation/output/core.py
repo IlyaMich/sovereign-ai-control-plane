@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import tempfile
+import time
 import uuid
 from collections import Counter
 from dataclasses import dataclass
@@ -41,7 +42,6 @@ from evaluation.dataset import Case, Entity
 from evaluation.scoring import Prediction, score
 
 INPUT_PROMPT = "Explain the purpose of deterministic audit verification."
-REVISION = "redaction-response-dlp-v4"
 COVERAGE = (
     "EMAIL_ADDRESS",
     "PHONE_NUMBER",
@@ -210,10 +210,18 @@ class OutputDetector:
     def __init__(self, spec: OutputScenario, real_detector: Any | None = None):
         self.spec = spec
         self.real = real_detector
+        self.output_latency_ms: float | None = None
 
     def detect(self, text: str) -> DetectionResult:
         if text == INPUT_PROMPT:
             return _classified(DetectionStatus.NO_PRIVATE_DETECTED)
+        started = time.perf_counter()
+        try:
+            return self._detect_output(text)
+        finally:
+            self.output_latency_ms = (time.perf_counter() - started) * 1000
+
+    def _detect_output(self, text: str) -> DetectionResult:
         if self.spec.fault == "detector_error":
             raise RuntimeError("Deliberate response detector exception")
         if self.spec.fault == "detector_unknown":
@@ -429,8 +437,9 @@ async def evaluate_scenarios(
             model = SimulatedModel(
                 spec.case.text, store, fail=spec.fault == "model_error"
             )
+            detector = OutputDetector(spec, real)
             svc = RequestOrchestrator(
-                detector=OutputDetector(spec, real),
+                detector=detector,
                 policy=policy,
                 audit=FaultAudit(store)
                 if spec.fault == "outcome_audit_error" else store,
@@ -461,7 +470,13 @@ async def evaluate_scenarios(
                 reasons = classification.reason_codes
             else:
                 entities, observed, reasons = (), "UNKNOWN", ()
-            predictions.append(Prediction(spec.case.id, observed, entities, 0.0, reasons))
+            predictions.append(Prediction(
+                spec.case.id,
+                observed,
+                entities,
+                detector.output_latency_ms or 0.0,
+                reasons,
+            ))
             reason = (
                 result.output_decision.reason_codes[0]
                 if result and result.output_decision and result.output_decision.reason_codes
@@ -499,6 +514,10 @@ async def evaluate_scenarios(
                 "released": released,
                 "blocked": actual_status == "OUTPUT_BLOCKED",
                 "model_invocations": model.calls,
+                "output_detection_latency_ms": (
+                    round(detector.output_latency_ms, 4)
+                    if detector.output_latency_ms is not None else None
+                ),
                 "expected_entity_count": len(spec.case.entities),
                 "observed_entity_count": len(entities),
                 "exception_type": exception_type,
@@ -583,6 +602,17 @@ async def evaluate_scenarios(
             )
             for row in rows
         )
+        output_latencies = sorted(
+            row["output_detection_latency_ms"]
+            for row in rows if row["output_detection_latency_ms"] is not None
+        )
+
+        def latency_quantile(fraction: float) -> float | None:
+            if not output_latencies:
+                return None
+            index = round((len(output_latencies) - 1) * fraction)
+            return round(output_latencies[index], 4)
+
         return {
             "schema_version": 1,
             "evaluation_mode": "response-side-dlp",
@@ -617,6 +647,11 @@ async def evaluate_scenarios(
                     "withheld": sum(not row["released"] for row in injected),
                     "unexpected_release": sum(row["released"] for row in injected),
                     "by_fault": failures_by_type,
+                },
+                "output_detection_latency_ms": {
+                    "count": len(output_latencies),
+                    "p50": latency_quantile(0.5),
+                    "p95": latency_quantile(0.95),
                 },
                 "output_detection": detection,
                 "issues": dict(sorted(counts.items())),
