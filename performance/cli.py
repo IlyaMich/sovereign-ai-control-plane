@@ -32,6 +32,38 @@ def git_sha() -> str:
     return process.stdout.strip()
 
 
+def explain_failed_capture(directory: Path, scenarios: tuple[str, ...]) -> str:
+    """Describe only allowlisted missing artifact paths and validated status codes."""
+    problems: list[str] = []
+    required = ("before.json", "after.json", "assertions.json",
+                "summary.json", "requests.jsonl")
+    for scenario in scenarios:
+        for filename in required:
+            if not (directory / scenario / filename).is_file():
+                problems.append(f"missing {scenario}/{filename}")
+    path = directory / "m7_9_diagnostics.json"
+    if path.is_file():
+        try:
+            report = json.loads(path.read_text(encoding="utf-8"))
+            if isinstance(report, dict):
+                issues = report.get("benchmark_integrity_issues")
+                if isinstance(issues, list):
+                    for issue in issues:
+                        if isinstance(issue, str) and re.fullmatch(r"[a-z0-9_]{1,100}", issue):
+                            problems.append(issue)
+                if report.get("benchmark_exit_code") != 0:
+                    problems.append("benchmark_nonzero_exit")
+                if report.get("poll_errors"):
+                    problems.append("diagnostic_poll_errors")
+                if report.get("process_counter_reset"):
+                    problems.append("diagnostic_counter_reset")
+        except (OSError, ValueError, TypeError):
+            problems.append("diagnostics_unreadable")
+    else:
+        problems.append("missing m7_9_diagnostics.json")
+    return "; ".join(dict.fromkeys(problems)) or "see raw suite assertions and diagnostics"
+
+
 async def execute(args: argparse.Namespace) -> int:
     profile = load_profile(args.profile)
     if not (Path("benchmarks") / "suite.py").is_file():
@@ -83,7 +115,10 @@ async def execute(args: argparse.Namespace) -> int:
                                {"schema_version": 1, "samples": resource_samples,
                                 "status": "observed" if resource_samples else "unavailable"})
                 if not passed:
-                    raise ValueError(f"Benchmark integrity or diagnostics failed: {label}")
+                    raise ValueError(
+                        f"Benchmark integrity or diagnostics failed: {label}; "
+                        + explain_failed_capture(target / "raw" / label, profile.scenarios)
+                    )
         manifest["status"] = "passed"
         manifest["finished_utc"] = datetime.now(timezone.utc).isoformat()
         write_json(target / "manifest.json", manifest)
