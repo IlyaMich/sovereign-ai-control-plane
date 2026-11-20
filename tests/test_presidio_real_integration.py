@@ -57,3 +57,29 @@ def test_real_presidio_preserves_new_full_spans():
             finding.category == category and (finding.start, finding.end) == expected
             for finding in result.findings
         ), (category, result.to_dict())
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("presidio_analyzer") is None
+    or importlib.util.find_spec("en_core_web_sm") is None,
+    reason="Requires pinned Presidio and spaCy model",
+)
+def test_real_presidio_confident_phone_and_mixed_sensitive_prompt():
+    """The strong phone finding must supersede weak duplicate candidates."""
+    from app.detection.presidio_detector import PresidioDetector
+
+    detector = PresidioDetector.create()
+    prompts = (
+        "Call 202-555-0102 for details.",
+        "Call 202 555 0102 and inspect -----BEGIN PRIVATE KEY-----",
+    )
+    for text in prompts:
+        result = detector.detect(text)
+        assert result.status.value == "PRIVATE", result.reason_codes
+        expected_start = text.index("202")
+        expected_end = expected_start + len("202-555-0102".replace("-", " " if "202 555" in text else "-"))
+        assert any(
+            entity.category == "PHONE_NUMBER"
+            and (entity.start, entity.end) == (expected_start, expected_end)
+            for entity in result.findings
+        ), result.to_dict()
