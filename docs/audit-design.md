@@ -105,7 +105,7 @@ externally trusted audit key, cross-host distributed storage, or protection
 against a privileged administrator who can replace the entire audit volume.
 
 
-## Output-side DLP evidence (candidate v4)
+## Output-side DLP evidence (source implementation)
 
 After a permitted model call, the managed orchestrator detects and authorizes
 the **generated output** before returning it to the API client. The signed
