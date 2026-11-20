@@ -87,6 +87,14 @@ jobs:
           python -m tools.verify_policy_snapshot \
             --archive "$RUNNER_TEMP/proposed-policy-archive" \
             --active "$RUNNER_TEMP/proposed-policy"
+      - name: Build pinned patched OPA
+        run: docker build -f deploy/OPAContainerfile -t sovereign-opa:ci .
+      - name: Check patched OPA dependency version
+        run: |
+          docker create --name ci-opa-bin sovereign-opa:ci version
+          docker cp ci-opa-bin:/opa "$RUNNER_TEMP/opa"
+          docker rm ci-opa-bin
+          go version -m "$RUNNER_TEMP/opa" | grep -E 'golang.org/x/net[[:space:]]+v0.62.0'
       - name: Test input and output OPA policy
         run: |
           docker run --rm \
@@ -94,7 +102,7 @@ jobs:
             -v "$PWD/tests/rego:/policy-tests:ro" \
             -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
             --entrypoint /opa \
-            openpolicyagent/opa:1.22.4 \
+            sovereign-opa:ci \
             test /policies /policy-tests /output-policy-tests -v
 
   evaluation:
