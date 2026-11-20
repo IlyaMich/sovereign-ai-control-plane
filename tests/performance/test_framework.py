@@ -6,6 +6,7 @@ from pathlib import Path
 
 import pytest
 
+from performance.cli import explain_failed_capture
 from performance.config import load_profile
 from performance.reporting import SIGNALS, aggregate, compare, number
 from performance.resources import _parse_one
@@ -75,3 +76,33 @@ def test_podman_native_json_snake_case() -> None:
     }
     assert _parse_one({"name": "sovereign-ai-control-plane-opa-1",
                        "cpu_percent": "--", "mem_usage": "-- / --"})["cpu_pct"] is None
+
+def test_failure_reports_missing_artifacts_and_integrity_issue(tmp_path: Path) -> None:
+    directory = tmp_path / "suite"
+    scenario = directory / "local_permit"
+    scenario.mkdir(parents=True)
+    for name in ("after.json", "assertions.json"):
+        (scenario / name).write_text("{}", encoding="utf-8")
+    (directory / "m7_9_diagnostics.json").write_text(json.dumps({
+        "benchmark_exit_code": 0,
+        "benchmark_integrity_issues": ["local_permit_missing_report"],
+        "poll_errors": 0,
+        "process_counter_reset": False
+    }), encoding="utf-8")
+    message = explain_failed_capture(directory, ("local_permit",))
+    assert "missing local_permit/before.json" in message
+    assert "missing local_permit/summary.json" in message
+    assert "missing local_permit/requests.jsonl" in message
+    assert "local_permit_missing_report" in message
+    assert "benchmark_nonzero_exit" not in message
+
+
+def test_failure_diagnostic_does_not_echo_untrusted_json_strings(tmp_path: Path) -> None:
+    (tmp_path / "m7_9_diagnostics.json").write_text(json.dumps({
+        "benchmark_integrity_issues": ["foo; inject", "suite_reported_failures"],
+        "benchmark_exit_code": 1,
+    }), encoding="utf-8")
+    message = explain_failed_capture(tmp_path, ())
+    assert "foo; inject" not in message
+    assert "suite_reported_failures" in message
+    assert "benchmark_nonzero_exit" in message
