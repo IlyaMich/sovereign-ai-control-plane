@@ -11,7 +11,6 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
-from types import SimpleNamespace
 
 from performance.config import PROFILE_DIR, load_profile
 from performance.reporting import compare, write_report
@@ -97,7 +96,7 @@ async def execute(args: argparse.Namespace) -> int:
             for repeat in range(1, profile.runs + 1):
                 label = f"{run_id}-c{level}-r{repeat:02d}"
                 print(f"Running {label}: {profile.scenarios}", flush=True)
-                capture_args = SimpleNamespace(
+                capture_args = argparse.Namespace(
                     results_root=target / "raw", clients=level,
                     duration=profile.duration_s, scenarios=list(profile.scenarios),
                     api_url=api_url, env_file=args.env_file,
