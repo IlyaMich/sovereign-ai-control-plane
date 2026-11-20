@@ -15,6 +15,7 @@ from app.detection.aggregation import (
     configuration_digest,
 )
 from app.detection.config import DEFAULT_CONFIG, DetectorConfig
+from app.detection.precision import refine_person_technical_markers
 from app.detection.provenance import DetectorIntegrityError, archive_manifest, load_verified
 from app.domain.contracts import DetectionResult
 
@@ -179,6 +180,8 @@ class PresidioDetector:
                 )
             )
         result = self._aggregator.aggregate(
-            prompt=prompt, raw=observations, coverage=self._coverage
+            prompt=prompt,
+            raw=refine_person_technical_markers(prompt, observations),
+            coverage=self._coverage
         )
         return replace(result, artifact_digest=self._artifact_digest)
