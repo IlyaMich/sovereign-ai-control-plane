@@ -480,9 +480,7 @@ class RequestOrchestrator:
                             )
                             if len(released_content.encode("utf-8")) > self.max_model_output_bytes:
                                 raise RedactionError("Masked response exceeds size bound")
-                            if any(
-                                content[f.start : f.end] in released_content for f in findings
-                            ):
+                            if any(content[f.start : f.end] in released_content for f in findings):
                                 raise RedactionError("Original matched value remains")
                             mask_verification = await self._detect(released_content)
                             if (
@@ -495,9 +493,7 @@ class RequestOrchestrator:
                             mask_applied = True
                         except Exception:
                             self.dlp_metrics.failure("OUTPUT_MASK_VERIFY_FAILED")
-                            output_decision = PolicyDecision.deny(
-                                "OUTPUT_MASK_VERIFICATION_FAILED"
-                            )
+                            output_decision = PolicyDecision.deny("OUTPUT_MASK_VERIFICATION_FAILED")
                 elif (
                     output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
                     or output_classification.findings
@@ -562,18 +558,27 @@ class RequestOrchestrator:
                     else None
                 ),
                 "released": released,
-                **({
-                    "transformation": {
-                        "applied": mask_applied,
-                        "verification": (
-                            mask_verification.to_dict() if mask_verification is not None else None
-                        ),
-                        "masked_hmac_sha256": (
-                            self.audit.fingerprint("model-output-masked-v1\x00" + released_content)
-                            if mask_applied else None
-                        ),
+                **(
+                    {
+                        "transformation": {
+                            "applied": mask_applied,
+                            "verification": (
+                                mask_verification.to_dict()
+                                if mask_verification is not None
+                                else None
+                            ),
+                            "masked_hmac_sha256": (
+                                self.audit.fingerprint(
+                                    "model-output-masked-v1\x00" + released_content
+                                )
+                                if mask_applied
+                                else None
+                            ),
+                        }
                     }
-                } if mask_requested else {}),
+                    if mask_requested
+                    else {}
+                ),
             }
             outcome_receipt = await self._commit(
                 command.request_id,
