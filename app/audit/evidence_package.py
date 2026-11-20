@@ -82,20 +82,20 @@ def _decision_refs(path: Path) -> tuple[set[str], set[str], set[str]]:
     with closing(sqlite3.connect(f"file:{path.resolve()}?mode=ro", uri=True)) as conn, conn:
         entries = conn.execute(
             "SELECT event_type,event_json FROM events WHERE event_type IN ('DECISION', 'OUTCOME')"
-        ).fetchall()
-    for event_type, raw in entries:
-        payload = json.loads(raw)["payload"]
-        if event_type == "OUTCOME":
-            dlp = payload.get("output_dlp")
-            if isinstance(dlp, dict) and dlp.get("policy_snapshot") is not None:
-                policies.add(dlp["policy_snapshot"]["sha256"])
-            continue
-        if payload.get("policy_snapshot") is not None:
-            policies.add(payload["policy_snapshot"]["sha256"])
-        if payload.get("detector_evidence_version") == "1":
-            detectors.add(payload["detector_snapshot"]["sha256"])
-        if payload.get("release_evidence_version") == "1":
-            releases.add(payload["release_snapshot"]["release_id"])
+        )
+        for event_type, raw in entries:
+            payload = json.loads(raw)["payload"]
+            if event_type == "OUTCOME":
+                dlp = payload.get("output_dlp")
+                if isinstance(dlp, dict) and dlp.get("policy_snapshot") is not None:
+                    policies.add(dlp["policy_snapshot"]["sha256"])
+                continue
+            if payload.get("policy_snapshot") is not None:
+                policies.add(payload["policy_snapshot"]["sha256"])
+            if payload.get("detector_evidence_version") == "1":
+                detectors.add(payload["detector_snapshot"]["sha256"])
+            if payload.get("release_evidence_version") == "1":
+                releases.add(payload["release_snapshot"]["release_id"])
     return policies, detectors, releases
 
 
