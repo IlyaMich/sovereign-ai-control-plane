@@ -29,6 +29,7 @@ class RequestStatus(StrEnum):
     BLOCKED = "BLOCKED"
     COMPLETED = "COMPLETED"
     ERROR = "ERROR"
+    OUTPUT_BLOCKED = "OUTPUT_BLOCKED"
 
 
 @dataclass(frozen=True)
@@ -121,6 +122,17 @@ class PolicyContext:
 
 
 @dataclass(frozen=True)
+class OutputPolicyContext:
+    """Output-only policy input; the original prompt and model text are never sent to OPA."""
+
+    command: PromptCommand
+    classification: DetectionResult
+
+    def to_dict(self) -> dict[str, Any]:
+        return {**PolicyContext(self.command, self.classification).to_dict(), "stage": "OUTPUT"}
+
+
+@dataclass(frozen=True)
 class Obligation:
     type: str
     destination_id: str | None = None
@@ -187,6 +199,8 @@ class ProcessedRequest:
     outcome_receipt: AuditReceipt
     output: str | None = None
     model_id: str | None = None
+    output_classification: DetectionResult | None = None
+    output_decision: PolicyDecision | None = None
 
 
 class ReleaseVerifier(Protocol):
@@ -201,6 +215,10 @@ class Detector(Protocol):
 
 class PolicyEvaluator(Protocol):
     async def evaluate(self, context: PolicyContext) -> PolicyDecision: ...
+
+
+class OutputPolicyEvaluator(Protocol):
+    async def evaluate_output(self, context: OutputPolicyContext) -> PolicyDecision: ...
 
 
 class AuditWriter(Protocol):
