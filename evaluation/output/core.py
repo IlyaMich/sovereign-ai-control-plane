@@ -218,6 +218,13 @@ class OutputDetector:
             raise RuntimeError("Deliberate response detector exception")
         if self.spec.fault == "detector_unknown":
             return DetectionResult.unknown("OUTPUT_UNINSPECTABLE")
+        if self.spec.fault == "detector_false_negative":
+            return _classified(DetectionStatus.NO_PRIVATE_DETECTED)
+        if self.spec.fault == "detector_false_positive":
+            return _classified(
+                DetectionStatus.PRIVATE,
+                (Entity("PERSON", 0, min(len(text), 6)),),
+            )
         if self.real is not None:
             return self.real.detect(text)
         if self.spec.case.expected_status == "UNKNOWN":
@@ -547,10 +554,7 @@ async def evaluate_scenarios(
         )
         unsafe = sum("UNSAFE_SENSITIVE_OUTPUT_RELEASE" in row["issues"] for row in rows)
         false_blocks = sum(
-            not spec.case.entities
-            and spec.case.expected_status == "NO_PRIVATE_DETECTED"
-            and spec.fault == ""
-            and row["blocked"]
+            spec.expected_outcome == "COMPLETED" and row["blocked"]
             for spec, row in zip(scenarios, rows, strict=True)
         )
         return {
@@ -571,7 +575,7 @@ async def evaluate_scenarios(
                 "blocked_count": sum(row["blocked"] for row in rows),
                 "error_count": sum(row["actual_outcome"] in {"ERROR", "EXCEPTION"} for row in rows),
                 "unsafe_sensitive_release_count": unsafe,
-                "false_block_count_unfaulted": false_blocks,
+                "false_block_count": false_blocks,
                 "output_detection": detection,
                 "issues": dict(sorted(counts.items())),
             },
