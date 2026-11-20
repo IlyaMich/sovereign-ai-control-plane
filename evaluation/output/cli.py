@@ -32,7 +32,8 @@ SPLITS = ("all", "development", "validation", "evaluation")
 
 def dataset_scenarios(
     split: str = "all",
-    *, limit: int = 0,
+    *,
+    limit: int = 0,
     dataset: Path = DEFAULT_DATASET,
 ) -> tuple[tuple[OutputScenario, ...], str]:
     frozen = load_dataset(dataset)
@@ -42,10 +43,11 @@ def dataset_scenarios(
     scenarios = tuple(
         OutputScenario(
             case,
-            "OUTPUT_BLOCKED" if case.expected_status != "NO_PRIVATE_DETECTED"
-            else "COMPLETED",
-            "OUTPUT_DETECTION_UNKNOWN" if case.expected_status == "UNKNOWN"
-            else "OUTPUT_PRIVATE_DATA_BLOCKED" if case.expected_status == "PRIVATE"
+            "OUTPUT_BLOCKED" if case.expected_status != "NO_PRIVATE_DETECTED" else "COMPLETED",
+            "OUTPUT_DETECTION_UNKNOWN"
+            if case.expected_status == "UNKNOWN"
+            else "OUTPUT_PRIVATE_DATA_BLOCKED"
+            if case.expected_status == "PRIVATE"
             else "OUTPUT_CONTENT_CLEARED",
         )
         for case in cases
@@ -59,9 +61,7 @@ def _fixture_digest(scenarios: tuple[OutputScenario, ...]) -> str:
         {
             "id": spec.case.id,
             "output": spec.case.text,
-            "entities": [
-                [e.category, e.start, e.end] for e in spec.case.entities
-            ],
+            "entities": [[e.category, e.start, e.end] for e in spec.case.entities],
             "fault": spec.fault,
             "expected": spec.expected_outcome,
         }
@@ -82,8 +82,7 @@ def save_report(directory: Path, report: dict[str, Any]) -> None:
     )
     (directory / "cases.jsonl").write_bytes(
         "".join(
-            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n"
-            for row in rows
+            json.dumps(row, sort_keys=True, separators=(",", ":")) + "\n" for row in rows
         ).encode("utf-8")
     )
     with (directory / "cases.csv").open("w", encoding="utf-8", newline="") as stream:
@@ -91,17 +90,21 @@ def save_report(directory: Path, report: dict[str, Any]) -> None:
         writer = csv.DictWriter(stream, fieldnames=fields)
         writer.writeheader()
         for row in rows:
-            writer.writerow({
-                key: json.dumps(value, separators=(",", ":"))
-                if isinstance(value, (list, dict)) else value
-                for key, value in row.items()
-            })
+            writer.writerow(
+                {
+                    key: json.dumps(value, separators=(",", ":"))
+                    if isinstance(value, (list, dict))
+                    else value
+                    for key, value in row.items()
+                }
+            )
     (directory / "report.html").write_text(_html(report), encoding="utf-8")
 
 
 def _html(report: dict[str, Any]) -> str:
     def safe(value: Any) -> str:
         return html.escape(str(value), quote=True)
+
     metrics = report["metrics"]
     output_score = metrics["output_detection"]
     exact = output_score["entities_exact_full"]["overall"]
@@ -117,12 +120,16 @@ def _html(report: dict[str, Any]) -> str:
             ("Output detection exact recall", exact["recall"]),
             ("Output detection status accuracy", output_score["status_accuracy"]),
             ("Signed events verified", report["evidence"]["signed_events_verified"]),
-            ("Output policy decisions replayed", report["evidence"]["output_policy_decisions_replayed"]),
+            (
+                "Output policy decisions replayed",
+                report["evidence"]["output_policy_decisions_replayed"],
+            ),
             ("Local output denials verified", report["evidence"]["output_local_denials_verified"]),
         )
     )
     case_rows = "".join(
-        "<tr>" + "".join(
+        "<tr>"
+        + "".join(
             "<td>" + safe(value) + "</td>"
             for value in (
                 row["case_id"],
@@ -133,11 +140,12 @@ def _html(report: dict[str, Any]) -> str:
                 row["released"],
                 ",".join(row["issues"]),
             )
-        ) + "</tr>"
+        )
+        + "</tr>"
         for row in report["rows"]
     )
     return (
-        "<!doctype html><html lang=\"en\"><head><meta charset=\"utf-8\">"
+        '<!doctype html><html lang="en"><head><meta charset="utf-8">'
         "<title>Response DLP Evaluation</title>"
         "<style>body{max-width:1100px;margin:2rem auto;padding:1rem;font:15px system-ui,sans-serif}"
         "table{border-collapse:collapse;width:100%;margin:1rem 0 2rem}"
@@ -147,11 +155,15 @@ def _html(report: dict[str, Any]) -> str:
         + safe(report["detector_mode"])
         + " · Policy: "
         + safe(report["policy_mode"])
-        + "</p><table><tbody>" + table + "</tbody></table>"
+        + "</p><table><tbody>"
+        + table
+        + "</tbody></table>"
         "<h2>Case-level results (no generated content)</h2><table><thead>"
         "<tr><th>ID</th><th>Group</th><th>Expected detection</th>"
         "<th>Observed detection</th><th>Outcome</th><th>Released</th><th>Issues</th></tr>"
-        "</thead><tbody>" + case_rows + "</tbody></table><p>"
+        "</thead><tbody>"
+        + case_rows
+        + "</tbody></table><p>"
         + safe(report["limitations"])
         + "</p></body></html>"
     )
@@ -180,7 +192,7 @@ def main(argv: list[str] | None = None) -> int:
         if args.mode == "controlled":
             scenarios = controlled_scenarios()
             if args.limit:
-                scenarios = scenarios[:args.limit]
+                scenarios = scenarios[: args.limit]
             detector_mode = "fixture"
             identity = _fixture_digest(scenarios)
         else:
@@ -188,39 +200,56 @@ def main(argv: list[str] | None = None) -> int:
                 args.split, limit=args.limit, dataset=args.dataset
             )
             detector_mode = "presidio"
-        report = asyncio.run(evaluate_scenarios(
-            scenarios,
-            detector_mode=detector_mode,
-            opa_bin=args.opa_bin if args.policy == "opa-cli" else None,
-            dataset_sha256=identity,
-        ))
+        report = asyncio.run(
+            evaluate_scenarios(
+                scenarios,
+                detector_mode=detector_mode,
+                opa_bin=args.opa_bin if args.policy == "opa-cli" else None,
+                dataset_sha256=identity,
+            )
+        )
         report["timestamp_utc"] = datetime.now(timezone.utc).isoformat()
         report["split"] = args.split if args.mode == "dataset" else "controlled"
         report["limit"] = args.limit or None
         root = args.output_dir or Path("evaluation/runs") / (
-            "output-" + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-            + "-" + uuid.uuid4().hex[:8]
+            "output-"
+            + datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+            + "-"
+            + uuid.uuid4().hex[:8]
         )
         save_report(root, report)
-        print(json.dumps({
-            "run_dir": str(root),
-            "cases": report["cases"],
-            "passed": report["passed"],
-            "failed": report["failed"],
-            "released": report["metrics"]["released_count"],
-            "blocked": report["metrics"]["blocked_count"],
-            "unsafe_sensitive_releases": report["metrics"]["unsafe_sensitive_release_count"],
-            "false_blocks": report["metrics"]["false_block_count"],
-            "issues": report["metrics"]["issues"],
-            "signed_events_verified": report["evidence"]["signed_events_verified"],
-            "output_policy_replayed": report["evidence"]["output_policy_decisions_replayed"],
-            "evidence_status": report["evidence"]["status"],
-        }, indent=2))
-        return 1 if (
-            report["failed"]
-            or report["metrics"]["unsafe_sensitive_release_count"]
-            or report["metrics"]["issues"]
-        ) else 0
+        print(
+            json.dumps(
+                {
+                    "run_dir": str(root),
+                    "cases": report["cases"],
+                    "passed": report["passed"],
+                    "failed": report["failed"],
+                    "released": report["metrics"]["released_count"],
+                    "blocked": report["metrics"]["blocked_count"],
+                    "unsafe_sensitive_releases": report["metrics"][
+                        "unsafe_sensitive_release_count"
+                    ],
+                    "false_blocks": report["metrics"]["false_block_count"],
+                    "issues": report["metrics"]["issues"],
+                    "signed_events_verified": report["evidence"]["signed_events_verified"],
+                    "output_policy_replayed": report["evidence"][
+                        "output_policy_decisions_replayed"
+                    ],
+                    "evidence_status": report["evidence"]["status"],
+                },
+                indent=2,
+            )
+        )
+        return (
+            1
+            if (
+                report["failed"]
+                or report["metrics"]["unsafe_sensitive_release_count"]
+                or report["metrics"]["issues"]
+            )
+            else 0
+        )
     except Exception as exc:
         # Never print original generated text or third-party exception messages.
         print(f"Response DLP evaluation failed: {type(exc).__name__}", file=sys.stderr)
