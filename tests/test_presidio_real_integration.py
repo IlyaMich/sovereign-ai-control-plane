@@ -27,3 +27,34 @@ def test_real_presidio_detects_patterns_and_completes_coverage():
 
     clean = detector.detect("Explain local policy evaluation in simple terms")
     assert clean.status.value != "UNKNOWN"
+
+
+@pytest.mark.skipif(
+    importlib.util.find_spec("presidio_analyzer") is None
+    or importlib.util.find_spec("en_core_web_sm") is None,
+    reason="Requires pinned Presidio and spaCy model",
+)
+def test_real_presidio_preserves_new_full_spans():
+    """End-to-end check that configured recognizers survive Presidio aggregation."""
+    from app.detection.presidio_detector import PresidioDetector
+
+    detector = PresidioDetector.create()
+    labels = (
+        (
+            "PRIVATE_KEY",
+            "-----BEGIN PRIVATE KEY-----\n"
+            "SYNTHETIC-INVALID-KEY-MATERIAL\n"
+            "-----END PRIVATE KEY-----",
+        ),
+        ("LOCATION", "Madison, Wisconsin"),
+    )
+    for category, value in labels:
+        prompt = "Handle carefully: " + value + " before exporting."
+        result = detector.detect(prompt)
+        expected = (prompt.index(value), prompt.index(value) + len(value))
+        assert result.status.value == "PRIVATE", (category, result.reason_codes)
+        assert any(
+            finding.category == category
+            and (finding.start, finding.end) == expected
+            for finding in result.findings
+        ), (category, result.to_dict())
