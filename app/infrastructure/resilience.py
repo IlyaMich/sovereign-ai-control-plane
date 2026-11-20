@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import random
 import time
 from typing import TYPE_CHECKING
@@ -10,6 +11,7 @@ from typing import TYPE_CHECKING
 import httpx
 
 from app.infrastructure.config import APIOperations
+from app.infrastructure.logging import event, failure_code
 
 if TYPE_CHECKING:
     from app.infrastructure.api_metrics import APIMetrics
@@ -19,10 +21,21 @@ class CircuitOpen(httpx.RequestError):
     pass
 
 
+def circuit_unavailable_code(exc: BaseException, prefix: str) -> str | None:
+    """Recognize local circuit rejection through adapter causes, without message text."""
+    current: BaseException | None = exc
+    for _ in range(3):
+        if isinstance(current, CircuitOpen):
+            return prefix + "_CIRCUIT_OPEN"
+        current = current.__cause__ if current is not None else None
+    return None
+
+
 class CircuitBreaker:
     """Owned by one event loop. Ignore completions from an older circuit generation."""
 
-    def __init__(self, threshold: int, reset_seconds: float):
+    def __init__(self, threshold: int, reset_seconds: float, *, dependency: str = "dependency"):
+        self.dependency = dependency if dependency in {"opa", "model"} else "dependency"
         self.threshold = threshold
         self.reset_seconds = reset_seconds
         self.failures = 0
@@ -39,21 +52,32 @@ class CircuitBreaker:
             if self.probing or time.monotonic() - self.opened_at < self.reset_seconds:
                 raise CircuitOpen("Dependency circuit open")
             self.probing = True
+            event("dependency_circuit_half_open", stage=self.dependency, state="HALF_OPEN")
         return self.generation
 
     def finish(self, generation: int, failed: bool) -> None:
         if generation != self.generation:
             return
         if not failed:
+            was_open = self.is_open
             self.failures = 0
             self.opened_at = None
             self.probing = False
+            if was_open:
+                event("dependency_circuit_closed", stage=self.dependency, state="CLOSED")
             return
         self.failures += 1
         if self.probing or self.failures >= self.threshold:
             self.opened_at = time.monotonic()
             self.probing = False
             self.generation += 1
+            event(
+                "dependency_circuit_opened",
+                level=logging.WARNING,
+                stage=self.dependency,
+                state="OPEN",
+                error_code="DEPENDENCY_CIRCUIT_OPEN",
+            )
 
 
 class ResilientHTTP:
@@ -61,7 +85,9 @@ class ResilientHTTP:
         self.settings = settings
         self.metrics = metrics
         self.circuits = {
-            name: CircuitBreaker(settings.circuit_failure_threshold, settings.circuit_reset_seconds)
+            name: CircuitBreaker(
+                settings.circuit_failure_threshold, settings.circuit_reset_seconds, dependency=name
+            )
             for name in ("opa", "model")
         }
 
@@ -98,6 +124,16 @@ class ResilientHTTP:
                     )
                     if attempt + 1 == attempts or not transient:
                         raise
+                    event(
+                        "dependency_probe_retry",
+                        level=logging.DEBUG,
+                        stage=dependency,
+                        attempt=attempt + 2,
+                        error_code=failure_code(exc, dependency.upper()),
+                        http_status=exc.response.status_code
+                        if isinstance(exc, httpx.HTTPStatusError)
+                        else None,
+                    )
                     delay = min(5.0, self.settings.probe_backoff_seconds * 2**attempt)
                     await asyncio.sleep(delay * random.SystemRandom().uniform(0.5, 1.0))
                 else:

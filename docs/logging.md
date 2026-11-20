@@ -85,3 +85,36 @@ and publication failure, and rollback completion or failure. `RECOVERY_REQUIRED`
 means automatic rollback failed and the operator must inspect retained artifacts.
 No private keys, file contents, candidate paths or exception messages are logged.
 These are diagnostic events, not additional signed audit evidence.
+
+
+## Output DLP and dependency resilience
+
+Output inspection emits ERROR events for invalid model content, invalid output
+policy plans, detector service failures, and unsuccessful mask verification.
+These events contain fixed error codes and stage names, never generated text,
+matched values, redacted text, fingerprints, or exception messages. Ordinary
+output policy denials do not produce ERROR events.
+
+`output_decision_committed` is an INFO summary emitted only after the signed
+OUTCOME write succeeds. It records the output effect, request ID, audit sequence,
+`COMPLETED` or `OUTPUT_BLOCKED`, and whether an output mask was applied. A mask may
+have been applied even when a later release check blocks disclosure; the effect
+and execution status describe the final result. The operational error code keeps
+capacity/shutdown distinct from untrusted artifacts, while existing API and signed
+decision reason codes retain their fail-closed semantics. Failed OUTCOME writes
+never emit this summary.
+
+OPA diagnostics distinguish `input_policy` from `output_policy`. Output release
+checks use `output_release`; `INTEGRITY_CAPACITY_EXCEEDED` and
+`INTEGRITY_EXECUTOR_CLOSED` are limited WARNING diagnostics. Actual trust failures
+remain ERROR events. `/v1/diagnostics/dlp` is retained as a known log route.
+
+Circuit state changes emit `dependency_circuit_opened` (WARNING),
+`dependency_circuit_half_open` (INFO), and `dependency_circuit_closed` (INFO), with
+only the fixed `opa` or `model` stage. Stale request completions cannot log false
+recovery. Calls refused locally by an open circuit use `OPA_CIRCUIT_OPEN` or
+`MODEL_CIRCUIT_OPEN` as rate-limited WARNING diagnostics, including in orchestrator
+logs. These codes distinguish local rejection from an attempted connection failure;
+existing execution/audit outcomes remain unchanged. HTTP failures still produce
+ERROR diagnostics. Safe health-probe retries emit DEBUG metadata with the next
+attempt number. Logging does not introduce retries for generation or policy calls.

@@ -19,7 +19,7 @@ from app.domain.contracts import (
 from app.enforcement.pre_egress import external_content_signals
 from app.infrastructure.config import HTTPTimeouts
 from app.infrastructure.logging import event, failure_code
-from app.infrastructure.resilience import ResilientHTTP
+from app.infrastructure.resilience import CircuitOpen, ResilientHTTP
 
 
 class InvalidPlan(Exception):
@@ -197,7 +197,8 @@ class HTTPModelGateway:
         except (httpx.HTTPError, ValueError, KeyError, TypeError) as exc:
             event(
                 "model_invocation_failed",
-                level=logging.ERROR,
+                level=logging.WARNING if isinstance(exc, CircuitOpen) else logging.ERROR,
+                limited=isinstance(exc, CircuitOpen),
                 request_id=request_id,
                 destination_id=destination_id,
                 error_code=failure_code(exc, "MODEL"),

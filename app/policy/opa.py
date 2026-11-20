@@ -26,7 +26,7 @@ from app.infrastructure.integrity_executor import (
     integrity_unavailable_code,
 )
 from app.infrastructure.logging import event, failure_code
-from app.infrastructure.resilience import ResilientHTTP
+from app.infrastructure.resilience import CircuitOpen, ResilientHTTP
 from app.policy.snapshots import DIGEST_RE, PolicySnapshotStore, SnapshotError
 from app.release.approvals import ReleaseIntegrityError
 
@@ -73,13 +73,13 @@ class OPAPolicyEvaluator:
         return operation()
 
     async def evaluate(self, context: PolicyContext) -> PolicyDecision:
-        return await self._evaluate(context, self._url)
+        return await self._evaluate(context, self._url, stage="input_policy")
 
     async def evaluate_output(self, context: OutputPolicyContext) -> PolicyDecision:
-        return await self._evaluate(context, self._output_url)
+        return await self._evaluate(context, self._output_url, stage="output_policy")
 
     async def _evaluate(
-        self, context: PolicyContext | OutputPolicyContext, url: str
+        self, context: PolicyContext | OutputPolicyContext, url: str, *, stage: str
     ) -> PolicyDecision:
         started = time.perf_counter()
         try:
@@ -140,7 +140,7 @@ class OPAPolicyEvaluator:
                 "policy_verification_unavailable" if unavailable else "policy_integrity_failed",
                 level=logging.WARNING if unavailable else logging.ERROR,
                 limited=unavailable is not None,
-                stage="policy",
+                stage=stage,
                 error_code=unavailable or "POLICY_INTEGRITY_FAILED",
             )
             raise
@@ -148,15 +148,16 @@ class OPAPolicyEvaluator:
             event(
                 "policy_integrity_failed",
                 level=logging.ERROR,
-                stage="policy",
+                stage=stage,
                 error_code="RELEASE_INTEGRITY_FAILED",
             )
             raise PolicyIntegrityError("Release signature or artifact identity invalid") from exc
         except (httpx.HTTPError, ValueError, KeyError, TypeError, SnapshotError) as exc:
             event(
                 "policy_evaluation_failed",
-                level=logging.ERROR,
-                stage="policy",
+                level=logging.WARNING if isinstance(exc, CircuitOpen) else logging.ERROR,
+                limited=isinstance(exc, CircuitOpen),
+                stage=stage,
                 error_code=failure_code(exc, "OPA"),
                 http_status=exc.response.status_code
                 if isinstance(exc, httpx.HTTPStatusError)

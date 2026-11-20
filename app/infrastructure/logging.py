@@ -40,12 +40,14 @@ _FIELDS = {
     "detector_digest",
     "state",
     "suppressed",
+    "attempt",
 }
 _ROUTES = {
     "/v1/prompts",
     "/v1/requests/{request_id}",
     "/v1/idempotency/status",
     "/v1/diagnostics/concurrency",
+    "/v1/diagnostics/dlp",
     "/health/live",
     "/health/ready",
     "/metrics",
@@ -252,6 +254,11 @@ def failure_code(exc: Exception, prefix: str) -> str:
     """Classify without copying exception messages, URLs or response content."""
     import httpx
 
+    from app.infrastructure.resilience import circuit_unavailable_code
+
+    circuit_code = circuit_unavailable_code(exc, prefix)
+    if circuit_code is not None:
+        return circuit_code
     if isinstance(exc, (httpx.TimeoutException, TimeoutError)):
         return prefix + "_TIMEOUT"
     if isinstance(exc, httpx.HTTPStatusError):
