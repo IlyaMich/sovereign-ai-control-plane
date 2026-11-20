@@ -186,7 +186,9 @@ async def test_output_policy_failure_fails_closed(audit):
 
 @pytest.mark.asyncio
 async def test_malicious_private_output_permit_overridden(audit):
-    svc, _ = make_service(audit, "jane@example.com", output_policy=OutputPolicy(permit_private=True))
+    svc, _ = make_service(
+        audit, "jane@example.com", output_policy=OutputPolicy(permit_private=True)
+    )
     result = await svc.process(command())
     assert result.status == RequestStatus.OUTPUT_BLOCKED
     assert result.output_decision is not None
