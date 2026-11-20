@@ -208,6 +208,8 @@ The verifier cannot replay original NLP classifications: raw prompts and origina
 
 ## Documentation
 
+Start with the [documentation guide](docs/README.md) for the canonical current operational references, evaluation guides, historical records, and [submission-readiness audit](docs/submission-documentation-audit.md). Historical milestone instructions are not substitutes for the current signed-release workflow.
+
 - [Current architecture and request lifecycle](docs/architecture.md)
 - [Current threat model and sovereignty limitations](docs/threat-model.md)
 - [Detection and provenance](docs/detection-design.md)
