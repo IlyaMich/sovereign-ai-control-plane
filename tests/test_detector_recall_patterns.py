@@ -52,7 +52,8 @@ def test_full_pem_block_recognized_as_one_span(label: str) -> None:
 
 def test_full_pem_recognizer_does_not_join_mismatched_boundaries() -> None:
     pattern = _pattern("PRIVATE_KEY", "complete-pem-private-key-block")
-    assert pattern.search("-----BEGIN PRIVATE KEY-----\nDATA\n-----END RSA PRIVATE KEY-----") is None
+    mismatched = "-----BEGIN PRIVATE KEY-----\nDATA\n-----END RSA PRIVATE KEY-----"
+    assert pattern.search(mismatched) is None
     assert pattern.search("-----BEGIN PRIVATE KEY----- FAKE ONLY") is None
 
 
