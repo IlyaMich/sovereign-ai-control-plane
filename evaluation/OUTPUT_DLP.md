@@ -38,6 +38,32 @@ the harness builds an isolated content-addressed snapshot from **source**
 input and output decisions against that snapshot. It never uses or modifies
 `.runtime/`, live Compose services or the actual release-trust store.
 
+## Local OPA CLI on Windows (optional)
+
+The `--policy opa-cli` mode launches a host executable through
+`subprocess.run()`. The running Compose OPA container does **not** make an
+`opa.exe` command available to Windows. To match `deploy/compose.yaml`,
+install the official OPA **v1.8.0** Windows x64 release in a folder outside
+the repository (example: `$env:LOCALAPPDATA\\Programs\\OPA\\1.8.0`).
+Pass the absolute path using `--opa-bin`; no PATH modification is required.
+Verify the binary checksum against the official GitHub release asset before
+execution. Do not download the unpinned `latest` binary for reproducible
+benchmark comparisons.
+
+A missing executable now yields an explicit setup error and exit code 2.
+Do not edit `.runtime/` or rebuild the OPA container to run this check.
+
+## Diagnose nonzero dataset results
+
+`run.json` contains `metrics.issues`, `metrics.false_block_count`,
+`metrics.unsafe_sensitive_release_count` and detailed detection metrics.
+`cases.csv` includes `issues`, expected versus actual response outcome,
+classification and policy reason codes, without output content. A dataset
+run with nonzero `failed` and zero `unsafe_sensitive_release_count`
+still deserves review: false-positive blocks, wrong policy reasons or
+unavailable classifications may explain the difference. Do not assume the
+signatures are defective simply because some benchmark cases fail.
+
 ## Controlled cases
 
 The default suite includes two safe outputs; email, telephone, mixed entities,
