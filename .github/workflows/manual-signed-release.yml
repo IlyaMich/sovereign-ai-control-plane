@@ -111,7 +111,7 @@ jobs:
             -v "$RUNNER_TEMP/proposed-policy:/policies:ro" \
             -v "$PWD/tests/rego:/policy-tests:ro" \
             -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
-            --entrypoint /opa openpolicyagent/opa:1.8.0 \
+            --entrypoint /opa openpolicyagent/opa:1.22.4 \
             test /policies /policy-tests /output-policy-tests -v
       - name: Build exact image intended for approval
         env:
@@ -161,7 +161,7 @@ jobs:
         with:
           version: 'v0.76.2'
           scan-type: image
-          image-ref: openpolicyagent/opa:1.8.0
+          image-ref: openpolicyagent/opa:1.22.4
           scanners: vuln
           severity: HIGH,CRITICAL
           exit-code: '1'

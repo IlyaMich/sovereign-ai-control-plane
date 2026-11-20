@@ -1,4 +1,4 @@
-FROM docker.io/openpolicyagent/opa:1.8.0-static AS opa-cli
+FROM docker.io/openpolicyagent/opa:1.22.4-static AS opa-cli
 FROM docker.io/library/python:3.12.16-alpine3.23
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
 # Apply Alpine security package updates before installing reviewer dependencies.

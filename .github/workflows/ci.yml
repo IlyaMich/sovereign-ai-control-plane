@@ -94,7 +94,7 @@ jobs:
             -v "$PWD/tests/rego:/policy-tests:ro" \
             -v "$PWD/tests/rego_output_candidate:/output-policy-tests:ro" \
             --entrypoint /opa \
-            openpolicyagent/opa:1.8.0 \
+            openpolicyagent/opa:1.22.4 \
             test /policies /policy-tests /output-policy-tests -v
 
   evaluation:
