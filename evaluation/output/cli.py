@@ -111,7 +111,7 @@ def _html(report: dict[str, Any]) -> str:
             ("Output blocked", metrics["blocked_count"]),
             ("Execution/audit errors", metrics["error_count"]),
             ("Known-sensitive output released", metrics["unsafe_sensitive_release_count"]),
-            ("Unexpected false blocks (unfaulted clean)", metrics["false_block_count_unfaulted"]),
+            ("False blocks (known benign, expected released)", metrics["false_block_count"]),
             ("Output detection exact recall", exact["recall"]),
             ("Output detection status accuracy", output_score["status_accuracy"]),
             ("Signed events verified", report["evidence"]["signed_events_verified"]),
