@@ -489,7 +489,7 @@ class RequestOrchestrator:
                 ),
                 "decision": output_decision.to_dict(),
                 "output_hmac_sha256": (
-                    self.audit.fingerprint("model-output-v1\\x00" + content)
+                    self.audit.fingerprint("model-output-v1\x00" + content)
                     if valid_content
                     else None
                 ),
