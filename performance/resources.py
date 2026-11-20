@@ -14,13 +14,17 @@ _PERCENT = re.compile(r"^\s*([0-9]+(?:\.[0-9]+)?)%\s*$")
 def _parse_one(raw: Any) -> dict[str, Any] | None:
     if not isinstance(raw, dict):
         return None
-    name = str(raw.get("Name", raw.get("name", "")))
+    name = str(raw.get("name", raw.get("Name", "")))
     if not any(name == service or name.endswith("_" + service + "_1")
                or name.endswith("-" + service + "-1") for service in _ALLOWED):
         return None
-    cpu = str(raw.get("CPUPerc", raw.get("CPU", "")))
-    mem = str(raw.get("MemUsage", raw.get("MEM USAGE / LIMIT", "")))
+    # Podman's JSON output uses snake_case, unlike its Go-template field names.
+    cpu = str(raw.get("cpu_percent", raw.get("CPUPerc", raw.get("CPU", ""))))
+    mem = str(raw.get("mem_usage", raw.get("MemUsage", "")))
     match = _PERCENT.fullmatch(cpu)
+    # Never persist arbitrary strings from a container runtime.
+    if not re.fullmatch(r"[A-Za-z0-9 ./%+-]{1,80}", mem):
+        mem = ""
     return {"service": next((s for s in _ALLOWED if name == s or name.endswith("_" + s + "_1")
                              or name.endswith("-" + s + "-1")), ""),
             "cpu_pct": float(match.group(1)) if match else None,
@@ -43,7 +47,11 @@ async def sample() -> list[dict[str, Any]] | None:
             parsed = [parsed]
         if not isinstance(parsed, list):
             return None
-        return [item for value in parsed if (item := _parse_one(value)) is not None]
+        results = [item for value in parsed if (item := _parse_one(value)) is not None]
+        # Unknown/missing stats are unavailable, not valid resource measurements.
+        if not any(row["cpu_pct"] is not None or row["memory_usage"] for row in results):
+            return None
+        return results
     except (OSError, ValueError, asyncio.TimeoutError):
         return None
 
