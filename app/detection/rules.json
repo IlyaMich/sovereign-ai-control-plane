@@ -51,6 +51,11 @@
     ],
     "PRIVATE_KEY": [
       [
+        "complete-pem-private-key-block",
+        "-----BEGIN (?P<key_label>(?:RSA |EC |OPENSSH |ENCRYPTED )?PRIVATE KEY)-----[\\s\\S]{0,8192}?-----END (?P=key_label)-----",
+        0.99
+      ],
+      [
         "pem-private-key-header",
         "-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----",
         0.99
@@ -75,6 +80,13 @@
         "multiline-capitalized-name-conservative",
         "(?<![A-Za-z])(?-i:(?:[A-Z][a-z]{1,39}|[A-Z]{2,40})[ \\t]*\\r?\\n[ \\t]*(?:[A-Z][a-z]{1,39}|[A-Z]{2,40}))(?![A-Za-z])",
         0.93
+      ]
+    ],
+    "LOCATION": [
+      [
+        "us-city-full-state",
+        "(?-i:\\b(?:Salt[ \\t]+Lake[ \\t]+City|(?:St\\.|Ft\\.)[ \\t]+[A-Z][a-z]+|(?:New|Los|San|Las|Fort|Lake|North|South|West|East|Grand|El|Baton|Santa|Palo|Mount|Saint)[ \\t]+[A-Z][a-z]+|[A-Z][a-z]+),[ \\t]+(?:Alabama|Alaska|Arizona|Arkansas|California|Colorado|Connecticut|Delaware|Florida|Georgia|Hawaii|Idaho|Illinois|Indiana|Iowa|Kansas|Kentucky|Louisiana|Maine|Maryland|Massachusetts|Michigan|Minnesota|Mississippi|Missouri|Montana|Nebraska|Nevada|New Hampshire|New Jersey|New Mexico|New York|North Carolina|North Dakota|Ohio|Oklahoma|Oregon|Pennsylvania|Rhode Island|South Carolina|South Dakota|Tennessee|Texas|Utah|Vermont|Virginia|Washington|West Virginia|Wisconsin|Wyoming)\\b)",
+        0.96
       ]
     ]
   }
