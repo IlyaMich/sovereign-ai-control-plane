@@ -20,6 +20,8 @@ from app.domain.contracts import (
     Detector,
     Effect,
     ModelGateway,
+    OutputPolicyContext,
+    OutputPolicyEvaluator,
     PolicyContext,
     PolicyDecision,
     PolicyEvaluator,
@@ -51,6 +53,8 @@ class RequestOrchestrator:
         detection_executor: BoundedDetectorExecutor | None = None,
         audit_executor: BoundedAuditExecutor | None = None,
         integrity_executor: BoundedIntegrityExecutor | None = None,
+        output_policy: OutputPolicyEvaluator | None = None,
+        max_model_output_bytes: int = 8192,
     ):
         self.detector = detector
         self.policy = policy
@@ -61,6 +65,10 @@ class RequestOrchestrator:
         self.detection_executor = detection_executor
         self.audit_executor = audit_executor
         self.integrity_executor = integrity_executor
+        self.output_policy = output_policy
+        if type(max_model_output_bytes) is not int or max_model_output_bytes <= 0:
+            raise ValueError("Invalid model output size bound")
+        self.max_model_output_bytes = max_model_output_bytes
 
     async def _detect(self, prompt: str) -> DetectionResult:
         if self.detection_executor is None:
@@ -370,6 +378,141 @@ class RequestOrchestrator:
                 decision,
                 decision_receipt,
                 outcome_receipt,
+            )
+
+        # Legacy fixture adapters may omit output_policy. The managed application
+        # ALWAYS injects the content-bound OPA output evaluator.
+        output_classification = None
+        output_decision = None
+        output_evaluation = None
+        output_context = None
+        if self.output_policy is not None:
+            content = model_result.output
+            if not isinstance(content, str) or not content or (
+                len(content.encode("utf-8")) > self.max_model_output_bytes
+            ):
+                output_classification = DetectionResult.unknown("OUTPUT_INVALID_CONTENT")
+                output_decision = PolicyDecision.deny("OUTPUT_INVALID_CONTENT")
+            else:
+                try:
+                    output_classification = await self._detect(content)
+                except Exception:
+                    event(
+                        "output_detection_failed",
+                        level=logging.ERROR,
+                        request_id=command.request_id,
+                        error_code="OUTPUT_DETECTION_UNAVAILABLE",
+                    )
+                    output_classification = DetectionResult.unknown("OUTPUT_DETECTION_UNAVAILABLE")
+
+                if output_classification.status == DetectionStatus.UNKNOWN:
+                    output_decision = PolicyDecision.deny("OUTPUT_DETECTION_UNKNOWN")
+                else:
+                    output_context = OutputPolicyContext(command, output_classification)
+                    try:
+                        output_decision = await self.output_policy.evaluate_output(output_context)
+                        output_evaluation = output_decision
+                    except Exception:
+                        event(
+                            "output_policy_failed",
+                            level=logging.ERROR,
+                            request_id=command.request_id,
+                            error_code="OUTPUT_POLICY_UNAVAILABLE",
+                        )
+                        output_decision = PolicyDecision.deny("OUTPUT_POLICY_UNAVAILABLE")
+
+            assert output_classification is not None and output_decision is not None
+            if (
+                output_decision.effect == Effect.PERMIT
+                and (
+                    output_classification.status != DetectionStatus.NO_PRIVATE_DETECTED
+                    or output_classification.findings
+                    or output_decision.obligations
+                    or output_context is None
+                )
+            ):
+                output_decision = PolicyDecision.deny("OUTPUT_INVALID_POLICY_PLAN")
+
+            # A signed release must remain trusted *after* model execution.
+            # No output is released against a changed or unavailable authority.
+            if self.release_store is not None:
+                try:
+                    if approved_release is None:
+                        raise ReleaseIntegrityError("No approved release")
+                    output_digest = output_classification.artifact_digest
+                    if not output_digest or output_digest != detector_digest:
+                        raise ReleaseIntegrityError("Output detector identity differs")
+                    checked = await self._verify_release(
+                        detector_digest=output_digest,
+                        policy_digest=(
+                            output_evaluation.policy_digest if output_evaluation else None
+                        ),
+                    )
+                    if checked["release_id"] != approved_release["release_id"]:
+                        raise ReleaseIntegrityError("Release changed during output inspection")
+                except Exception:
+                    event(
+                        "output_release_untrusted",
+                        level=logging.ERROR,
+                        request_id=command.request_id,
+                        error_code="OUTPUT_UNTRUSTED_RELEASE",
+                    )
+                    output_decision = PolicyDecision.deny("OUTPUT_UNTRUSTED_RELEASE")
+
+            released = output_decision.effect == Effect.PERMIT
+            # Output evidence contains *only* structure, identities, and a keyed
+            # fingerprint. No generated text or extracted sensitive values.
+            output_evidence = {
+                "schema_version": 1,
+                "classification": output_classification.to_dict(),
+                "policy_input": (
+                    output_context.to_dict()
+                    if output_context is not None
+                    else OutputPolicyContext(command, output_classification).to_dict()
+                ),
+                "policy_evaluation": (
+                    output_evaluation.to_dict() if output_evaluation is not None else None
+                ),
+                "policy_snapshot": (
+                    {
+                        "sha256": output_evaluation.policy_digest,
+                        "revision": output_evaluation.policy_revision,
+                    }
+                    if output_evaluation is not None and output_evaluation.policy_digest
+                    else None
+                ),
+                "decision": output_decision.to_dict(),
+                "output_hmac_sha256": (
+                    self.audit.fingerprint("model-output-v1\\x00" + content)
+                    if isinstance(content, str)
+                    else None
+                ),
+                "released": released,
+            }
+            outcome_receipt = await self._commit(
+                command.request_id,
+                command.principal.tenant_id,
+                "OUTCOME",
+                {
+                    "execution_status": "COMPLETED",
+                    "model_invoked": True,
+                    "destination_id": command.destination_id,
+                    "model_id": model_result.model_id,
+                    "transformed": transformed,
+                    "output_dlp": output_evidence,
+                },
+            )
+            return ProcessedRequest(
+                command.request_id,
+                RequestStatus.COMPLETED if released else RequestStatus.OUTPUT_BLOCKED,
+                classification,
+                decision,
+                decision_receipt,
+                outcome_receipt,
+                output=content if released else None,
+                model_id=model_result.model_id,
+                output_classification=output_classification,
+                output_decision=output_decision,
             )
 
         outcome_receipt = await self._commit(
