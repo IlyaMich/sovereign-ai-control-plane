@@ -14,6 +14,7 @@ import pytest
 
 from app.audit.sqlite_store import SQLiteAuditStore
 from app.audit.verify import VerificationError, verify_database
+from app.policy.replay import ReplayError
 from evaluation.dataset import Entity
 from evaluation.output.cli import _fixture_digest, dataset_scenarios, main, save_report
 from evaluation.output.core import (
@@ -82,6 +83,20 @@ async def test_false_positive_blocks_benign_output_and_is_reported():
     assert report["metrics"]["false_block_count"] == 1
     assert report["metrics"]["released_count"] == 0
     assert report["metrics"]["output_detection"]["false_positive_rate_on_negatives"] == 1.0
+
+
+@pytest.mark.asyncio
+async def test_signed_but_semantically_false_output_evidence_fails_offline_review():
+    spec = OutputScenario(
+        _make_case("OUTPUT-FALSE-SIGNED-EVIDENCE", "Benign generated answer"),
+        "COMPLETED",
+        fault="signed_outcome_mismatch",
+    )
+    # FaultAudit signs a contradictory released marker with a legitimate
+    # temporary audit key. The replay reviewer must reject semantics, not
+    # merely accept the valid Ed25519 signature.
+    with pytest.raises(ReplayError, match="output enforcement evidence"):
+        await evaluate_scenarios((spec,))
 
 
 def test_dataset_adapts_frozen_ground_truth_as_model_responses():
