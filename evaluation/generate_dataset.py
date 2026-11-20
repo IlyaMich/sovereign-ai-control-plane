@@ -354,8 +354,10 @@ def write_dataset(root: Path = ROOT) -> None:
         "cases_sha256": hashlib.sha256(data).hexdigest(),
         "notes": "Synthetic only; no real credentials, personal records, or model outputs.",
     }
-    (root / "manifest.json").write_text(
-        json.dumps(manifest, indent=2, sort_keys=True) + "\n", encoding="utf-8"
+    # write_text() translates LF to CRLF on Windows, changing the
+    # byte-addressed fixture. Use explicit UTF-8 bytes on every platform.
+    (root / "manifest.json").write_bytes(
+        (json.dumps(manifest, indent=2, sort_keys=True) + "\n").encode("utf-8")
     )
 
 
