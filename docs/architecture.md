@@ -2,7 +2,7 @@
 
 **Status:** API version `0.6.0`, including M6 signed releases and implemented M7 operational features. Performance acceptance remains subject to the [profiling criteria](concurrency-performance-profiling.md). The original M1 modular-monolith decision remains in [ADR-0001](adr/0001-modular-monolith.md); M4 policy snapshot decision in [ADR-0002](adr/0002-content-addressed-rego.md).
 
-See the [response-side DLP design](response-side-dlp.md) for the proposed v4 output authorization and audited release boundary. The signed runtime must be upgraded before it becomes active.
+Response-side allow/block DLP is implemented (approved v4); [response-side DLP](response-side-dlp.md) documents the signed release boundary. Source v5 adds optional masking and must receive a new signed successor approval before use.
 
 ## Intent and deployment
 
@@ -136,4 +136,4 @@ Ingress capacity also covers health, lookup and diagnostics requests. A Uvicorn
 capacity rejection occurs before application middleware. These limits are per
 process; they do not provide a deployment-wide rate limit. See [configuration](configuration.md).
 
-**Not implemented:** arbitrary model providers, streaming, attachments/RAG, output DLP, tenant OIDC/JWT, admin policy API, independent egress attestation, multi-host audit consensus. See [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).
+**Not implemented:** arbitrary model providers, streaming, attachments/RAG DLP, tenant OIDC/JWT, admin policy API, independent egress attestation, multi-host audit consensus. See [threat model](threat-model.md) and [Milestone 6](signed-release-workflow.md).
