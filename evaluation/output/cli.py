@@ -99,7 +99,8 @@ def save_report(directory: Path, report: dict[str, Any]) -> None:
 
 
 def _html(report: dict[str, Any]) -> str:
-    safe = lambda value: html.escape(str(value), quote=True)
+    def safe(value: Any) -> str:
+        return html.escape(str(value), quote=True)
     metrics = report["metrics"]
     output_score = metrics["output_detection"]
     exact = output_score["entities_exact_full"]["overall"]
