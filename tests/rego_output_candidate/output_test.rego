@@ -24,38 +24,43 @@ test_output_clear_is_permitted_without_obligations if {
 }
 
 test_output_private_is_denied if {
-  response := authz.output_decision with input as object.union(output_clean, {
+  modified := object.union(output_clean, {
     "classification": object.union(output_clean.classification, {
       "status": "PRIVATE",
       "findings": [{"category": "EMAIL_ADDRESS", "start": 5, "end": 21}],
     })
   })
+  response := authz.output_decision with input as modified
   response.effect == "DENY"
   response.reason_codes == ["OUTPUT_PRIVATE_DATA_BLOCKED"]
 }
 
 test_output_unknown_is_denied if {
-  response := authz.output_decision with input as object.union(output_clean, {
+  modified := object.union(output_clean, {
     "classification": object.union(output_clean.classification, {"status": "UNKNOWN"})
   })
+  response := authz.output_decision with input as modified
   response.effect == "DENY"
 }
 
 test_output_missing_coverage_is_denied if {
-  response := authz.output_decision with input as object.union(output_clean, {
+  modified := object.union(output_clean, {
     "classification": object.union(output_clean.classification, {"coverage": ["EMAIL_ADDRESS"]})
   })
+  response := authz.output_decision with input as modified
   response.effect == "DENY"
 }
 
 test_output_wrong_stage_is_denied if {
-  response := authz.output_decision with input as object.union(output_clean, {"stage": "INPUT"})
+  modified := object.union(output_clean, {"stage": "INPUT"})
+  response := authz.output_decision with input as modified
   response.effect == "DENY"
 }
 
 test_output_unknown_destination_is_denied if {
-  response := authz.output_decision with input as object.union(output_clean, {
+  modified := object.union(output_clean, {
     "request": {"destination_id": "unapproved", "purpose": "GENERAL"}
   })
+  response := authz.output_decision with input as modified
   response.effect == "DENY"
 }
