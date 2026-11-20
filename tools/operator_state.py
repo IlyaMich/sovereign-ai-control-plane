@@ -6,6 +6,7 @@ The host-side tools must run from the repository root. Container paths remain
 
 from __future__ import annotations
 
+import hashlib
 import shutil
 import uuid
 from pathlib import Path
@@ -51,6 +52,21 @@ def _check_no_symlinks(root: Path) -> None:
                 raise ValueError(f"Symlink inside legacy state directory: {name}")
 
 
+def _byte_manifest(root: Path) -> dict[str, str]:
+    """Hash every copied artifact so even historical unreferenced bytes are preserved."""
+    entries: dict[str, str] = {}
+    for name in STATE_FOLDERS:
+        for path in sorted((root / name).rglob("*")):
+            if not path.is_file():
+                continue
+            digest = hashlib.sha256()
+            with path.open("rb") as source:
+                for block in iter(lambda: source.read(1024 * 1024), b""):
+                    digest.update(block)
+            entries[path.relative_to(root).as_posix()] = digest.hexdigest()
+    return entries
+
+
 def migrate_legacy_state(repo_root: Path, *, apply: bool = False) -> dict:
     """Copy verified legacy state to an ignored folder, never altering originals.
 
@@ -63,6 +79,7 @@ def migrate_legacy_state(repo_root: Path, *, apply: bool = False) -> dict:
         raise ValueError("Destination .runtime already exists; never overwrite existing state")
     _check_no_symlinks(root)
     original = verify_operator_state(root)
+    original_bytes = _byte_manifest(root)
     result = {
         "status": "READY_TO_MIGRATE",
         "release_id": original["release_id"],
@@ -82,6 +99,8 @@ def migrate_legacy_state(repo_root: Path, *, apply: bool = False) -> dict:
         for name in STATE_FOLDERS:
             shutil.copytree(root / name, stage / name)
         copied = verify_operator_state(stage)
+        if _byte_manifest(stage) != original_bytes:
+            raise ValueError("Copied policy/release archive bytes differ from original")
         if copied != original:
             raise ValueError("Copied release identity differs from original")
         if target.exists() or target.is_symlink():
