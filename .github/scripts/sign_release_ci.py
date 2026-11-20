@@ -45,11 +45,14 @@ def release_does_not_exist(tag: str) -> None:
     repo = os.environ["GITHUB_REPOSITORY"]
     token = os.environ["GH_TOKEN"]
     url = f"https://api.github.com/repos/{repo}/releases/tags/{tag}"
-    req = urllib_request.Request(url, headers={
-        "Authorization": "Bearer " + token,
-        "Accept": "application/vnd.github+json",
-        "X-GitHub-Api-Version": "2022-11-28",
-    })
+    req = urllib_request.Request(
+        url,
+        headers={
+            "Authorization": "Bearer " + token,
+            "Accept": "application/vnd.github+json",
+            "X-GitHub-Api-Version": "2022-11-28",
+        },
+    )
     try:
         with urllib_request.urlopen(req, timeout=30):
             raise RuntimeError("A GitHub Release already exists for this generation")
@@ -66,13 +69,25 @@ def copy_public_state(authority: Path, output: Path, candidate: Path) -> None:
         for entry in source.rglob("*"):
             if entry.is_symlink():
                 raise RuntimeError("Refusing symbolic links in protected release state")
-            if folder == "release-trust" and entry.is_file() and entry.suffix != ".pem" and entry.name != ".gitkeep":
+            if (
+                folder == "release-trust"
+                and entry.is_file()
+                and entry.suffix != ".pem"
+                and entry.name != ".gitkeep"
+            ):
                 raise RuntimeError("Unexpected non-public-key file in release trust")
-            if folder == "release-archive" and entry.is_file() and entry.suffix != ".json" and entry.name != ".gitkeep":
+            if (
+                folder == "release-archive"
+                and entry.is_file()
+                and entry.suffix != ".json"
+                and entry.name != ".gitkeep"
+            ):
                 raise RuntimeError("Unexpected file in release archive")
         shutil.copytree(source, root / folder, symlinks=False)
     (root / "release-active").mkdir()
-    shutil.copy2(authority / "release-active" / "release.json", root / "release-active" / "release.json")
+    shutil.copy2(
+        authority / "release-active" / "release.json", root / "release-active" / "release.json"
+    )
     (root / "release-candidates").mkdir()
     shutil.copy2(candidate, root / "release-candidates" / candidate.name)
     with tarfile.open(output / "release-state.tar.gz", "w:gz") as archive:
@@ -93,7 +108,11 @@ def sign_release() -> None:
     workspace = Path(os.environ["GITHUB_WORKSPACE"]).resolve()
     if authority == workspace or workspace in authority.parents or authority in workspace.parents:
         raise RuntimeError("Signing state must be outside the Git checkout")
-    if private_key == pinned_key or workspace in private_key.parents or authority in private_key.parents:
+    if (
+        private_key == pinned_key
+        or workspace in private_key.parents
+        or authority in private_key.parents
+    ):
         raise RuntimeError("Signing key must be outside Git and the release state")
     trust = authority / "release-trust"
     trusted_pub = trust / "release-signing.pub.pem"
@@ -112,7 +131,8 @@ def sign_release() -> None:
         fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
         store = ReleaseStore(
             authority / "release-active" / "release.json",
-            authority / "release-archive", trust,
+            authority / "release-archive",
+            trust,
             PolicySnapshotStore(authority / "policy-active", authority / "policy-archive"),
         )
         predecessor = store.verify_active()
@@ -120,30 +140,58 @@ def sign_release() -> None:
         release_does_not_exist(f"signed-g{next_generation}")
         candidate = authority / "release-candidates" / f"release-g{next_generation}.json"
         if candidate.exists() or candidate.is_symlink():
-            raise RuntimeError("Next generation candidate already exists; investigate before signing")
+            raise RuntimeError(
+                "Next generation candidate already exists; investigate before signing"
+            )
         with tempfile.TemporaryDirectory(prefix="sovereign-release-policy-") as tmp:
             proposed_policy = Path(tmp) / "proposed"
             # Add content-addressed snapshot to signer's protected archive without
             # changing its active policy until release activation validates it.
             proposal = build_snapshot("policies", authority / "policy-archive", proposed_policy)
-            run("tools.sign_release", "--private-key", str(private_key),
-                "--policy-snapshot", str(proposed_policy), "--detector-digest", digest,
-                "--generation", str(next_generation),
-                "--previous-release-id", predecessor["release_id"],
-                "--out", str(candidate))
-            run("tools.activate_release", "--candidate", str(candidate),
-                "--detector-digest", digest, "--trust", str(trust),
-                "--release-active", str(authority / "release-active" / "release.json"),
-                "--release-archive", str(authority / "release-archive"),
-                "--policy-active", str(authority / "policy-active"),
-                "--policy-archive", str(authority / "policy-archive"))
-            verified = store.verify_active(detector_digest=digest,
-                                           policy_digest=proposal.policy_digest)
+            run(
+                "tools.sign_release",
+                "--private-key",
+                str(private_key),
+                "--policy-snapshot",
+                str(proposed_policy),
+                "--detector-digest",
+                digest,
+                "--generation",
+                str(next_generation),
+                "--previous-release-id",
+                predecessor["release_id"],
+                "--out",
+                str(candidate),
+            )
+            run(
+                "tools.activate_release",
+                "--candidate",
+                str(candidate),
+                "--detector-digest",
+                digest,
+                "--trust",
+                str(trust),
+                "--release-active",
+                str(authority / "release-active" / "release.json"),
+                "--release-archive",
+                str(authority / "release-archive"),
+                "--policy-active",
+                str(authority / "policy-active"),
+                "--policy-archive",
+                str(authority / "policy-archive"),
+            )
+            verified = store.verify_active(
+                detector_digest=digest, policy_digest=proposal.policy_digest
+            )
 
         package.mkdir(mode=0o700)
         inp = workspace / "release-input"
-        for filename in ("application-image.tar.gz", "reviewer-image.tar.gz",
-                         "detector-manifest.json", "image.sha256"):
+        for filename in (
+            "application-image.tar.gz",
+            "reviewer-image.tar.gz",
+            "detector-manifest.json",
+            "image.sha256",
+        ):
             shutil.copy2(inp / filename, package / filename)
         manifest = json.loads((package / "detector-manifest.json").read_text())
         if manifest["digest"] != digest:
