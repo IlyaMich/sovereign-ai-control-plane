@@ -54,7 +54,6 @@ def test_real_presidio_preserves_new_full_spans():
         expected = (prompt.index(value), prompt.index(value) + len(value))
         assert result.status.value == "PRIVATE", (category, result.reason_codes)
         assert any(
-            finding.category == category
-            and (finding.start, finding.end) == expected
+            finding.category == category and (finding.start, finding.end) == expected
             for finding in result.findings
         ), (category, result.to_dict())

@@ -6,10 +6,10 @@ import json
 from types import SimpleNamespace
 
 import pytest
-from evaluation.comparison import ComparisonError, compare_runs, write_comparison
 
 from evaluation.adapters.presidio_stock import StockPresidioAdapter
 from evaluation.cli import main
+from evaluation.comparison import ComparisonError, compare_runs, write_comparison
 from evaluation.dataset import load_dataset
 from evaluation.runner import evaluate, save_run
 

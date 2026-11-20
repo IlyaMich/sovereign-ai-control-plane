@@ -38,11 +38,7 @@ def _pattern(category: str, name: str) -> re.Pattern[str]:
     ),
 )
 def test_full_pem_block_recognized_as_one_span(label: str) -> None:
-    value = (
-        f"-----BEGIN {label}-----\n"
-        "SYNTHETIC-INVALID-KEY-MATERIAL\n"
-        f"-----END {label}-----"
-    )
+    value = f"-----BEGIN {label}-----\nSYNTHETIC-INVALID-KEY-MATERIAL\n-----END {label}-----"
     text = "Never export this value: " + value + " End of request."
     pattern = _pattern("PRIVATE_KEY", "complete-pem-private-key-block")
     matches = list(pattern.finditer(text))
@@ -108,8 +104,7 @@ def test_new_patterns_match_only_annotated_spans_in_frozen_dataset() -> None:
         for category, pattern in new_patterns.items():
             for match in pattern.finditer(case.text):
                 assert any(
-                    entity.category == category
-                    and (entity.start, entity.end) == match.span()
+                    entity.category == category and (entity.start, entity.end) == match.span()
                     for entity in case.entities
                 ), (case.id, category, match.span())
                 exact_hits[category] += 1
