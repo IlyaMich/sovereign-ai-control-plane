@@ -40,41 +40,41 @@ def verify_database(
         records = conn.execute(
             "SELECT sequence, event_id, request_id, tenant_id, event_type, event_json, previous_hash, "
             "event_hash, signature FROM events ORDER BY sequence ASC"
-        ).fetchall()
-    for (
-        sequence,
-        event_id,
-        request_id,
-        tenant_id,
-        event_type,
-        raw_event,
-        previous,
-        digest,
-        signature,
-    ) in records:
-        if sequence != expected_sequence or previous != previous_hash:
-            raise VerificationError(f"Chain gap or incorrect predecessor at sequence {sequence}")
-        try:
-            event = json.loads(raw_event)
-            if (
-                canonical_bytes(event).decode("utf-8") != raw_event
-                or event["event_id"] != event_id
-                or event["request_id"] != request_id
-                or event["tenant_id"] != tenant_id
-                or event["event_type"] != event_type
-            ):
-                raise VerificationError(f"Event metadata mismatch at sequence {sequence}")
-            actual_hash = calculate_hash(previous, sequence, event)
-            if actual_hash != digest:
-                raise VerificationError(f"Event content tampered at sequence {sequence}")
-            public_key.verify(base64.b64decode(signature, validate=True), bytes.fromhex(digest))
-        except (KeyError, TypeError, ValueError, InvalidSignature) as exc:
-            raise VerificationError(f"Invalid record/signature at sequence {sequence}") from exc
-        previous_hash = digest
-        expected_sequence += 1
+        )
+        for (
+            sequence,
+            event_id,
+            request_id,
+            tenant_id,
+            event_type,
+            raw_event,
+            previous,
+            digest,
+            signature,
+        ) in records:
+            if sequence != expected_sequence or previous != previous_hash:
+                raise VerificationError(f"Chain gap or incorrect predecessor at sequence {sequence}")
+            try:
+                event = json.loads(raw_event)
+                if (
+                    canonical_bytes(event).decode("utf-8") != raw_event
+                    or event["event_id"] != event_id
+                    or event["request_id"] != request_id
+                    or event["tenant_id"] != tenant_id
+                    or event["event_type"] != event_type
+                ):
+                    raise VerificationError(f"Event metadata mismatch at sequence {sequence}")
+                actual_hash = calculate_hash(previous, sequence, event)
+                if actual_hash != digest:
+                    raise VerificationError(f"Event content tampered at sequence {sequence}")
+                public_key.verify(base64.b64decode(signature, validate=True), bytes.fromhex(digest))
+            except (KeyError, TypeError, ValueError, InvalidSignature) as exc:
+                raise VerificationError(f"Invalid record/signature at sequence {sequence}") from exc
+            previous_hash = digest
+            expected_sequence += 1
 
     result = {
-        "verified_events": len(records),
+        "verified_events": expected_sequence - 1,
         "latest_sequence": expected_sequence - 1,
         "latest_hash": previous_hash,
     }
