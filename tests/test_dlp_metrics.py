@@ -35,10 +35,14 @@ def test_dlp_diagnostics_requires_authentication_and_exposes_no_text(audit):
     with TestClient(app) as client:
         assert client.get("/v1/diagnostics/dlp").status_code == 401
         headers = {"X-API-Key": "a-secret-for-tests-that-is-long-enough"}
-        assert client.post(
-            "/v1/prompts", headers=headers,
-            json={"prompt": "Testing the DLP telemetry counts."},
-        ).status_code == 200
+        assert (
+            client.post(
+                "/v1/prompts",
+                headers=headers,
+                json={"prompt": "Testing the DLP telemetry counts."},
+            ).status_code
+            == 200
+        )
         result = client.get("/v1/diagnostics/dlp", headers=headers)
         assert result.status_code == 200
         assert result.headers["Cache-Control"] == "no-store"
