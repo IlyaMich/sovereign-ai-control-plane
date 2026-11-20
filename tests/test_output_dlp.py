@@ -311,7 +311,8 @@ class OutputMaskPolicy(OutputPolicy):
 @pytest.mark.asyncio
 async def test_masking_is_disabled_by_default_even_for_opa_permit(audit):
     svc, _ = make_service(
-        audit, "Reply jane@example.com",
+        audit,
+        "Reply jane@example.com",
         output_policy=OutputMaskPolicy(),
     )
     result = await svc.process(command())
@@ -323,7 +324,8 @@ async def test_masking_is_disabled_by_default_even_for_opa_permit(audit):
 @pytest.mark.asyncio
 async def test_operator_enabled_masking_is_verified_before_audited_release(audit):
     svc, _ = make_service(
-        audit, "Reply jane@example.com",
+        audit,
+        "Reply jane@example.com",
         output_policy=OutputMaskPolicy(),
         output_masking_enabled=True,
     )
@@ -352,7 +354,8 @@ async def test_mask_verification_unknown_blocks_and_preserves_signed_evidence(au
             return super().detect(prompt)
 
     svc, _ = make_service(
-        audit, "Reply jane@example.com",
+        audit,
+        "Reply jane@example.com",
         detector=UncertainAfterMask(),
         output_policy=OutputMaskPolicy(),
         output_masking_enabled=True,
@@ -371,7 +374,8 @@ async def test_mask_verification_unknown_blocks_and_preserves_signed_evidence(au
 @pytest.mark.asyncio
 async def test_mixed_secret_output_cannot_be_masked(audit):
     svc, _ = make_service(
-        audit, "Reply jane@example.com and -----BEGIN PRIVATE KEY-----",
+        audit,
+        "Reply jane@example.com and -----BEGIN PRIVATE KEY-----",
         output_policy=OutputMaskPolicy(),
         output_masking_enabled=True,
     )
@@ -384,7 +388,8 @@ async def test_mixed_secret_output_cannot_be_masked(audit):
 @pytest.mark.asyncio
 async def test_masked_output_growth_over_limit_blocks(audit):
     svc, _ = make_service(
-        audit, "jane@example.com",
+        audit,
+        "jane@example.com",
         output_policy=OutputMaskPolicy(),
         output_masking_enabled=True,
         max_output_bytes=20,
@@ -393,7 +398,6 @@ async def test_masked_output_growth_over_limit_blocks(audit):
     assert result.status == RequestStatus.OUTPUT_BLOCKED
     assert result.output is None
     assert result.output_decision.reason_codes == ("OUTPUT_MASK_VERIFICATION_FAILED",)
-
 
 
 @pytest.mark.asyncio
@@ -439,9 +443,7 @@ async def test_signed_masking_output_policy_is_replayed_without_plaintext(tmp_pa
             info.policy_digest,
         ).to_dict()
 
-    report = verify_package(
-        str(package), evaluator=replay_input, output_evaluator=replay_output
-    )
+    report = verify_package(str(package), evaluator=replay_input, output_evaluator=replay_output)
     assert report["audit"]["output_policy_decisions_replayed"] == 1
     assert report["audit"]["verified_events"] == 2
     assert report["status"] == "EVIDENCE_PACKAGE_SELF_CONSISTENT"
