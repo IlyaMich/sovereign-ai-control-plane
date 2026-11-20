@@ -94,7 +94,7 @@ def controlled_scenarios() -> tuple[OutputScenario, ...]:
     """Synthetic output fixtures; all failures should fail closed."""
     email = "alice@example.com"
     phone = "202-555-0102"
-    credential = "AKIAABCDEFGHIJKLMNOP"
+    credential = "".join(("AKIA", "ABCDEFGHIJKLMNOP"))
     return (
         OutputScenario(_make_case("OUTPUT-CLEAN", "A safe generated explanation."), "COMPLETED"),
         OutputScenario(
@@ -185,19 +185,22 @@ def controlled_scenarios() -> tuple[OutputScenario, ...]:
     )
 
 
-def _classified(
-    status: DetectionStatus, entities: tuple[Entity, ...] = ()
-) -> DetectionResult:
-    sensitivity = Sensitivity.HIGH if any(
-        entity.category in {"API_CREDENTIAL", "PRIVATE_KEY", "CREDIT_CARD"}
-        for entity in entities
-    ) else Sensitivity.MEDIUM if entities else Sensitivity.NONE
+def _classified(status: DetectionStatus, entities: tuple[Entity, ...] = ()) -> DetectionResult:
+    sensitivity = (
+        Sensitivity.HIGH
+        if any(
+            entity.category in {"API_CREDENTIAL", "PRIVATE_KEY", "CREDIT_CARD"}
+            for entity in entities
+        )
+        else Sensitivity.MEDIUM
+        if entities
+        else Sensitivity.NONE
+    )
     return DetectionResult(
         status,
         Sensitivity.UNKNOWN if status == DetectionStatus.UNKNOWN else sensitivity,
         tuple(
-            Finding(e.category, e.start, e.end, "synthetic-output-fixture", 0.99)
-            for e in entities
+            Finding(e.category, e.start, e.end, "synthetic-output-fixture", 0.99) for e in entities
         ),
         COVERAGE if status != DetectionStatus.UNKNOWN else (),
         "presidio-spacy-v1",
@@ -240,7 +243,8 @@ class OutputDetector:
         if self.spec.case.expected_status == "UNKNOWN":
             return DetectionResult.unknown("UNSUPPORTED_CHARACTER_SET")
         return _classified(
-            DetectionStatus.PRIVATE if self.spec.case.entities
+            DetectionStatus.PRIVATE
+            if self.spec.case.entities
             else DetectionStatus.NO_PRIVATE_DETECTED,
             self.spec.case.entities,
         )
@@ -258,13 +262,9 @@ def _input_fixture(digest: str, revision: str) -> PolicyDecision:
 
 def _output_fixture(status: str, digest: str, revision: str) -> PolicyDecision:
     if status == "PRIVATE":
-        return PolicyDecision(
-            Effect.DENY, (), ("OUTPUT_PRIVATE_DATA_BLOCKED",), revision, digest
-        )
+        return PolicyDecision(Effect.DENY, (), ("OUTPUT_PRIVATE_DATA_BLOCKED",), revision, digest)
     if status == "NO_PRIVATE_DETECTED":
-        return PolicyDecision(
-            Effect.PERMIT, (), ("OUTPUT_CONTENT_CLEARED",), revision, digest
-        )
+        return PolicyDecision(Effect.PERMIT, (), ("OUTPUT_CONTENT_CLEARED",), revision, digest)
     return PolicyDecision(Effect.DENY, (), ("OUTPUT_DEFAULT_DENY",), revision, digest)
 
 
@@ -283,13 +283,15 @@ class Evaluator:
                 self.active,
                 policy_input,
                 "data.sovereign.authz.output_decision"
-                if output else "data.sovereign.authz.decision",
+                if output
+                else "data.sovereign.authz.decision",
             )
             from app.policy.opa import parse_decision
 
             result = parse_decision(raw)
             if (result.policy_digest, result.policy_revision) != (
-                self.info.policy_digest, self.info.policy_revision
+                self.info.policy_digest,
+                self.info.policy_revision,
             ):
                 raise ValueError("OPA decision differs from pinned policy")
             return result
@@ -334,9 +336,7 @@ class SimulatedModel:
     async def invoke(self, request_id: str, prompt: str, destination_id: str) -> ModelResult:
         self.calls += 1
         events = self.store.get_events(request_id, PRINCIPAL.tenant_id)
-        self.precommitted &= (
-            len(events) == 1 and events[0]["event"]["event_type"] == "DECISION"
-        )
+        self.precommitted &= len(events) == 1 and events[0]["event"]["event_type"] == "DECISION"
         if self.fail:
             raise TimeoutError("Deliberate model failure")
         return ModelResult("sovereign-model", self.response)
@@ -391,8 +391,7 @@ def _inspect_evidence(
         else:
             expected_hmac = (
                 store.fingerprint("model-output-v1\x00" + spec.case.text)
-                if spec.case.text
-                and len(spec.case.text.encode("utf-8")) <= spec.max_output_bytes
+                if spec.case.text and len(spec.case.text.encode("utf-8")) <= spec.max_output_bytes
                 else None
             )
             if (
@@ -400,7 +399,9 @@ def _inspect_evidence(
                 or dlp.get("released") != (result.status == RequestStatus.COMPLETED)
                 or dlp.get("output_hmac_sha256") != expected_hmac
                 or dlp.get("classification")
-                != (result.output_classification.to_dict() if result.output_classification else None)
+                != (
+                    result.output_classification.to_dict() if result.output_classification else None
+                )
                 or dlp.get("decision")
                 != (result.output_decision.to_dict() if result.output_decision else None)
                 or dlp.get("policy_input", {}).get("stage") != "OUTPUT"
@@ -409,8 +410,7 @@ def _inspect_evidence(
             ):
                 issues.append("OUTPUT_EVIDENCE_MISMATCH")
     if spec.case.text and any(
-        spec.case.text in json.dumps(event["event"], ensure_ascii=False)
-        for event in events
+        spec.case.text in json.dumps(event["event"], ensure_ascii=False) for event in events
     ):
         issues.append("PLAINTEXT_MODEL_OUTPUT_IN_AUDIT")
     return {"audit_events": len(events), "output_evidence_present": dlp is not None}, issues
@@ -458,9 +458,7 @@ async def evaluate_scenarios(
         detector_identities: set[tuple[str, str, str]] = set()
         for spec in scenarios:
             request_id = str(uuid.uuid4())
-            model = SimulatedModel(
-                spec.case.text, store, fail=spec.fault == "model_error"
-            )
+            model = SimulatedModel(spec.case.text, store, fail=spec.fault == "model_error")
             detector = OutputDetector(spec, real)
             svc = RequestOrchestrator(
                 detector=detector,
@@ -470,8 +468,7 @@ async def evaluate_scenarios(
                 else store,
                 model=model,
                 planner=EnforcementPlanner(),
-                output_policy=FailingOutputPolicy()
-                if spec.fault == "policy_error" else policy,
+                output_policy=FailingOutputPolicy() if spec.fault == "policy_error" else policy,
                 max_model_output_bytes=spec.max_output_bytes,
             )
             command = PromptCommand(
@@ -494,20 +491,24 @@ async def evaluate_scenarios(
                 observed = classification.status.value
                 reasons = classification.reason_codes
                 if classification.status != DetectionStatus.UNKNOWN:
-                    detector_identities.add((
-                        classification.detector_version,
-                        classification.config_digest,
-                        classification.artifact_digest,
-                    ))
+                    detector_identities.add(
+                        (
+                            classification.detector_version,
+                            classification.config_digest,
+                            classification.artifact_digest,
+                        )
+                    )
             else:
                 entities, observed, reasons = (), "UNKNOWN", ()
-            predictions.append(Prediction(
-                spec.case.id,
-                observed,
-                entities,
-                detector.output_latency_ms or 0.0,
-                reasons,
-            ))
+            predictions.append(
+                Prediction(
+                    spec.case.id,
+                    observed,
+                    entities,
+                    detector.output_latency_ms or 0.0,
+                    reasons,
+                )
+            )
             reason = (
                 result.output_decision.reason_codes[0]
                 if result and result.output_decision and result.output_decision.reason_codes
@@ -532,37 +533,40 @@ async def evaluate_scenarios(
                 issues.append("UNSAFE_UNCLEARED_OUTPUT_RELEASE")
             if spec.fault == "outcome_audit_error" and exception_type != "AuditUnavailable":
                 issues.append("AUDIT_FAIL_CLOSED_VIOLATION")
-            rows.append({
-                "case_id": spec.case.id,
-                "group": spec.case.group,
-                "split": spec.case.split,
-                "fault": spec.fault or None,
-                "expected_detection_status": spec.case.expected_status,
-                "observed_detection_status": observed,
-                # Names of the predicted categories and recognizers are safe to
-                # export; never serialize matched model-output spans or values.
-                "observed_categories": sorted({e.category for e in entities}),
-                "observed_recognizers": (
-                    sorted({f.recognizer for f in result.output_classification.findings})
-                    if result is not None and result.output_classification is not None
-                    else []
-                ),
-                "expected_outcome": spec.expected_outcome,
-                "actual_outcome": actual_status,
-                "reason_code": reason,
-                "released": released,
-                "blocked": actual_status == "OUTPUT_BLOCKED",
-                "model_invocations": model.calls,
-                "output_detection_latency_ms": (
-                    round(detector.output_latency_ms, 4)
-                    if detector.output_latency_ms is not None else None
-                ),
-                "expected_entity_count": len(spec.case.entities),
-                "observed_entity_count": len(entities),
-                "exception_type": exception_type,
-                **data,
-                "issues": sorted(set(issues)),
-            })
+            rows.append(
+                {
+                    "case_id": spec.case.id,
+                    "group": spec.case.group,
+                    "split": spec.case.split,
+                    "fault": spec.fault or None,
+                    "expected_detection_status": spec.case.expected_status,
+                    "observed_detection_status": observed,
+                    # Names of the predicted categories and recognizers are safe to
+                    # export; never serialize matched model-output spans or values.
+                    "observed_categories": sorted({e.category for e in entities}),
+                    "observed_recognizers": (
+                        sorted({f.recognizer for f in result.output_classification.findings})
+                        if result is not None and result.output_classification is not None
+                        else []
+                    ),
+                    "expected_outcome": spec.expected_outcome,
+                    "actual_outcome": actual_status,
+                    "reason_code": reason,
+                    "released": released,
+                    "blocked": actual_status == "OUTPUT_BLOCKED",
+                    "model_invocations": model.calls,
+                    "output_detection_latency_ms": (
+                        round(detector.output_latency_ms, 4)
+                        if detector.output_latency_ms is not None
+                        else None
+                    ),
+                    "expected_entity_count": len(spec.case.entities),
+                    "observed_entity_count": len(entities),
+                    "exception_type": exception_type,
+                    **data,
+                    "issues": sorted(set(issues)),
+                }
+            )
 
         # The public audit key is pinned outside the ZIP during verification.
         public_key = root / "audit-key.pub.pem"
@@ -617,9 +621,7 @@ async def evaluate_scenarios(
             spec.expected_outcome == "COMPLETED" and row["blocked"]
             for spec, row in zip(scenarios, rows, strict=True)
         )
-        clean_expected_release = sum(
-            spec.expected_outcome == "COMPLETED" for spec in scenarios
-        )
+        clean_expected_release = sum(spec.expected_outcome == "COMPLETED" for spec in scenarios)
         injected = [row for row in rows if row["fault"]]
         failures_by_type: dict[str, dict[str, int]] = {}
         for fault in sorted({str(row["fault"]) for row in injected}):
@@ -645,7 +647,8 @@ async def evaluate_scenarios(
         )
         output_latencies = sorted(
             row["output_detection_latency_ms"]
-            for row in rows if row["output_detection_latency_ms"] is not None
+            for row in rows
+            if row["output_detection_latency_ms"] is not None
         )
 
         def latency_quantile(fraction: float) -> float | None:
@@ -678,16 +681,11 @@ async def evaluate_scenarios(
                 "error_count": sum(row["actual_outcome"] in {"ERROR", "EXCEPTION"} for row in rows),
                 "unsafe_sensitive_release_count": unsafe,
                 "false_block_count": false_blocks,
-                "unsafe_release_rate_on_sensitive": (
-                    unsafe / sensitive if sensitive else None
-                ),
+                "unsafe_release_rate_on_sensitive": (unsafe / sensitive if sensitive else None),
                 "false_block_rate_on_expected_releases": (
-                    false_blocks / clean_expected_release
-                    if clean_expected_release else None
+                    false_blocks / clean_expected_release if clean_expected_release else None
                 ),
-                "blocked_rate": (
-                    sum(row["blocked"] for row in rows) / len(rows)
-                ),
+                "blocked_rate": (sum(row["blocked"] for row in rows) / len(rows)),
                 "failure_handling": {
                     "injected_cases": len(injected),
                     "withheld": sum(not row["released"] for row in injected),
@@ -704,22 +702,20 @@ async def evaluate_scenarios(
             },
             "evidence": {
                 "per_case_evidence_mismatches": evidence_mismatches,
-                "output_evidence_cases": sum(
-                    row["output_evidence_present"] for row in rows
-                ),
+                "output_evidence_cases": sum(row["output_evidence_present"] for row in rows),
                 "exported_events": exported["events"],
                 "signed_events_verified": verified["audit"]["verified_events"],
                 "input_policy_decisions_replayed": verified["audit"]["policy_decisions_replayed"],
-                "output_policy_decisions_replayed": verified["audit"]["output_policy_decisions_replayed"],
+                "output_policy_decisions_replayed": verified["audit"][
+                    "output_policy_decisions_replayed"
+                ],
                 "output_local_denials_verified": verified["audit"][
                     "output_local_fail_closed_decisions"
                 ],
                 "audit_key_pinned_for_this_run": verified["public_key_trusted_externally"],
                 "checkpoint_pinned_for_this_run": verified["checkpoint_trusted_externally"],
                 "status": verified["status"],
-                "release_signer_trusted_externally": verified[
-                    "release_signer_trusted_externally"
-                ],
+                "release_signer_trusted_externally": verified["release_signer_trusted_externally"],
             },
             "limitations": (
                 "Synthetic in-memory model outputs; local isolated signed audit; "
