@@ -99,11 +99,15 @@ jobs:
           python -m py_compile .github/scripts/sign_release_ci.py
           python -m ruff format --check .
           python -m mypy
-          python -m pytest -q -ra -W error
+          python -m pytest -q -ra -W error -p no:cacheprovider
           python -m evaluation.cli validate
       - name: Bandit — block unreviewed findings
         run: |
           python -m bandit -r app simulator tools .github/scripts --severity-level all
+      - name: Remove generated pytest cache before security scan
+        run: |
+          rm -rf -- .pytest_cache
+          test ! -e .pytest_cache
       - name: Trivy filesystem — block High/Critical
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
