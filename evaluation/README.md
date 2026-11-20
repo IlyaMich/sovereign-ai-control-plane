@@ -1,5 +1,24 @@
 # Detection Evaluation — Stage 1
 
+## Response-side DLP evaluation (additive extension)
+
+See [Response-side DLP evaluation](OUTPUT_DLP.md) for the controlled
+orchestrator suite, frozen-dataset-as-model-output replay, output detection
+metrics, released-versus-blocked rates, fail-closed fault injections and
+offline signed-audit verification. The new entrypoint is:
+
+```powershell
+python -m evaluation.output.cli --mode controlled
+python -m evaluation.output.cli --mode dataset --split development --limit 20
+python -m pytest -q tests/evaluation/test_output_evaluation.py
+```
+
+Both modes use synthetic, in-memory model responses and private temporary
+audit keys. They do not change the existing Stage 1 dataset, running
+deployment or signed operational state. The evaluation-signed audit evidence
+is distinct from a production-signed release approval.
+
+
 This is an **additive, developer-only benchmark** for the Sovereign AI Control Plane.
 It does **not** change the production detector, OPA policy, signed release artifacts,
 model gateway, or audit database. It is **not** an enforcement/egress benchmark (Stage 2),
