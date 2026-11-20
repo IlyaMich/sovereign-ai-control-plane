@@ -73,9 +73,20 @@ temporary signed audit events. All 10 unexpected cases were
 `HARD_NEGATIVE-0009`, `-0029`, ... `-0189`: repeated occurrences of
 the hard-negative template `The instruction says BEGIN KEY, not a PEM private key.`
 The output detector returned `PRIVATE`, so the output policy correctly
-blocked each result *given the classification*. The pending detector-quality
-question is which recognizer generated these false-positive findings. These
-are **ten cases from one template**, not ten independent failure patterns.
+blocked each result *given the classification*. Direct inspection of
+`HARD_NEGATIVE-0009` found `PERSON` from `SpacyRecognizer` at confidence
+`0.85`, offset `[46, 55)`, matching the literal phrase `BEGIN KEY`.
+The output describes a schema-like instruction, not an actual person's name.
+This is a spaCy NER false positive on one repeated hard-negative template;
+the other nine have the same template but were not independently inspected for
+their matching spans. The false-block rate is **10/450 (2.22%)** of labeled
+benign responses, not an estimate of real-world false positives.
+
+No response policy or detector rule was changed: a `PRIVATE` classification
+must continue to fail closed, and this frozen ground truth should remain
+untouched. If detector precision is improved later, compare a fresh evaluation
+to this documented baseline and use the approved signing/release workflow for
+any production detector changes.
 
 The local OPA 1.8.0 CLI controlled run also passed all 15 scenarios, with
 29 independently verified temporary audit events and seven output-policy
