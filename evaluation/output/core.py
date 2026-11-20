@@ -341,15 +341,24 @@ class SimulatedModel:
 
 
 class FaultAudit:
-    def __init__(self, actual: SQLiteAuditStore):
+    def __init__(self, actual: SQLiteAuditStore, fault: str):
         self.actual = actual
+        self.fault = fault
 
     def fingerprint(self, prompt: str) -> str:
         return self.actual.fingerprint(prompt)
 
     def commit(self, request_id: str, tenant_id: str, event_type: str, payload: dict):
-        if event_type == "OUTCOME":
+        if event_type == "OUTCOME" and self.fault == "outcome_audit_error":
             raise AuditUnavailable("Deliberate outcome commit failure")
+        if event_type == "OUTCOME" and self.fault == "signed_outcome_mismatch":
+            # Sign deliberately inconsistent metadata. Cryptographic signatures
+            # alone must NOT make an impossible output release acceptable.
+            modified = dict(payload)
+            dlp = dict(modified["output_dlp"])
+            dlp["released"] = not dlp["released"]
+            modified["output_dlp"] = dlp
+            return self.actual.commit(request_id, tenant_id, event_type, modified)
         return self.actual.commit(request_id, tenant_id, event_type, payload)
 
 
@@ -441,8 +450,9 @@ async def evaluate_scenarios(
             svc = RequestOrchestrator(
                 detector=detector,
                 policy=policy,
-                audit=FaultAudit(store)
-                if spec.fault == "outcome_audit_error" else store,
+                audit=FaultAudit(store, spec.fault)
+                if spec.fault in {"outcome_audit_error", "signed_outcome_mismatch"}
+                else store,
                 model=model,
                 planner=EnforcementPlanner(),
                 output_policy=FailingOutputPolicy()
