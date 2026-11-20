@@ -403,7 +403,7 @@ class RequestOrchestrator:
             released_content = content
             mask_applied = False
             mask_verification = None
-            inspection_started = time.perf_counter()
+            output_detection_ms = 0.0
             try:
                 valid_content = (
                     isinstance(content, str)
@@ -416,6 +416,7 @@ class RequestOrchestrator:
                 output_classification = DetectionResult.unknown("OUTPUT_INVALID_CONTENT")
                 output_decision = PolicyDecision.deny("OUTPUT_INVALID_CONTENT")
             else:
+                detection_started = time.perf_counter()
                 try:
                     output_classification = await self._detect(content)
                 except Exception:
@@ -427,6 +428,8 @@ class RequestOrchestrator:
                     )
                     self.dlp_metrics.failure("OUTPUT_DETECTOR_UNAVAILABLE")
                     output_classification = DetectionResult.unknown("OUTPUT_DETECTION_UNAVAILABLE")
+                finally:
+                    output_detection_ms = 1000.0 * (time.perf_counter() - detection_started)
 
                 if output_classification.status == DetectionStatus.UNKNOWN:
                     output_decision = PolicyDecision.deny("OUTPUT_DETECTION_UNKNOWN")
@@ -450,7 +453,7 @@ class RequestOrchestrator:
             assert output_classification is not None and output_decision is not None
             self.dlp_metrics.output_detection(
                 output_classification.status,
-                1000.0 * (time.perf_counter() - inspection_started),
+                output_detection_ms,
             )
             output_obligations = output_decision.obligations
             mask_requested = output_decision.effect == Effect.PERMIT and bool(output_obligations)
