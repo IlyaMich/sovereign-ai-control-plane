@@ -9,7 +9,7 @@ import re
 
 import pytest
 
-from app.detection.aggregation import FindingAggregator, RawFinding, REQUIRED_COVERAGE
+from app.detection.aggregation import REQUIRED_COVERAGE, FindingAggregator, RawFinding
 from app.detection.config import DetectorConfig
 from app.domain.contracts import DetectionStatus
 from evaluation.dataset import load_dataset
@@ -19,9 +19,7 @@ def _phone_regex() -> re.Pattern[str]:
     config = DetectorConfig.load()
     patterns = dict(config.patterns)["PHONE_NUMBER"]
     candidates = [
-        (regex, score)
-        for name, regex, score in patterns
-        if name == "north-american-number"
+        (regex, score) for name, regex, score in patterns if name == "north-american-number"
     ]
     assert len(candidates) == 1
     expression, confidence = candidates[0]
@@ -83,9 +81,9 @@ def test_phone_pattern_exact_matches_on_frozen_synthetic_corpus() -> None:
 
 
 def _aggregate(prompt: str, findings: list[RawFinding]):
-    return FindingAggregator(
-        version="presidio-spacy-v1", config_digest="test-config"
-    ).aggregate(prompt=prompt, raw=findings, coverage=REQUIRED_COVERAGE)
+    return FindingAggregator(version="presidio-spacy-v1", config_digest="test-config").aggregate(
+        prompt=prompt, raw=findings, coverage=REQUIRED_COVERAGE
+    )
 
 
 def test_strong_full_span_supersedes_weak_same_category() -> None:

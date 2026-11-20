@@ -1,4 +1,5 @@
 """Versioned, strict benchmark profiles; source files are tracked, results are not."""
+
 from __future__ import annotations
 
 import hashlib
@@ -31,32 +32,63 @@ def load_profile(name: str) -> Profile:
     path = PROFILE_DIR / f"{name}.json"
     raw = path.read_bytes()
     value = json.loads(raw)
-    if not isinstance(value, dict) or set(value) != {
-        "schema_version", "description", "levels", "duration_s", "runs",
-        "interval_s", "scenarios", "allow_overload",
-    } or value["schema_version"] != 1:
+    if (
+        not isinstance(value, dict)
+        or set(value)
+        != {
+            "schema_version",
+            "description",
+            "levels",
+            "duration_s",
+            "runs",
+            "interval_s",
+            "scenarios",
+            "allow_overload",
+        }
+        or value["schema_version"] != 1
+    ):
         raise ValueError("Unsupported profile schema")
     levels = value["levels"]
     scenarios = value["scenarios"]
     duration = value["duration_s"]
     interval = value["interval_s"]
     runs = value["runs"]
-    if (not isinstance(levels, list) or not levels or len(levels) > 16
+    if (
+        not isinstance(levels, list)
+        or not levels
+        or len(levels) > 16
         or any(type(v) is not int or not 1 <= v <= 64 for v in levels)
-        or len(set(levels)) != len(levels)):
+        or len(set(levels)) != len(levels)
+    ):
         raise ValueError("Invalid concurrency levels")
-    if (not isinstance(scenarios, list) or not scenarios
+    if (
+        not isinstance(scenarios, list)
+        or not scenarios
         or any(type(v) is not str or v not in SCENARIOS for v in scenarios)
-        or len(set(scenarios)) != len(scenarios)):
+        or len(set(scenarios)) != len(scenarios)
+    ):
         raise ValueError("Invalid scenarios")
-    if (type(runs) is not int or not 1 <= runs <= 10
-        or type(duration) not in (int, float) or not math.isfinite(duration)
+    if (
+        type(runs) is not int
+        or not 1 <= runs <= 10
+        or type(duration) not in (int, float)
+        or not math.isfinite(duration)
         or not 1 <= duration <= 3600
-        or type(interval) not in (int, float) or not math.isfinite(interval)
+        or type(interval) not in (int, float)
+        or not math.isfinite(interval)
         or not 0.1 <= interval <= 30
         or type(value["allow_overload"]) is not bool
-        or type(value["description"]) is not str):
+        or type(value["description"]) is not str
+    ):
         raise ValueError("Invalid profile values")
-    return Profile(name, hashlib.sha256(raw).hexdigest(), value["description"],
-                   tuple(levels), float(duration), runs, float(interval),
-                   tuple(scenarios), value["allow_overload"])
+    return Profile(
+        name,
+        hashlib.sha256(raw).hexdigest(),
+        value["description"],
+        tuple(levels),
+        float(duration),
+        runs,
+        float(interval),
+        tuple(scenarios),
+        value["allow_overload"],
+    )
