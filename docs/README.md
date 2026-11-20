@@ -6,7 +6,8 @@ This index separates **current operational instructions** from historical milest
 
 | Need | Source of truth |
 | --- | --- |
-| Architecture, components and request flow | [Architecture](architecture.md) |
+| Architecture, components and request flow | [Architecture](architecture.md) | 
+| Source vs active signed release identity | [Release status](release-status.md) |
 | Threat boundaries and limitations | [Threat model](threat-model.md) |
 | Environment options | [Configuration](configuration.md) and [`.env.example`](../.env.example) |
 | Initial trusted state and migration | [Operator state migration](operator-state-migration.md) |
@@ -18,13 +19,15 @@ This index separates **current operational instructions** from historical milest
 | Request retry and reconciliation | [Idempotency and lifecycle](idempotency-and-request-lifecycle.md) |
 | Logs and metrics | [Logging](logging.md) |
 | Verification | [Testing](testing.md) |
+| Operator/developer scripts and their effects | [Tools reference](tools-reference.md) |
+| CI, protected release pipeline and images | [CI and reproducibility](ci-and-reproducibility.md) |
 | Locally patched OPA build and supply chain | [Patched OPA](PATCHED_OPA.md) |
 
 ## Evaluation and performance
 
 - [Detection evaluation](../evaluation/README.md), [enforcement replay](../evaluation/STAGE2.md), [stock Presidio comparison](../evaluation/adapters/STAGE3.md), and [response-side DLP evaluation](../evaluation/OUTPUT_DLP.md).
 - [Performance framework](../performance/README.md), [concurrency profiling](concurrency-performance-profiling.md), and [overload/evidence lookup](overload-and-audit-lookup.md).
-- [Detector and policy candidate notes](../evaluation/RECALL_CANDIDATE.md) are historical candidate rationale, **not** a substitute for a signed release and current evaluation results.
+- [Detector and policy candidate notes](../evaluation/RECALL_CANDIDATE.md), [phone recall](../evaluation/PHONE_RECALL_CANDIDATE.md), and [egress remediation](../evaluation/REMEDIATION.md) preserve change rationale; they are **not** a substitute for a signed release and current evaluation results.
 
 ## Architectural history
 
@@ -35,4 +38,4 @@ Historical examples may predate signed-release protection. For deployment and st
 
 ## Submission preparation
 
-See the [documentation audit](submission-documentation-audit.md) for proposed consolidations, known stale language, missing submission material and validation work. **This index is navigational, not an acceptance or release attestation.**
+Start with the [submission reviewer guide](submission-reviewer-guide.md) and [evidence matrix](submission-evidence.md). The [documentation audit](submission-documentation-audit.md) records what has been resolved and which clean-room validation, licensing or evidence-pinning work remains. **This index is navigational, not an acceptance or release attestation.**
