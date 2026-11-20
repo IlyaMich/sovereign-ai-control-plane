@@ -18,6 +18,13 @@ def positive_int(name: str, default: int) -> int:
     return value
 
 
+def strict_bool(name: str, default: bool = False) -> bool:
+    value = os.environ.get(name, "true" if default else "false").lower()
+    if value not in {"true", "false"}:
+        raise ValueError(f"{name} must be true or false")
+    return value == "true"
+
+
 def positive_float(name: str, default: float) -> float:
     try:
         value = float(os.environ.get(name, str(default)))
@@ -332,7 +339,7 @@ class Settings:
             signing_key_path=os.environ.get(
                 "AUDIT_SIGNING_KEY_PATH", "/var/lib/sovereign/audit-key.pem"
             ),
-            output_masking_enabled=os.environ.get("OUTPUT_MASKING_ENABLED", "false").lower() == "true",
+            output_masking_enabled=strict_bool("OUTPUT_MASKING_ENABLED"),
             enable_external_simulator=os.environ.get("ENABLE_EXTERNAL_SIMULATOR", "false").lower()
             == "true",
             egress_gateway_url=os.environ.get("EGRESS_GATEWAY_URL", "http://egress-gateway:9010"),
