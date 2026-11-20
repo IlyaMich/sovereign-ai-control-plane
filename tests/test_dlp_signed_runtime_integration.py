@@ -87,7 +87,10 @@ def _signed_app(tmp_path: Path, audit, response_text: str, *, masking: bool):
     calls = {"model": 0, "opa": 0}
 
     def transport(request: httpx.Request) -> httpx.Response:
-        if request.url.host == "opa" and request.url.path.endswith("/decision"):
+        if request.url.host == "opa" and request.url.path in {
+            "/v1/data/sovereign/authz/decision",
+            "/v1/data/sovereign/authz/output_decision",
+        }:
             calls["opa"] += 1
             data = json.loads(request.content)["input"]
             entry = (
