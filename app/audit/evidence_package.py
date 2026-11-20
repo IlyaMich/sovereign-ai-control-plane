@@ -110,9 +110,7 @@ def _safe_path(name: str) -> bool:
     )
 
 
-def _manifest_of(
-    folder: Path, *, max_uncompressed_bytes: int = MAX_UNCOMPRESSED
-) -> dict:
+def _manifest_of(folder: Path, *, max_uncompressed_bytes: int = MAX_UNCOMPRESSED) -> dict:
     entries: list[PackageEntry] = []
     total_bytes = 0
     for path in sorted(folder.rglob("*")):
