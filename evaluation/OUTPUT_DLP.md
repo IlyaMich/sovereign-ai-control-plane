@@ -64,6 +64,31 @@ still deserves review: false-positive blocks, wrong policy reasons or
 unavailable classifications may explain the difference. Do not assume the
 signatures are defective simply because some benchmark cases fail.
 
+## Initial measured synthetic baseline (2026-11-20)
+
+A Windows evaluation of the pinned 1,200-case fixture reported 1,190
+expected outcomes, 10 unnecessary blocks, 440 released responses, 760 blocked
+responses, **zero ground-truth sensitive releases** and 2,400 verified
+temporary signed audit events. All 10 unexpected cases were
+`HARD_NEGATIVE-0009`, `-0029`, ... `-0189`: repeated occurrences of
+the hard-negative template `The instruction says BEGIN KEY, not a PEM private key.`
+The output detector returned `PRIVATE`, so the output policy correctly
+blocked each result *given the classification*. The pending detector-quality
+question is which recognizer generated these false-positive findings. These
+are **ten cases from one template**, not ten independent failure patterns.
+
+The local OPA 1.8.0 CLI controlled run also passed all 15 scenarios, with
+29 independently verified temporary audit events and seven output-policy
+decisions replayed.
+
+A nonzero dataset CLI exit caused by false blocks is a **measured quality
+finding**, not an evaluation-code crash. Preserve the frozen dataset labels;
+do not loosen fail-closed response policy just to get a zero exit code.
+For category/recognizer diagnosis, case-level reports created by this change
+include `observed_categories` and `observed_recognizers` identifiers but
+not extracted text, and earlier runs still retain per-category counts in
+`run.json -> metrics.output_detection.entities_exact_full.by_category`.
+
 ## Controlled cases
 
 The default suite includes two safe outputs; email, telephone, mixed entities,
