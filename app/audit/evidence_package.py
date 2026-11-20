@@ -33,7 +33,10 @@ _HASH_CHUNK_BYTES = 1024 * 1024
 
 def _uncompressed_limit(max_uncompressed_mib: int) -> int:
     """Bound explicit export/reviewer overrides; default keeps legacy guard."""
-    if type(max_uncompressed_mib) is not int or not 1 <= max_uncompressed_mib <= MAX_CUSTOM_UNCOMPRESSED_MIB:
+    if (
+        type(max_uncompressed_mib) is not int
+        or not 1 <= max_uncompressed_mib <= MAX_CUSTOM_UNCOMPRESSED_MIB
+    ):
         raise EvidencePackageError("Evidence limit must be an integer from 1 to 1024 MiB")
     return max_uncompressed_mib * MIB
 
