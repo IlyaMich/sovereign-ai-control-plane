@@ -67,8 +67,9 @@ def fetch_asset(tag: str, asset: str, output: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "sovereign-submission-bootstrap"})
     size = 0
     try:
-        # nosec B310 - fixed HTTPS GitHub Releases URL; tag is strictly validated.
-        with urllib.request.urlopen(request, timeout=90) as response, output.open("wb") as dest:
+        # Fixed HTTPS GitHub Releases URL; the signed tag is strictly validated.
+        response = urllib.request.urlopen(request, timeout=90)  # nosec B310
+        with response, output.open("wb") as dest:
             while chunk := response.read(1024 * 1024):
                 size += len(chunk)
                 if size > MAX_DOWNLOAD_BYTES[asset]:
@@ -267,8 +268,9 @@ def check_readiness(api_port: int, key: str) -> None:
     while time.monotonic() < deadline:
         try:
             request = urllib.request.Request(url, headers={"X-API-Key": key})
-            # nosec B310 - fixed loopback HTTP health endpoint.
-            with urllib.request.urlopen(request, timeout=5) as response:
+            # Fixed loopback-only health endpoint; never a user-supplied URL.
+            response = urllib.request.urlopen(request, timeout=5)  # nosec B310
+            with response:
                 if response.status == 200:
                     print(f"READY: {url}", flush=True)
                     return
