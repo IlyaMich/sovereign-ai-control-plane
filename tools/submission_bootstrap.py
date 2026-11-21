@@ -21,6 +21,7 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from typing import NoReturn
 
 REPOSITORY = "IlyaMich/sovereign-ai-control-plane"
 REGISTRY_ROOT = "ghcr.io/ilyamich/sovereign-ai-control-plane"
@@ -42,7 +43,7 @@ STATE_DIRS = {
 }
 
 
-def fail(message: str) -> None:
+def fail(message: str) -> NoReturn:
     raise RuntimeError(message)
 
 
