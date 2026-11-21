@@ -10,3 +10,5 @@ policy-active/*.json text eol=lf
 release-active/*.json text eol=lf
 release-archive/*.json text eol=lf
 release-candidates/*.json text eol=lf
+# Shell scripts must use Unix line endings, including on Windows.
+*.sh text eol=lf
