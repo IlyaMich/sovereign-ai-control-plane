@@ -1,4 +1,4 @@
-# Reviewer bootstrap from signed GHCR images (Windows + Podman)
+# Reviewer bootstrap from signed GHCR images (Windows + Podman or Docker)
 
 This is the **fresh-host** path for the home-assignment submission, not a migration
 or an upgrade to any existing installation. It installs a published signed release
@@ -9,7 +9,9 @@ without rebuilding the detector, OPA, or reviewer images.
 The reviewer needs:
 
 - Windows PowerShell, **Python 3.12+** (standard library only), Podman Desktop
-  with a running Podman machine, and a working Compose provider.
+  with a running Podman machine and Compose provider, or Docker Desktop with
+  Linux containers and Docker Compose v2. Podman remains the validated default;
+  Docker support requires a separate real-host acceptance run.
 - A checkout of this repository. A **full source build is not required**.
 - Access to the signed GitHub Release and all three GHCR images (ideally publicly
   readable, without GitHub authentication).
@@ -59,12 +61,23 @@ the bootstrap **does not** attempt to reproduce that privileged process.
 
 ## Reviewer: install in an empty checkout
 
-Clone or extract the submitted repository, ensure that the Podman machine is
-running, and from the checkout root run:
+Clone or extract the submitted repository, start the selected local engine,
+and from the checkout root run (Podman is the default):
 
 ```powershell
 .\bootstrap.ps1
 ```
+
+For Docker Desktop in Linux-container mode, verify `docker info` and
+`docker compose version`, then run:
+
+```powershell
+.\bootstrap.ps1 -Engine docker
+```
+
+Use a local Docker Desktop context with access to the checkout's host paths,
+not a remote daemon. Do not reuse an existing installation's state or volumes.
+Both engines use the same signed release and images.
 
 By default this starts five containers: control plane, OPA, sovereign model,
 egress gateway and external simulator. The last two are local, isolated
@@ -77,6 +90,8 @@ For the three-container sovereign-only deployment, use:
 ```powershell
 .\bootstrap.ps1 -SovereignOnly
 ```
+
+Combine both options with `.\bootstrap.ps1 -Engine docker -SovereignOnly`.
 
 The standard development configuration remains opt-in for external simulation.
 
@@ -91,7 +106,7 @@ run with its three explicit values:
 
 The script does the following, in order:
 
-1. Refuses to proceed when `.env` or `.runtime` already exists; checks Podman
+1. Refuses to proceed when `.env` or `.runtime` already exists; checks the selected engine
    and Compose rather than modifying an existing deployment.
 2. Downloads only `release-state.tar.gz` and `registry-images.json` from the
    named GitHub Release (not the multi-GB image tarballs).
@@ -118,10 +133,12 @@ Default Compose project is `sovereign-review`, host API is
 `-Project review-example -ApiPort 8001`. The API key is stored in the
 Git-ignored `.env`; do not send it to the assignment reviewer logs.
 
-The reviewer can inspect the running services and test the API:
+The reviewer can inspect the running services and test the API. Set `$engine`
+ to `podman` or `docker` to match the bootstrap selection:
 
 ```powershell
-podman compose -p sovereign-review -f deploy/compose.yaml `
+$engine = 'podman' # use 'docker' for Docker installations
+& $engine compose -p sovereign-review -f deploy/compose.yaml `
   -f deploy/compose.ghcr.yaml --env-file .env --profile egress-test ps
 
 $key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
@@ -143,7 +160,7 @@ podman compose -p sovereign-review -f deploy/compose.yaml `
 ```
 
 **Never** use `down -v`, delete `.runtime`, or rerun the fresh bootstrap over
-an installed deployment. The audit database lives in a named Podman volume.
+an installed deployment. The audit database lives in a named container-engine volume.
 The installation intentionally fails rather than reset or replace history.
 Use the existing operator documentation for upgrades and migrations.
 
@@ -168,6 +185,36 @@ Use the existing operator documentation for upgrades and migrations.
   provide hardware attestation, independent audit-history witnessing, or
   real-world geographic residency assurances.
 
+### Export and verify evidence with the selected engine
+
+After the Postman cases, use the same engine, Compose project and port as
+the installation. The examples below use the default project and full mode:
+
+```powershell
+$engine = 'docker' # or 'podman'
+$composeArgs = @(
+    '-p', 'sovereign-review',
+    '-f', 'deploy/compose.yaml',
+    '-f', 'deploy/compose.ghcr.yaml',
+    '--env-file', '.env',
+    '--profile', 'egress-test'
+)
+$zip = "/var/lib/sovereign/demo-evidence.zip"
+& $engine compose @composeArgs exec -T control-plane `
+    python -m tools.export_evidence_package --out $zip
+& $engine compose @composeArgs --profile audit-review `
+    run --rm --entrypoint python audit-reviewer `
+    -m tools.verify_evidence_package --bundle $zip `
+    --trusted-release-public-key /release-trust/release-signing.pub.pem
+$container = (& $engine compose @composeArgs ps -q control-plane |
+    Select-Object -First 1).Trim()
+& $engine cp "${container}:${zip}" ./demo-evidence.zip
+```
+
+Omit the egress profile for sovereign-only installations. These commands use
+prebuilt images and preserve the audit volume. Existing source-build and operator
+PowerShell scripts remain Podman-oriented; do not use them as Docker migration tools.
+
 ### Source-build fallback
 
 If the signed GHCR release is unavailable and the reviewer intentionally wants
@@ -181,6 +228,6 @@ generation-7 example as active release state.
 The installer has offline unit tests for package path safety, digest-reference
 validation and fresh environment generation. **Passing these tests is not
 evidence of a successful real clean-host installation.** Before submission,
-record one fresh Windows/Podman execution, release tag, image digests,
+record a fresh Windows execution for each claimed engine, release tag, image digests,
 detector/policy identity, readiness and synthetic smoke-test results in the
 [submission evidence matrix](submission-evidence.md).
