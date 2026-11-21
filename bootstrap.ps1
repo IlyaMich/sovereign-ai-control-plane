@@ -10,7 +10,8 @@ param(
 
     [string] $Project = 'sovereign-review',
     [ValidateRange(1, 65535)]
-    [int] $ApiPort = 8000
+    [int] $ApiPort = 8000,
+    [switch] $SovereignOnly
 )
 
 $ErrorActionPreference = 'Stop'
@@ -36,13 +37,15 @@ if ($LASTEXITCODE -ne 0) {
 
 Push-Location $PSScriptRoot
 try {
+    $modeArgs = @()
+    if ($SovereignOnly) { $modeArgs += '--sovereign-only' }
     & $python.Source -m tools.submission_bootstrap `
         --release-tag $ReleaseTag `
         --trusted-key-sha256 $TrustedKeySha256 `
         --registry-sha256 $RegistrySha256 `
         --project $Project `
         --api-port $ApiPort `
-        --root $PSScriptRoot
+        --root $PSScriptRoot @modeArgs
 
     if ($LASTEXITCODE -ne 0) {
         throw "Reviewer bootstrap failed (exit code $LASTEXITCODE). Check the message above."
