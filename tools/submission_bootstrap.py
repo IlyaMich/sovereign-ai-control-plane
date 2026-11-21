@@ -286,6 +286,33 @@ def check_readiness(api_port: int, key: str) -> None:
     )
 
 
+def check_external_route(api_port: int, key: str) -> None:
+    """Exercise the actual policy/gateway route with a synthetic public prompt."""
+    url = f"http://127.0.0.1:{api_port}/v1/prompts"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(
+            {
+                "prompt": "Explain network segmentation.",
+                "destination_id": "external-simulator",
+                "purpose": "GENERAL",
+            }
+        ).encode("utf-8"),
+        headers={"X-API-Key": key, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        # Fixed loopback-only API endpoint, using synthetic public content.
+        response = urllib.request.urlopen(request, timeout=30)  # nosec B310
+        with response:
+            result = json.load(response)
+    except (OSError, ValueError) as exc:
+        fail(f"External simulator smoke test failed ({type(exc).__name__}); inspect logs")
+    if result.get("status") != "COMPLETED" or result.get("model_id") != "external-simulator":
+        fail("External simulator smoke test did not complete on the expected route")
+    print("External simulator route: VERIFIED (synthetic request audited)", flush=True)
+
+
 def compose_command(root: Path, project: str, *, sovereign_only: bool = False) -> list[str]:
     command = [
         "podman",
@@ -390,6 +417,8 @@ def main() -> int:
         if "=" in line and not line.startswith("#")
     )
     check_readiness(args.api_port, env["CONTROL_PLANE_API_KEY"])
+    if not args.sovereign_only:
+        check_external_route(args.api_port, env["CONTROL_PLANE_API_KEY"])
     print(f"Installation complete: signed release {args.release_tag}, project {args.project}")
     print("Mode: sovereign-only" if args.sovereign_only else "Mode: full simulated egress demo")
     print(f"API docs: http://127.0.0.1:{args.api_port}/docs")
