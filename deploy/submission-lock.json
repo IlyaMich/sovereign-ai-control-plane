@@ -1,0 +1,5 @@
+ {
+    "release_tag":  "signed-g2",
+    "trusted_key_sha256":  "20094d9e4fdee712db7fa4530b771cdc6d265a161463ba2d23a2df86f2ffc46d",
+    "registry_sha256":  "195bbdfb1760797450bb170d952029535ef5ba27c13e1c19b0ca3e57d14c5ce6"
+}
