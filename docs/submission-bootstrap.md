@@ -66,6 +66,20 @@ running, and from the checkout root run:
 .\bootstrap.ps1
 ```
 
+By default this starts five containers: control plane, OPA, sovereign model,
+egress gateway and external simulator. The last two are local, isolated
+simulation services, not a real external provider. No external API key is needed.
+The bootstrap enables the `egress-test` profile and sets
+`ENABLE_EXTERNAL_SIMULATOR=true` only for the reviewer environment.
+
+For the three-container sovereign-only deployment, use:
+
+```powershell
+.\bootstrap.ps1 -SovereignOnly
+```
+
+The standard development configuration remains opt-in for external simulation.
+
 If the final lock was handed off separately and has not yet been checked in,
 run with its three explicit values:
 
@@ -93,8 +107,8 @@ The script does the following, in order:
    Creates a distinct `.env` with a randomly generated API key, signed policy
    revision, loopback-only API port and pinned image references. No release
    private key is created, copied or needed.
-6. Starts `deploy/compose.yaml` **with** `deploy/compose.ghcr.yaml` and
-   `up --no-build`. Waits for authenticated API readiness.
+6. Starts both Compose files with `up --no-build` and, by default, the
+   `egress-test` profile. Waits for authenticated API readiness.
 
 Default Compose project is `sovereign-review`, host API is
 `http://127.0.0.1:8000`. For another isolated name/port, use
@@ -105,12 +119,14 @@ The reviewer can inspect the running services and test the API:
 
 ```powershell
 podman compose -p sovereign-review -f deploy/compose.yaml `
-  -f deploy/compose.ghcr.yaml --env-file .env ps
+  -f deploy/compose.ghcr.yaml --env-file .env --profile egress-test ps
 
 $key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
 Invoke-RestMethod http://127.0.0.1:8000/health/ready `
   -Headers @{'X-API-Key'=$key}
 ```
+
+For the full seven-case demo, import the [Postman collection](../deploy/postman/sovereign-demo.postman_collection.json) and [environment](../deploy/postman/sovereign-local.postman_environment.json). Select the environment and set its local `apiKey` from `.env`; never share it. Send each POST followed by its paired audit GET. In sovereign-only mode, run cases 01–03 only. Omit the profile from lifecycle commands for that mode.
 
 For synthetic permit/deny demonstrations see
 [submission reviewer walkthrough](submission-reviewer-guide.md). Never submit
@@ -120,7 +136,7 @@ To stop without deleting the isolated audit volume:
 
 ```powershell
 podman compose -p sovereign-review -f deploy/compose.yaml `
-  -f deploy/compose.ghcr.yaml --env-file .env down
+  -f deploy/compose.ghcr.yaml --env-file .env --profile egress-test down
 ```
 
 **Never** use `down -v`, delete `.runtime`, or rerun the fresh bootstrap over
