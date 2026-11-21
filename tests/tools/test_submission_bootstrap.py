@@ -14,6 +14,7 @@ from tools.submission_bootstrap import (
     create_environment,
     extract_public_state,
     image_reference,
+    verify_images,
     verify_package,
 )
 
@@ -99,8 +100,9 @@ def test_manifest_checksum_is_checked_before_extraction(tmp_path, monkeypatch):
         verify_package(tmp_path, "signed-g8", "a" * 64, "0" * 64)
 
 
+@pytest.mark.parametrize("engine", ["podman", "docker"])
 @pytest.mark.parametrize("sovereign_only", [False, True])
-def test_deployment_modes(tmp_path, sovereign_only):
+def test_deployment_modes(tmp_path, sovereign_only, engine):
     refs = {
         "application": REGISTRY_ROOT + "@sha256:" + "a" * 64,
         "audit_reviewer": REGISTRY_ROOT + "-audit-reviewer@sha256:" + "b" * 64,
@@ -111,7 +113,10 @@ def test_deployment_modes(tmp_path, sovereign_only):
         env_path, refs, "revision", "review-case", 8001, sovereign_only=sovereign_only
     )
     assert f"ENABLE_EXTERNAL_SIMULATOR={str(not sovereign_only).lower()}" in env_path.read_text()
-    command = compose_command(tmp_path, "review-case", sovereign_only=sovereign_only)
+    command = compose_command(
+        tmp_path, "review-case", sovereign_only=sovereign_only, engine=engine
+    )
+    assert command[:2] == [engine, "compose"]
     assert ("egress-test" in command) is (not sovereign_only)
     assert ("--profile" in command) is (not sovereign_only)
     assert str(tmp_path / "deploy/compose.ghcr.yaml") in command
@@ -135,3 +140,32 @@ def test_external_route_rejects_wrong_model(monkeypatch):
     monkeypatch.setattr("tools.submission_bootstrap.urllib.request.urlopen", fake_open)
     with pytest.raises(RuntimeError, match="expected route"):
         check_external_route(8001, "test-key")
+
+
+@pytest.mark.parametrize("engine", ["podman", "docker"])
+def test_image_verification_uses_selected_engine(tmp_path, monkeypatch, engine):
+    (tmp_path / "release-active").mkdir()
+    (tmp_path / "release-active" / "release.json").write_text(
+        json.dumps({"payload": {"detector_digest": "approved"}})
+    )
+    refs = {"application": "app", "audit_reviewer": "reviewer", "opa": "opa"}
+    calls = []
+
+    def fake_run(*args, capture=False):
+        calls.append(args)
+        if args[1:3] == ("image", "inspect"):
+            return json.dumps(
+                [{"Config": {"Labels": {"org.opencontainers.image.revision": "rev"}}}]
+            )
+        if capture:
+            return json.dumps({"detector_artifact_digest": "approved"})
+        return ""
+
+    monkeypatch.setattr("tools.submission_bootstrap.run", fake_run)
+    verify_images(tmp_path, refs, {"commit": "rev"}, engine=engine)
+    assert all(args[0] == engine for args in calls)
+    assert [args[2] for args in calls if args[1] == "pull"] == list(refs.values())
+    verification_runs = [args for args in calls if args[1] == "run"]
+    assert len(verification_runs) == 2
+    assert all("--network" in args and "none" in args for args in verification_runs)
+    assert len([args for args in calls if args[1:3] == ("image", "inspect")]) == 3
