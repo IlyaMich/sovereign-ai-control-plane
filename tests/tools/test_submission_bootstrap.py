@@ -1,6 +1,7 @@
 """Offline tests for the fresh-reviewer release bootstrap."""
 
 import io
+import json
 import tarfile
 
 import pytest
@@ -8,6 +9,7 @@ import pytest
 from tools.submission_bootstrap import (
     REGISTRY_ROOT,
     STATE_DIRS,
+    check_external_route,
     compose_command,
     create_environment,
     extract_public_state,
@@ -113,3 +115,23 @@ def test_deployment_modes(tmp_path, sovereign_only):
     assert ("egress-test" in command) is (not sovereign_only)
     assert ("--profile" in command) is (not sovereign_only)
     assert str(tmp_path / "deploy/compose.ghcr.yaml") in command
+
+
+def test_external_route_smoke_check(monkeypatch):
+    def fake_open(request, timeout):
+        assert request.full_url == "http://127.0.0.1:8001/v1/prompts"
+        assert timeout == 30
+        assert json.loads(request.data)["destination_id"] == "external-simulator"
+        return io.BytesIO(b'{"status":"COMPLETED","model_id":"external-simulator"}')
+
+    monkeypatch.setattr("tools.submission_bootstrap.urllib.request.urlopen", fake_open)
+    check_external_route(8001, "test-key")
+
+
+def test_external_route_rejects_wrong_model(monkeypatch):
+    def fake_open(_request, timeout):
+        return io.BytesIO(b'{"status":"COMPLETED","model_id":"sovereign-model"}')
+
+    monkeypatch.setattr("tools.submission_bootstrap.urllib.request.urlopen", fake_open)
+    with pytest.raises(RuntimeError, match="expected route"):
+        check_external_route(8001, "test-key")
