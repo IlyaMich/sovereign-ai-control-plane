@@ -13,7 +13,7 @@ import os
 import re
 import secrets
 import shutil
-import subprocess
+import subprocess  # nosec B404 - fixed podman executable, argument-array invocation
 import sys
 import tarfile
 import tempfile
@@ -48,7 +48,7 @@ def fail(message: str) -> None:
 
 def run(*arguments: str, capture: bool = False) -> str:
     print("+ " + " ".join(arguments[:3]) + (" ..." if len(arguments) > 3 else ""), flush=True)
-    result = subprocess.run(
+    result = subprocess.run(  # nosec B603 - no shell; registry refs and project values validated
         arguments,
         capture_output=capture,
         text=True,
@@ -67,6 +67,7 @@ def fetch_asset(tag: str, asset: str, output: Path) -> None:
     request = urllib.request.Request(url, headers={"User-Agent": "sovereign-submission-bootstrap"})
     size = 0
     try:
+        # nosec B310 - fixed HTTPS GitHub Releases URL; tag is strictly validated.
         with urllib.request.urlopen(request, timeout=90) as response, output.open("wb") as dest:
             while chunk := response.read(1024 * 1024):
                 size += len(chunk)
@@ -186,20 +187,39 @@ def podman_verify(state: Path, refs: dict[str, str], images: dict) -> None:
     # without installing any Python dependencies onto the host.
     mount = f"type=bind,source={state.resolve()},target=/release-state,readonly"
     run(
-        "podman", "run", "--rm", "--mount", mount,
-        "--entrypoint", "python", refs["audit_reviewer"],
-        "-m", "tools.verify_release",
-        "--trust", "/release-state/release-trust",
-        "--active", "/release-state/release-active/release.json",
-        "--archive", "/release-state/release-archive",
-        "--policy-active", "/release-state/policy-active",
-        "--policy-archive", "/release-state/policy-archive",
+        "podman",
+        "run",
+        "--rm",
+        "--mount",
+        mount,
+        "--entrypoint",
+        "python",
+        refs["audit_reviewer"],
+        "-m",
+        "tools.verify_release",
+        "--trust",
+        "/release-state/release-trust",
+        "--active",
+        "/release-state/release-active/release.json",
+        "--archive",
+        "/release-state/release-archive",
+        "--policy-active",
+        "/release-state/policy-active",
+        "--policy-archive",
+        "/release-state/policy-archive",
     )
     verified = json.loads(
         run(
-            "podman", "run", "--rm", "--entrypoint", "python", refs["application"],
-            "-m", "tools.verify_detector_manifest",
-            "--manifest", "/service/detector-active/manifest.json",
+            "podman",
+            "run",
+            "--rm",
+            "--entrypoint",
+            "python",
+            refs["application"],
+            "-m",
+            "tools.verify_detector_manifest",
+            "--manifest",
+            "/service/detector-active/manifest.json",
             capture=True,
         )
     )
@@ -247,6 +267,7 @@ def check_readiness(api_port: int, key: str) -> None:
     while time.monotonic() < deadline:
         try:
             request = urllib.request.Request(url, headers={"X-API-Key": key})
+            # nosec B310 - fixed loopback HTTP health endpoint.
             with urllib.request.urlopen(request, timeout=5) as response:
                 if response.status == 200:
                     print(f"READY: {url}", flush=True)
@@ -322,15 +343,22 @@ def main() -> int:
         create_environment(root / ".env", refs, revision, args.project, args.api_port)
 
     compose = [
-        "podman", "compose", "-p", args.project,
-        "-f", str(root / "deploy/compose.yaml"),
-        "-f", str(root / "deploy/compose.ghcr.yaml"),
-        "--env-file", str(root / ".env"),
+        "podman",
+        "compose",
+        "-p",
+        args.project,
+        "-f",
+        str(root / "deploy/compose.yaml"),
+        "-f",
+        str(root / "deploy/compose.ghcr.yaml"),
+        "--env-file",
+        str(root / ".env"),
     ]
     run(*compose, "config", "--quiet")
     run(*compose, "up", "--no-build", "--force-recreate", "-d")
     env = dict(
-        line.split("=", 1) for line in (root / ".env").read_text(encoding="utf-8").splitlines()
+        line.split("=", 1)
+        for line in (root / ".env").read_text(encoding="utf-8").splitlines()
         if "=" in line and not line.startswith("#")
     )
     check_readiness(args.api_port, env["CONTROL_PLANE_API_KEY"])
