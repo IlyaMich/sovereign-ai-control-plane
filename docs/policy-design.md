@@ -47,7 +47,7 @@ podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policie
 # Build and SIGN the exact policy/detector artifacts using the existing key.
 .\Approve-And-ActivateRelease.ps1 -UseExistingKey
 
-# If the human Rego revision changed, update EXPECTED_POLICY_REVISION in .env.
+# Policy revision is checked against the signed snapshot; no separate .env gate.
 # Recreate the active containers WITHOUT rebuilding approved artifacts.
 podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
 .\Verify-SignedReleaseWorkflow.ps1

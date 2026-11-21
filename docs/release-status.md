@@ -8,7 +8,7 @@ The code in a checkout, the Git-tracked historical examples, the local operator'
 | --- | --- | --- |
 | `pyproject.toml` and `app/api/main.py` | API/application version `0.6.0` | Source/API version only |
 | `policies/decision.rego` | Source revision `redaction-response-dlp-v5`; includes `data.sovereign.authz.output_decision` and opt-in output masking rules | Candidate policy source, not live activation |
-| `.env.example` | `EXPECTED_POLICY_REVISION=redaction-response-dlp-v5`, `OUTPUT_MASKING_ENABLED=false` | Example configuration for new-source activation; not a running operator's `.env` |
+| `.env.example` | `OUTPUT_MASKING_ENABLED=false`; the signed release supplies the policy revision | Example configuration for new-source activation; not a running operator's `.env` |
 | Tracked `policy-active/manifest.json` | Historical example revision `redaction-baseline-v3`; digest `14dc07da86d2c1e658def210ffe70c80a34a2e76dcafb3251ae9edb830c5b7c2` | Example only, **not** current runtime state |
 | Tracked `release-active/release.json` | Historical example generation **7**, release ID `996e77607d5f65f335d5deea8ebaa21c04f8ad164731382890638cf9422d25cd` | A checked-in example with its own signer; not evidence of operator approval |
 | Operator-owned `.runtime/` | Git-ignored, not inspected by this review | Actual host policy, archives and approval depend on an independently provisioned trust root |
@@ -21,8 +21,7 @@ Earlier local documentation reported an approved v4 output allow/block deploymen
 On the **correct operator host**, from its checkout root, preserving `.env`, `.runtime`, the trusted signer, existing images and audit volume:
 
 ```powershell
-python -m tools.verify_policy_snapshot
-python -m tools.verify_release
+python -m tools.verify_installation
 podman compose -f deploy/compose.yaml --env-file .env ps
 Invoke-RestMethod http://127.0.0.1:8000/health/ready
 ```

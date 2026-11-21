@@ -96,8 +96,7 @@ policy tests do not imply activation of the new signed release.
 Before runtime deployment:
 
 1. Complete tests and inspect code diff.
-2. Review `EXPECTED_POLICY_REVISION=redaction-response-dlp-v5` in the
-   deployment environment (the old local `.env` may still pin v3).
+2. Check that the intended source revision and digest will be recorded in the new signed approval.
 3. Stop the old control-plane and OPA as required by the release process.
 4. Build a **new** policy snapshot from `policies/`, build the intended
    detector image, and verify both artifact digests.

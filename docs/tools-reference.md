@@ -5,6 +5,7 @@ Run module commands from the **repository root** in Python 3.12+. Host operator 
 | Command/module | Role | Side effects and safe use |
 | --- | --- | --- |
 | `tools.build_policy_snapshot` | Hash, archive and publish policy source | **Mutates** active/archive policy; use only in a coordinated release window or pass explicit disposable `--archive`/`--active` paths for CI |
+| `tools.verify_installation` | Unified read-only host policy/release verification; optionally check detector bytes, signed audit chain (external checkpoint optional) and loopback API readiness via `--runtime` | Read-only; run from the operator checkout, never changes state |
 | `tools.verify_policy_snapshot` | Verify policy active/archive consistency | Read-only |
 | `tools.build_detector_manifest` | Generate detector provenance after build | **Writes** manifest; intended for image build, not a live approved container |
 | `tools.verify_detector_manifest` | Recompute installed detector identity | Read-only; must run where pinned NLP/model files exist |

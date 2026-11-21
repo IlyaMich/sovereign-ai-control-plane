@@ -86,7 +86,7 @@ new signature or generation is needed simply to move the bind sources.
 For a **new, isolated Windows/Podman reviewer machine**, use
 [the signed-image submission bootstrap](docs/submission-bootstrap.md). Once
 the submission includes a reviewed `deploy/submission-lock.json` pinning an
-actual published release and its independently trusted checksums, the reviewer
+actual published release, exact OCI image digests and independently trusted release key, the reviewer
 can run `.\bootstrap.ps1` from the checkout root. This pulls immutable OCI
 images and verifies release/detector identity; it **does not rebuild or sign**
 the application. The bootstrap refuses existing `.env` or `.runtime` state.
@@ -104,8 +104,7 @@ Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and e
 ~~~powershell
 # From the repository root, with .env and a trusted release key already provisioned:
 python -m pip install "cryptography>=50.0.2,<51"
-python -m tools.verify_policy_snapshot
-python -m tools.verify_release
+python -m tools.verify_installation
 
 # If a new release is necessary, use the EXISTING signer and sign an N+1 approval.
 # Stop services before changing active release artifacts.
@@ -208,8 +207,7 @@ Editing `policies/decision.rego` **does not activate** a new policy. The current
 1. Review the proposed policy and run tests. Stop OPA and control-plane before changing active artifacts (`podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane`); build and verify the snapshot with `python -m tools.build_policy_snapshot` and `python -m tools.verify_policy_snapshot`.
 2. Build the intended detector image and obtain the installed artifact digest.
 3. Use the existing out-of-runtime private signing key to sign a new generation (predecessor must match the currently active release), then run `tools.activate_release` / `tools.verify_release`. The operator helper `Approve-And-ActivateRelease.ps1 -UseExistingKey` covers the normal next-generation workflow.
-4. If the Rego revision changed, update `EXPECTED_POLICY_REVISION` in `.env`.
-5. Recreate **OPA and control-plane** with the approved image, without rebuilding; run `Verify-SignedReleaseWorkflow.ps1`.
+4. Recreate **OPA and control-plane** with the approved image, without rebuilding; run `Verify-SignedReleaseWorkflow.ps1`.
 
 A rollback to older policy bytes is **a new signed generation**, not reactivation of an earlier approval. Retain every policy/release archive needed for replay. See [Milestone 6](docs/signed-release-workflow.md).
 

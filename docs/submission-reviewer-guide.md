@@ -20,7 +20,7 @@ python -m pip install -e ".[dev]"
 Copy-Item .env.example .env
 ```
 
-Before continuing, **manually** replace `CONTROL_PLANE_API_KEY` with a strong unique key and set an isolated `COMPOSE_PROJECT_NAME` in the deployment environment. Keep `.env` out of Git. Review `API_PORT`, `ENABLE_EXTERNAL_SIMULATOR=false`, `OUTPUT_MASKING_ENABLED=false` and `EXPECTED_POLICY_REVISION`; the latter must match the policy you intend to sign. `.env.example` describes **source v5**, not an existing operator's live release.
+Before continuing, **manually** replace `CONTROL_PLANE_API_KEY` with a strong unique key and set an isolated `COMPOSE_PROJECT_NAME` in the deployment environment. Keep `.env` out of Git. Review `API_PORT`, `ENABLE_EXTERNAL_SIMULATOR=false` and `OUTPUT_MASKING_ENABLED=false`; policy revision is checked against the signed release rather than duplicated in `.env`. `.env.example` describes **source v5**, not an existing operator's live release.
 
 ## 1. Only for a new independently isolated deployment
 
