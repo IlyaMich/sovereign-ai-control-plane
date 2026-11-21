@@ -1,7 +1,6 @@
 """Offline tests for the fresh-reviewer release bootstrap."""
 
 import io
-import json
 import tarfile
 
 import pytest
@@ -12,6 +11,7 @@ from tools.submission_bootstrap import (
     create_environment,
     extract_public_state,
     image_reference,
+    verify_package,
 )
 
 
@@ -88,6 +88,10 @@ def test_environment_keeps_secrets_local_and_images_immutable(tmp_path):
         create_environment(env_path, refs, "redaction-response-dlp-v5", "review-case", 8001)
 
 
-def test_metadata_does_not_require_local_cryptography_import():
-    # Bootstrap is stdlib-only; signature verification happens in the reviewer image.
-    assert json.loads('{"generation":1}')["generation"] == 1
+def test_manifest_checksum_is_checked_before_extraction(tmp_path, monkeypatch):
+    def fake_download(_tag, asset, destination):
+        destination.write_bytes(b"{}" if asset == "registry-images.json" else b"bad-tar")
+
+    monkeypatch.setattr("tools.submission_bootstrap.fetch_asset", fake_download)
+    with pytest.raises(RuntimeError, match="independently pinned checksum"):
+        verify_package(tmp_path, "signed-g8", "a" * 64, "0" * 64)
