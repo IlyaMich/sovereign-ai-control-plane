@@ -108,7 +108,10 @@ The script does the following, in order:
    revision, loopback-only API port and pinned image references. No release
    private key is created, copied or needed.
 6. Starts both Compose files with `up --no-build` and, by default, the
-   `egress-test` profile. Waits for authenticated API readiness.
+   `egress-test` profile. Waits for authenticated API readiness. In full demo
+   mode, sends one synthetic public request through the external simulator and
+   requires a completed response from that destination. This creates audit events
+   before the manual Postman demo.
 
 Default Compose project is `sovereign-review`, host API is
 `http://127.0.0.1:8000`. For another isolated name/port, use
