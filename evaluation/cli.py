@@ -31,7 +31,9 @@ def main(argv: list[str] | None = None) -> int:
     valid.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
     run = commands.add_parser("detect", help="Execute a detector-only benchmark")
     run.add_argument("--dataset", type=Path, default=DEFAULT_DATASET)
-    run.add_argument("--adapter", choices=["control-plane", "presidio-stock"], default="control-plane")
+    run.add_argument(
+        "--adapter", choices=["control-plane", "presidio-stock"], default="control-plane"
+    )
     run.add_argument(
         "--split", choices=["all", "development", "validation", "evaluation"], default="all"
     )
