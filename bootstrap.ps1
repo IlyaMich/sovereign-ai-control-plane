@@ -11,7 +11,9 @@ param(
     [string] $Project = 'sovereign-review',
     [ValidateRange(1, 65535)]
     [int] $ApiPort = 8000,
-    [switch] $SovereignOnly
+    [switch] $SovereignOnly,
+    [ValidateSet('podman', 'docker')]
+    [string] $Engine = 'podman'
 )
 
 $ErrorActionPreference = 'Stop'
@@ -44,6 +46,7 @@ try {
         --trusted-key-sha256 $TrustedKeySha256 `
         --registry-sha256 $RegistrySha256 `
         --project $Project `
+        --engine ($Engine.ToLowerInvariant()) `
         --api-port $ApiPort `
         --root $PSScriptRoot @modeArgs
 
