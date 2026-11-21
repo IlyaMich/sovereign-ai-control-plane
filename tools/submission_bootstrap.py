@@ -74,7 +74,10 @@ def fetch_asset(tag: str, asset: str, output: Path) -> None:
                     fail(f"Release asset exceeds size cap: {asset}")
                 dest.write(chunk)
     except urllib.error.HTTPError as exc:
-        fail(f"Cannot download {asset} from {tag} (HTTP {exc.code}); check that the release is public and complete")
+        fail(
+            f"Cannot download {asset} from {tag} (HTTP {exc.code}); "
+            "check that the release is public and complete"
+        )
     if not size:
         fail(f"Empty release asset: {asset}")
 
@@ -92,6 +95,7 @@ def extract_public_state(archive_path: Path, destination: Path) -> Path:
                 or parts[0] != ".runtime"
                 or any(part in (".", "..") for part in parts)
                 or p.is_absolute()
+                or "\\" in member.name
                 or (len(parts) > 1 and parts[1] not in STATE_DIRS)
                 or not (member.isfile() or member.isdir())
             ):
@@ -159,10 +163,20 @@ def verify_package(
         fail("Release tag, signed approval, and image metadata disagree")
     refs = {
         "application": image_reference(images.get("application"), REGISTRY_ROOT),
-        "audit_reviewer": image_reference(images.get("audit_reviewer"), REGISTRY_ROOT + "-audit-reviewer"),
+        "audit_reviewer": image_reference(
+            images.get("audit_reviewer"), REGISTRY_ROOT + "-audit-reviewer"
+        ),
         "opa": image_reference(images.get("opa"), REGISTRY_ROOT + "-opa"),
     }
     return state, refs, images
+
+
+def make_public_state_readable(state: Path) -> None:
+    """Allow the non-root reviewer container to read public approval artifacts."""
+    for entry in [state, *state.rglob("*")]:
+        if entry.is_symlink():
+            fail("Refusing symlink in extracted public state")
+        entry.chmod(0o755 if entry.is_dir() else 0o644)
 
 
 def podman_verify(state: Path, refs: dict[str, str], images: dict) -> None:
@@ -240,14 +254,21 @@ def check_readiness(api_port: int, key: str) -> None:
         except (OSError, urllib.error.URLError) as exc:
             reason = type(exc).__name__
         time.sleep(2)
-    fail(f"Application did not become ready ({reason}). Inspect podman compose logs; preserve .runtime and .env")
+    fail(
+        f"Application did not become ready ({reason}). "
+        "Inspect podman compose logs; preserve .runtime and .env"
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-tag", required=True, help="e.g. signed-g8")
-    parser.add_argument("--trusted-key-sha256", required=True, help="Pinned SHA-256 of release-signing.pub.pem")
-    parser.add_argument("--registry-sha256", required=True, help="Pinned SHA-256 of registry-images.json")
+    parser.add_argument(
+        "--trusted-key-sha256", required=True, help="Pinned SHA-256 of release-signing.pub.pem"
+    )
+    parser.add_argument(
+        "--registry-sha256", required=True, help="Pinned SHA-256 of registry-images.json"
+    )
     parser.add_argument("--project", default="sovereign-review", help="Isolated Compose project")
     parser.add_argument("--api-port", default=8000, type=int)
     parser.add_argument("--root", default=".", help="Repository checkout root")
@@ -262,14 +283,20 @@ def main() -> int:
         if not HEX64.fullmatch(value):
             fail(f"Invalid {name}: expected 64 lowercase SHA-256 hex characters")
     if not PROJECT.fullmatch(args.project):
-        fail("Project name must start with a lowercase letter and use only lowercase letters, digits, _ or -")
+        fail(
+            "Project name must start with a lowercase letter and use only "
+            "lowercase letters, digits, _ or -"
+        )
     if not 1 <= args.api_port <= 65535:
         fail("API port must be within 1..65535")
     for filename in ("deploy/compose.yaml", "deploy/compose.ghcr.yaml"):
         if not (root / filename).is_file():
             fail(f"Repository root is missing {filename}")
     if (root / ".runtime").exists() or (root / ".env").exists():
-        fail("Fresh-install only: .runtime or .env already exists. Never overwrite existing signed state")
+        fail(
+            "Fresh-install only: .runtime or .env already exists. "
+            "Never overwrite existing signed state"
+        )
     if not shutil.which("podman"):
         fail("Install Podman and its Compose provider before running this script")
     run("podman", "info", capture=True)
@@ -279,8 +306,12 @@ def main() -> int:
         state, refs, images = verify_package(
             Path(folder), args.release_tag, args.trusted_key_sha256, args.registry_sha256
         )
+        make_public_state_readable(state)
+        Path(folder).chmod(0o755)
+        (Path(folder) / "unpacked").chmod(0o755)
         podman_verify(state, refs, images)
-        release = json.loads((state / "release-active" / "release.json").read_text(encoding="utf-8"))
+        release_file = state / "release-active" / "release.json"
+        release = json.loads(release_file.read_text(encoding="utf-8"))
         revision = release["payload"]["policy_revision"]
         if not isinstance(revision, str) or not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", revision):
             fail("Unsupported policy revision in approval")
