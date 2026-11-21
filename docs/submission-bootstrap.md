@@ -134,7 +134,7 @@ Default Compose project is `sovereign-review`, host API is
 Git-ignored `.env`; do not send it to the assignment reviewer logs.
 
 The reviewer can inspect the running services and test the API. Set `$engine`
- to `podman` or `docker` to match the bootstrap selection:
+to `podman` or `docker` to match the bootstrap selection:
 
 ```powershell
 $engine = 'podman' # use 'docker' for Docker installations
@@ -155,7 +155,8 @@ real personal data, credentials or private keys to the simulator.
 To stop without deleting the isolated audit volume:
 
 ```powershell
-podman compose -p sovereign-review -f deploy/compose.yaml `
+$engine = 'podman' # use 'docker' for Docker installations
+& $engine compose -p sovereign-review -f deploy/compose.yaml `
   -f deploy/compose.ghcr.yaml --env-file .env --profile egress-test down
 ```
 
