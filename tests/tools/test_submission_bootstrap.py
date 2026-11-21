@@ -23,9 +23,7 @@ def make_archive(path, *, unsafe_name=None):
             entry.mode = 0o755
             archive.addfile(entry)
         data = b'{"release_id":"test"}'
-        entry = tarfile.TarInfo(
-            unsafe_name or ".runtime/release-active/release.json"
-        )
+        entry = tarfile.TarInfo(unsafe_name or ".runtime/release-active/release.json")
         entry.size = len(data)
         archive.addfile(entry, io.BytesIO(data))
 
