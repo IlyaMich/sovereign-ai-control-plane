@@ -279,7 +279,7 @@ def test_repetitive_events_are_limited_with_suppression_count(events, monkeypatc
 
 def test_readiness_logs_only_state_transitions(audit, events):
     app = app_with_fakes(audit)
-    expected_revision = app.state.components.settings.expected_policy_revision
+    expected_revision = "redaction-response-dlp-v5"
     healthy = [False]
 
     def upstream(request):

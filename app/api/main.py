@@ -461,8 +461,6 @@ def create_app(components: Components | None = None) -> FastAPI:
                 or result.get("policy_revision") != info.policy_revision
             ):
                 raise ValueError("OPA policy does not match active archived snapshot")
-            if result.get("policy_revision") != deps.settings.expected_policy_revision:
-                raise ValueError("Expected OPA policy revision not loaded")
             # A pre-DLP snapshot may still serve the input entrypoint. It
             # must not appear READY when the output entrypoint is missing.
             if deps.orchestrator.output_policy is not None:

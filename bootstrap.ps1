@@ -2,27 +2,15 @@
 # Never use this on an existing deployment: it refuses .env and .runtime.
 [CmdletBinding()]
 param(
-    [string] $ReleaseTag,
-
-    [string] $TrustedKeySha256,
-
-    [string] $RegistrySha256,
-
+    [string] $LockFile = (Join-Path $PSScriptRoot 'deploy/submission-lock.json'),
     [string] $Project = 'sovereign-review',
     [ValidateRange(1, 65535)]
     [int] $ApiPort = 8000
 )
 
 $ErrorActionPreference = 'Stop'
-$lockPath = Join-Path $PSScriptRoot 'deploy/submission-lock.json'
-if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
-    $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
-    if (-not $ReleaseTag) { $ReleaseTag = $lock.release_tag }
-    if (-not $TrustedKeySha256) { $TrustedKeySha256 = $lock.trusted_key_sha256 }
-    if (-not $RegistrySha256) { $RegistrySha256 = $lock.registry_sha256 }
-}
-if (-not $ReleaseTag -or -not $TrustedKeySha256 -or -not $RegistrySha256) {
-    throw 'Supply -ReleaseTag, -TrustedKeySha256 and -RegistrySha256, or provide a reviewed deploy/submission-lock.json.'
+if (-not (Test-Path -LiteralPath $LockFile -PathType Leaf)) {
+    throw "Provide an independently reviewed submission lock using -LockFile. Not found: $LockFile"
 }
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) {
@@ -37,9 +25,7 @@ if ($LASTEXITCODE -ne 0) {
 Push-Location $PSScriptRoot
 try {
     & $python.Source -m tools.submission_bootstrap `
-        --release-tag $ReleaseTag `
-        --trusted-key-sha256 $TrustedKeySha256 `
-        --registry-sha256 $RegistrySha256 `
+        --lock $LockFile `
         --project $Project `
         --api-port $ApiPort `
         --root $PSScriptRoot
