@@ -87,7 +87,7 @@ For a **new, isolated Windows/Podman reviewer machine**, use
 [the signed-image submission bootstrap](docs/submission-bootstrap.md). Once
 the submission includes a reviewed `deploy/submission-lock.json` pinning an
 actual published release and its independently trusted checksums, the reviewer
-can run `.\\bootstrap.ps1` from the checkout root. This pulls immutable OCI
+can run `.\bootstrap.ps1` from the checkout root. This pulls immutable OCI
 images and verifies release/detector identity; it **does not rebuild or sign**
 the application. The bootstrap refuses existing `.env` or `.runtime` state.
 
