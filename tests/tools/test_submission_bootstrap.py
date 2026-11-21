@@ -154,4 +154,3 @@ def test_published_image_digest_mismatch_rejected(tmp_path, monkeypatch):
     images["opa"]["digest"] = lock["images"]["opa"].split("@")[1]
     images["opa"]["pull_by_digest"] = lock["images"]["opa"]
     assert verify_package(tmp_path, lock)[1] == lock["images"]
-

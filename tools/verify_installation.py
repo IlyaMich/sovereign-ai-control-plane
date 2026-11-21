@@ -78,10 +78,12 @@ def verify_installation(args: argparse.Namespace) -> dict:
     else:
         result["audit"] = {"status": "NOT_CHECKED", "reason": "No audit DB/key supplied"}
 
-    result["runtime"] = check_runtime(Path(args.env_file)) if args.runtime else {
-        "status": "NOT_CHECKED", "reason": "Use --runtime for loopback readiness"
-    }
-    result["status"] = "INSTALLATION_VERIFIED" if args.runtime else "HOST_STATE_VERIFIED"
+    result["runtime"] = (
+        check_runtime(Path(args.env_file))
+        if args.runtime
+        else {"status": "NOT_CHECKED", "reason": "Use --runtime for loopback readiness"}
+    )
+    result["status"] = "HOST_AND_RUNTIME_VERIFIED" if args.runtime else "HOST_STATE_VERIFIED"
     return result
 
 
@@ -89,15 +91,21 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--policy-active", default=str(state_path("policy-active")))
     parser.add_argument("--policy-archive", default=str(state_path("policy-archive")))
-    parser.add_argument("--release-active", default=str(state_path("release-active") / "release.json"))
+    parser.add_argument(
+        "--release-active", default=str(state_path("release-active") / "release.json")
+    )
     parser.add_argument("--release-archive", default=str(state_path("release-archive")))
     parser.add_argument("--release-trust", default=str(state_path("release-trust")))
-    parser.add_argument("--detector-manifest", help="Installed manifest (only inside model environment)")
+    parser.add_argument(
+        "--detector-manifest", help="Installed manifest (only inside model environment)"
+    )
     parser.add_argument("--detector-root", default="/service")
     parser.add_argument("--audit-db", help="Accessible consistent SQLite snapshot")
     parser.add_argument("--audit-public-key", help="Independently trusted audit signing public PEM")
     parser.add_argument("--audit-checkpoint", help="Optional independently witnessed checkpoint")
-    parser.add_argument("--runtime", action="store_true", help="Check loopback API using local .env")
+    parser.add_argument(
+        "--runtime", action="store_true", help="Check loopback API using local .env"
+    )
     parser.add_argument("--env-file", default=".env", help="Local .env containing API key and port")
     args = parser.parse_args()
     try:

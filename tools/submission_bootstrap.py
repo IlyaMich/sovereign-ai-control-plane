@@ -144,12 +144,13 @@ def load_lock(path: Path) -> dict:
     except (OSError, UnicodeError, ValueError) as exc:
         fail(f"Cannot read trusted submission lock: {type(exc).__name__}")
     if not isinstance(document, dict) or set(document) != {
-        "release_tag", "release_id", "trusted_key_sha256", "images"
+        "release_tag",
+        "release_id",
+        "trusted_key_sha256",
+        "images",
     }:
         fail("Submission lock fields are missing or unexpected")
-    if not isinstance(document["release_tag"], str) or not TAG.fullmatch(
-        document["release_tag"]
-    ):
+    if not isinstance(document["release_tag"], str) or not TAG.fullmatch(document["release_tag"]):
         fail("Invalid signed release tag in submission lock")
     for name in ("release_id", "trusted_key_sha256"):
         if not isinstance(document[name], str) or not HEX64.fullmatch(document[name]):
@@ -163,7 +164,7 @@ def load_lock(path: Path) -> dict:
         if (
             not isinstance(value, str)
             or not value.startswith(prefix)
-            or not HEX64.fullmatch(value[len(prefix):])
+            or not HEX64.fullmatch(value[len(prefix) :])
         ):
             fail(f"Invalid digest-pinned {name} image in submission lock")
     return document
@@ -314,7 +315,8 @@ def check_readiness(api_port: int, key: str) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--lock", required=True,
+        "--lock",
+        required=True,
         help="Independently reviewed JSON lock containing the exact OCI image digests",
     )
     parser.add_argument("--project", default="sovereign-review", help="Isolated Compose project")

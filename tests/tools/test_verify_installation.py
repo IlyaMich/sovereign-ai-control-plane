@@ -39,6 +39,4 @@ def test_runtime_check_never_uses_external_destination(tmp_path, monkeypatch):
     monkeypatch.setattr("tools.verify_installation.urllib.request.urlopen", opener)
     result = check_runtime(Path(env))
     assert result["status"] == "VERIFIED"
-    assert observed == [
-        ("http://127.0.0.1:8001/health/ready", "secret-for-testing-only", 5)
-    ]
+    assert observed == [("http://127.0.0.1:8001/health/ready", "secret-for-testing-only", 5)]
