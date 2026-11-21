@@ -2,6 +2,12 @@
 
 **Purpose:** demonstrate candidate source, independently trusted release activation, input/output controls and evidence using **synthetic inputs only**. This is a human-operated checklist, **not a bootstrap script**, not a certification and not a reproducible remote-cloud deployment. The documented runtime path is Windows PowerShell, Python 3.12+ and Podman with a Compose provider. The build needs network access for pinned Python/NLP and OPA source dependencies; request processing is local after the image is built.
 
+**Preferred fresh-reviewer path:** For a published, independently pinned GHCR
+signed release, use [the build-free submission bootstrap](submission-bootstrap.md).
+It provisions a separate local review installation from immutable images. The
+manual source-build steps below remain the fallback for a newly signed local
+development deployment. Neither path should overwrite an existing operator's state.
+
 ## 0. Choose the correct starting point
 
 - **Existing approved deployment:** follow [operator-state migration](operator-state-migration.md) if needed, retain its `.env`, Git-ignored `.runtime/`, audit volume, image and **existing signer**. Never run first-install key generation, overwrite state or change policy just to demo.
