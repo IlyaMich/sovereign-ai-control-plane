@@ -1,4 +1,4 @@
-"""Install an independently pinned signed GHCR release on a fresh Podman host.
+"""Install an independently pinned signed GHCR release on a fresh Podman or Docker host.
 
 Standard library only: no source build, private signer, or host pip dependencies.
 This is deliberately a fresh-install operation, not an upgrade/migration tool.
@@ -13,7 +13,7 @@ import os
 import re
 import secrets
 import shutil
-import subprocess  # nosec B404 - fixed podman executable, argument-array invocation
+import subprocess  # nosec B404 - allowlisted container executable, argument-array invocation
 import sys
 import tarfile
 import tempfile
@@ -182,16 +182,20 @@ def make_public_state_readable(state: Path) -> None:
         entry.chmod(0o755 if entry.is_dir() else 0o644)
 
 
-def podman_verify(state: Path, refs: dict[str, str], images: dict) -> None:
+def verify_images(
+    state: Path, refs: dict[str, str], images: dict, *, engine: str = "podman"
+) -> None:
     for ref in refs.values():
-        run("podman", "pull", ref)
+        run(engine, "pull", ref)
     # A separate pinned reviewer image verifies signatures and archived policy
     # without installing any Python dependencies onto the host.
     mount = f"type=bind,source={state.resolve()},target=/release-state,readonly"
     run(
-        "podman",
+        engine,
         "run",
         "--rm",
+        "--network",
+        "none",
         "--mount",
         mount,
         "--entrypoint",
@@ -212,9 +216,11 @@ def podman_verify(state: Path, refs: dict[str, str], images: dict) -> None:
     )
     verified = json.loads(
         run(
-            "podman",
+            engine,
             "run",
             "--rm",
+            "--network",
+            "none",
             "--entrypoint",
             "python",
             refs["application"],
@@ -229,9 +235,9 @@ def podman_verify(state: Path, refs: dict[str, str], images: dict) -> None:
     if verified.get("detector_artifact_digest") != release["payload"]["detector_digest"]:
         fail("Installed detector manifest does not match the signed release approval")
     for ref in refs.values():
-        inspection = json.loads(run("podman", "image", "inspect", ref, capture=True))
+        inspection = json.loads(run(engine, "image", "inspect", ref, capture=True))
         if not inspection or not isinstance(inspection, list):
-            fail(f"Podman returned no image details for {ref}")
+            fail(f"Container engine returned no image details for {ref}")
         labels = (inspection[0].get("Config") or {}).get("Labels") or {}
         if labels.get("org.opencontainers.image.revision") != images["commit"]:
             fail(f"Image source revision differs from release commit for {ref}")
@@ -282,7 +288,7 @@ def check_readiness(api_port: int, key: str) -> None:
         time.sleep(2)
     fail(
         f"Application did not become ready ({reason}). "
-        "Inspect podman compose logs; preserve .runtime and .env"
+        "Inspect the selected engine's compose logs; preserve .runtime and .env"
     )
 
 
@@ -313,9 +319,11 @@ def check_external_route(api_port: int, key: str) -> None:
     print("External simulator route: VERIFIED (synthetic request audited)", flush=True)
 
 
-def compose_command(root: Path, project: str, *, sovereign_only: bool = False) -> list[str]:
+def compose_command(
+    root: Path, project: str, *, sovereign_only: bool = False, engine: str = "podman"
+) -> list[str]:
     command = [
-        "podman",
+        engine,
         "compose",
         "-p",
         project,
@@ -344,7 +352,9 @@ def main() -> int:
     parser.add_argument("--api-port", default=8000, type=int)
     parser.add_argument("--root", default=".", help="Repository checkout root")
     parser.add_argument("--sovereign-only", action="store_true", help="Disable simulated egress")
+    parser.add_argument("--engine", choices=("podman", "docker"), default="podman")
     args = parser.parse_args()
+    engine = args.engine
     root = Path(args.root).resolve()
     if not TAG.fullmatch(args.release_tag):
         fail("Release tag must have the form signed-gN")
@@ -369,12 +379,12 @@ def main() -> int:
             "Fresh-install only: .runtime or .env already exists. "
             "Never overwrite existing signed state"
         )
-    if not shutil.which("podman"):
-        fail("Install Podman and its Compose provider before running this script")
-    run("podman", "info", capture=True)
-    run("podman", "compose", "version", capture=True)
+    if not shutil.which(engine):
+        fail(f"Install {engine} and its Compose provider before running this script")
+    run(engine, "info", capture=True)
+    run(engine, "compose", "version", capture=True)
     existing_volumes = run(
-        "podman", "volume", "ls", "--format", "{{.Name}}", capture=True
+        engine, "volume", "ls", "--format", "{{.Name}}", capture=True
     ).splitlines()
     if f"{args.project}_audit-data" in existing_volumes:
         fail(
@@ -389,7 +399,7 @@ def main() -> int:
         make_public_state_readable(state)
         Path(folder).chmod(0o755)
         (Path(folder) / "unpacked").chmod(0o755)
-        podman_verify(state, refs, images)
+        verify_images(state, refs, images, engine=engine)
         release_file = state / "release-active" / "release.json"
         release = json.loads(release_file.read_text(encoding="utf-8"))
         revision = release["payload"]["policy_revision"]
@@ -408,7 +418,9 @@ def main() -> int:
             sovereign_only=args.sovereign_only,
         )
 
-    compose = compose_command(root, args.project, sovereign_only=args.sovereign_only)
+    compose = compose_command(
+        root, args.project, sovereign_only=args.sovereign_only, engine=engine
+    )
     run(*compose, "config", "--quiet")
     run(*compose, "up", "--no-build", "--force-recreate", "-d")
     env = dict(
@@ -420,6 +432,7 @@ def main() -> int:
     if not args.sovereign_only:
         check_external_route(args.api_port, env["CONTROL_PLANE_API_KEY"])
     print(f"Installation complete: signed release {args.release_tag}, project {args.project}")
+    print(f"Container engine: {engine}")
     print("Mode: sovereign-only" if args.sovereign_only else "Mode: full simulated egress demo")
     print(f"API docs: http://127.0.0.1:{args.api_port}/docs")
     return 0
