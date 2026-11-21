@@ -1,5 +1,10 @@
 {
   "release_tag": "signed-gN",
+  "release_id": "<64-character signed release ID>",
   "trusted_key_sha256": "<independently trusted SHA-256 of release-signing.pub.pem>",
-  "registry_sha256": "<independently recorded SHA-256 of registry-images.json>"
+  "images": {
+    "application": "ghcr.io/ilyamich/sovereign-ai-control-plane@sha256:<64-hex-digest>",
+    "audit_reviewer": "ghcr.io/ilyamich/sovereign-ai-control-plane-audit-reviewer@sha256:<64-hex-digest>",
+    "opa": "ghcr.io/ilyamich/sovereign-ai-control-plane-opa@sha256:<64-hex-digest>"
+  }
 }

@@ -33,6 +33,11 @@ MAX_DOWNLOAD_BYTES = {
     "release-state.tar.gz": 128 * 1024 * 1024,
 }
 MAX_EXTRACTED_BYTES = 256 * 1024 * 1024
+IMAGE_REPOSITORIES = {
+    "application": REGISTRY_ROOT,
+    "audit_reviewer": REGISTRY_ROOT + "-audit-reviewer",
+    "opa": REGISTRY_ROOT + "-opa",
+}
 STATE_DIRS = {
     "policy-active",
     "policy-archive",
@@ -132,24 +137,49 @@ def image_reference(entry: object, expected_repository: str) -> str:
     return expected
 
 
-def verify_package(
-    stage: Path,
-    tag: str,
-    trusted_key_sha256: str,
-    registry_sha256: str,
-) -> tuple[Path, dict[str, str], dict]:
+def load_lock(path: Path) -> dict:
+    """Validate independently supplied release and image identities before downloading."""
+    try:
+        document = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, UnicodeError, ValueError) as exc:
+        fail(f"Cannot read trusted submission lock: {type(exc).__name__}")
+    if not isinstance(document, dict) or set(document) != {
+        "release_tag",
+        "release_id",
+        "trusted_key_sha256",
+        "images",
+    }:
+        fail("Submission lock fields are missing or unexpected")
+    if not isinstance(document["release_tag"], str) or not TAG.fullmatch(document["release_tag"]):
+        fail("Invalid signed release tag in submission lock")
+    for name in ("release_id", "trusted_key_sha256"):
+        if not isinstance(document[name], str) or not HEX64.fullmatch(document[name]):
+            fail(f"Invalid {name} in submission lock")
+    supplied = document["images"]
+    if not isinstance(supplied, dict) or set(supplied) != set(IMAGE_REPOSITORIES):
+        fail("Submission lock must pin exactly the application, audit_reviewer and opa images")
+    for name, repository in IMAGE_REPOSITORIES.items():
+        prefix = repository + "@sha256:"
+        value = supplied[name]
+        if (
+            not isinstance(value, str)
+            or not value.startswith(prefix)
+            or not HEX64.fullmatch(value[len(prefix) :])
+        ):
+            fail(f"Invalid digest-pinned {name} image in submission lock")
+    return document
+
+
+def verify_package(stage: Path, lock: dict) -> tuple[Path, dict[str, str], dict]:
     images_file = stage / "registry-images.json"
     archive = stage / "release-state.tar.gz"
-    fetch_asset(tag, "registry-images.json", images_file)
-    fetch_asset(tag, "release-state.tar.gz", archive)
-    actual_registry_sha = hashlib.sha256(images_file.read_bytes()).hexdigest()
-    if actual_registry_sha != registry_sha256:
-        fail("registry-images.json does not match the independently pinned checksum")
+    fetch_asset(lock["release_tag"], "registry-images.json", images_file)
+    fetch_asset(lock["release_tag"], "release-state.tar.gz", archive)
     state = extract_public_state(archive, stage / "unpacked")
     public_key = state / "release-trust" / "release-signing.pub.pem"
     if not public_key.is_file():
         fail("Release public verification key is missing")
-    if hashlib.sha256(public_key.read_bytes()).hexdigest() != trusted_key_sha256:
+    if hashlib.sha256(public_key.read_bytes()).hexdigest() != lock["trusted_key_sha256"]:
         fail("Release signing public key differs from independently trusted fingerprint")
 
     images = json.loads(images_file.read_text(encoding="utf-8"))
@@ -158,19 +188,19 @@ def verify_package(
         fail("Invalid release metadata")
     if (
         images.get("release_id") != approval.get("release_id")
+        or approval.get("release_id") != lock["release_id"]
         or images.get("generation") != approval.get("payload", {}).get("generation")
-        or tag != f"signed-g{images.get('generation')}"
+        or lock["release_tag"] != f"signed-g{images.get('generation')}"
         or not isinstance(images.get("commit"), str)
         or not re.fullmatch(r"[a-f0-9]{40}", images["commit"])
     ):
         fail("Release tag, signed approval, and image metadata disagree")
     refs = {
-        "application": image_reference(images.get("application"), REGISTRY_ROOT),
-        "audit_reviewer": image_reference(
-            images.get("audit_reviewer"), REGISTRY_ROOT + "-audit-reviewer"
-        ),
-        "opa": image_reference(images.get("opa"), REGISTRY_ROOT + "-opa"),
+        name: image_reference(images.get(name), repository)
+        for name, repository in IMAGE_REPOSITORIES.items()
     }
+    if refs != lock["images"]:
+        fail("Published registry image digests do not match trusted submission lock")
     return state, refs, images
 
 
@@ -240,7 +270,6 @@ def podman_verify(state: Path, refs: dict[str, str], images: dict) -> None:
 def create_environment(
     path: Path,
     refs: dict[str, str],
-    revision: str,
     project: str,
     api_port: int,
 ) -> None:
@@ -252,7 +281,6 @@ def create_environment(
         "ENABLE_EXTERNAL_SIMULATOR=false",
         "OUTPUT_MASKING_ENABLED=false",
         "REQUIRE_SIGNED_RELEASE=true",
-        f"EXPECTED_POLICY_REVISION={revision}",
         f"CONTROL_PLANE_IMAGE={refs['application']}",
         f"AUDIT_REVIEWER_IMAGE={refs['audit_reviewer']}",
         f"OPA_IMAGE={refs['opa']}",
@@ -286,26 +314,17 @@ def check_readiness(api_port: int, key: str) -> None:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--release-tag", required=True, help="e.g. signed-g8")
     parser.add_argument(
-        "--trusted-key-sha256", required=True, help="Pinned SHA-256 of release-signing.pub.pem"
-    )
-    parser.add_argument(
-        "--registry-sha256", required=True, help="Pinned SHA-256 of registry-images.json"
+        "--lock",
+        required=True,
+        help="Independently reviewed JSON lock containing the exact OCI image digests",
     )
     parser.add_argument("--project", default="sovereign-review", help="Isolated Compose project")
     parser.add_argument("--api-port", default=8000, type=int)
     parser.add_argument("--root", default=".", help="Repository checkout root")
     args = parser.parse_args()
     root = Path(args.root).resolve()
-    if not TAG.fullmatch(args.release_tag):
-        fail("Release tag must have the form signed-gN")
-    for name, value in (
-        ("trusted-key-sha256", args.trusted_key_sha256),
-        ("registry-sha256", args.registry_sha256),
-    ):
-        if not HEX64.fullmatch(value):
-            fail(f"Invalid {name}: expected 64 lowercase SHA-256 hex characters")
+    lock = load_lock(Path(args.lock))
     if not PROJECT.fullmatch(args.project):
         fail(
             "Project name must start with a lowercase letter and use only "
@@ -335,23 +354,16 @@ def main() -> int:
         )
 
     with tempfile.TemporaryDirectory(prefix=".submission-bootstrap-", dir=root) as folder:
-        state, refs, images = verify_package(
-            Path(folder), args.release_tag, args.trusted_key_sha256, args.registry_sha256
-        )
+        state, refs, images = verify_package(Path(folder), lock)
         make_public_state_readable(state)
         Path(folder).chmod(0o755)
         (Path(folder) / "unpacked").chmod(0o755)
         podman_verify(state, refs, images)
-        release_file = state / "release-active" / "release.json"
-        release = json.loads(release_file.read_text(encoding="utf-8"))
-        revision = release["payload"]["policy_revision"]
-        if not isinstance(revision, str) or not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", revision):
-            fail("Unsupported policy revision in approval")
         # Publish only after all preflights have succeeded. No private signer is ever created.
         if any(p.exists() or p.is_symlink() for p in (root / ".runtime", root / ".env")):
             fail("Deployment state appeared during bootstrap; refusing to overwrite it")
         shutil.move(str(state), str(root / ".runtime"))
-        create_environment(root / ".env", refs, revision, args.project, args.api_port)
+        create_environment(root / ".env", refs, args.project, args.api_port)
 
     compose = [
         "podman",
@@ -373,7 +385,7 @@ def main() -> int:
         if "=" in line and not line.startswith("#")
     )
     check_readiness(args.api_port, env["CONTROL_PLANE_API_KEY"])
-    print(f"Installation complete: signed release {args.release_tag}, project {args.project}")
+    print(f"Installation complete: signed release {lock['release_tag']}, project {args.project}")
     print(f"API docs: http://127.0.0.1:{args.api_port}/docs")
     return 0
 

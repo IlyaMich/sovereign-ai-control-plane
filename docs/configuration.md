@@ -2,7 +2,9 @@
 
 Copy `.env.example` to `.env`. Compose interpolates these settings and passes application
 settings into the relevant services. Direct Python deployments read process environment
-variables; they do not automatically load `.env`.
+variables; they do not automatically load `.env`. Policy revision is bound to the
+verified active snapshot and signed release; `EXPECTED_POLICY_REVISION` is no longer
+a runtime setting. Old copies of this variable in existing `.env` files are ignored.
 
 | Setting | Default | Purpose |
 | --- | --- | --- |

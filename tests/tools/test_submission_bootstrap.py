@@ -1,6 +1,8 @@
 """Offline tests for the fresh-reviewer release bootstrap."""
 
+import hashlib
 import io
+import json
 import tarfile
 
 import pytest
@@ -11,6 +13,7 @@ from tools.submission_bootstrap import (
     create_environment,
     extract_public_state,
     image_reference,
+    load_lock,
     verify_package,
 )
 
@@ -74,22 +77,80 @@ def test_environment_keeps_secrets_local_and_images_immutable(tmp_path):
         "audit_reviewer": REGISTRY_ROOT + "-audit-reviewer@sha256:" + "b" * 64,
         "opa": REGISTRY_ROOT + "-opa@sha256:" + "c" * 64,
     }
-    create_environment(env_path, refs, "redaction-response-dlp-v5", "review-case", 8001)
+    create_environment(env_path, refs, "review-case", 8001)
     text = env_path.read_text()
     assert "COMPOSE_PROJECT_NAME=review-case" in text
     assert "API_PORT=8001" in text
     assert "REQUIRE_SIGNED_RELEASE=true" in text
+    assert "EXPECTED_POLICY_REVISION" not in text
     assert "CONTROL_PLANE_IMAGE=" + refs["application"] in text
     assert "CONTROL_PLANE_API_KEY=" in text
     assert "replace-with-a-random-key" not in text
     with pytest.raises(FileExistsError):
-        create_environment(env_path, refs, "redaction-response-dlp-v5", "review-case", 8001)
+        create_environment(env_path, refs, "review-case", 8001)
 
 
-def test_manifest_checksum_is_checked_before_extraction(tmp_path, monkeypatch):
+def example_lock():
+    return {
+        "release_tag": "signed-g8",
+        "release_id": "d" * 64,
+        "trusted_key_sha256": "e" * 64,
+        "images": {
+            "application": REGISTRY_ROOT + "@sha256:" + "a" * 64,
+            "audit_reviewer": REGISTRY_ROOT + "-audit-reviewer@sha256:" + "b" * 64,
+            "opa": REGISTRY_ROOT + "-opa@sha256:" + "c" * 64,
+        },
+    }
+
+
+def test_load_lock_requires_exact_immutable_image_references(tmp_path):
+    lock = example_lock()
+    path = tmp_path / "lock.json"
+    path.write_text(json.dumps(lock))
+    assert load_lock(path) == lock
+    for broken in (
+        {**lock, "images": {**lock["images"], "opa": "ghcr.io/other@sha256:" + "c" * 64}},
+        {**lock, "images": {**lock["images"], "opa": REGISTRY_ROOT + "-opa:latest"}},
+        {**lock, "release_id": "not-a-digest"},
+        {**lock, "registry_sha256": "f" * 64},
+    ):
+        path.write_text(json.dumps(broken))
+        with pytest.raises(RuntimeError):
+            load_lock(path)
+
+
+def test_published_image_digest_mismatch_rejected(tmp_path, monkeypatch):
+    lock = example_lock()
+    key = b"trusted-key"
+    lock["trusted_key_sha256"] = hashlib.sha256(key).hexdigest()
+    state = tmp_path / "state"
+    (state / "release-trust").mkdir(parents=True)
+    (state / "release-active").mkdir()
+    (state / "release-trust" / "release-signing.pub.pem").write_bytes(key)
+    (state / "release-active" / "release.json").write_text(
+        json.dumps({"release_id": lock["release_id"], "payload": {"generation": 8}})
+    )
+    images = {"release_id": lock["release_id"], "generation": 8, "commit": "f" * 40}
+    for name, reference in lock["images"].items():
+        repository, digest = reference.split("@")
+        images[name] = {
+            "repository": repository,
+            "digest": digest,
+            "pull_by_digest": reference,
+        }
+    images["opa"]["digest"] = "sha256:" + "1" * 64
+    images["opa"]["pull_by_digest"] = images["opa"]["repository"] + "@" + images["opa"]["digest"]
+
     def fake_download(_tag, asset, destination):
-        destination.write_bytes(b"{}" if asset == "registry-images.json" else b"bad-tar")
+        destination.write_bytes(
+            json.dumps(images).encode() if asset == "registry-images.json" else b"stub"
+        )
 
     monkeypatch.setattr("tools.submission_bootstrap.fetch_asset", fake_download)
-    with pytest.raises(RuntimeError, match="independently pinned checksum"):
-        verify_package(tmp_path, "signed-g8", "a" * 64, "0" * 64)
+    monkeypatch.setattr("tools.submission_bootstrap.extract_public_state", lambda *_: state)
+    with pytest.raises(RuntimeError, match="do not match trusted submission lock"):
+        verify_package(tmp_path, lock)
+
+    images["opa"]["digest"] = lock["images"]["opa"].split("@")[1]
+    images["opa"]["pull_by_digest"] = lock["images"]["opa"]
+    assert verify_package(tmp_path, lock)[1] == lock["images"]

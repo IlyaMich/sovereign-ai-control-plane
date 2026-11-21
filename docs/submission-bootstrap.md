@@ -14,32 +14,35 @@ The reviewer needs:
 - Access to the signed GitHub Release and all three GHCR images (ideally publicly
   readable, without GitHub authentication).
 - A reviewed `deploy/submission-lock.json` supplied with the submission,
-  containing the exact published `signed-gN` tag, the independently trusted
-  SHA-256 fingerprint of `release-signing.pub.pem`, and the SHA-256 checksum of
-  the release's `registry-images.json`.
+  containing the exact published `signed-gN` tag, signed release ID,
+  independently trusted SHA-256 fingerprint of `release-signing.pub.pem`, and
+  the three immutable `ghcr.io/...@sha256:...` image references.
 
 The lock file is **not generated from untrusted downloaded content during
 installation**. The assignment author must prepare it after publication and give
 the reviewer a trustworthy reference (for example, a reviewed Git commit and
 separately communicated signing-key fingerprint). The checked-in
 [`submission-lock.example.json`](../deploy/submission-lock.example.json) is
-only a template, and its placeholders are not usable. The SHA-256 of the image
-manifest pins the exact three OCI image references, because the Ed25519
-release approval itself signs the detector/policy identities, **not** the OCI digests.
+only a template, and its placeholders are not usable. The reviewed lock directly
+pins all three OCI images, since the Ed25519 approval signs the detector/policy
+identities, **not** the OCI manifest digests. Downloaded `registry-images.json`
+must agree with the trusted lock; it is not a trust anchor by itself.
 
 ### Author: prepare the final lock after a successful signed release
 
 1. Finish and merge the intended source changes; run the
    [manual signed release process](ci-and-reproducibility.md) with the protected
    signer. Check that **all three images** and the `signed-gN` release exist.
-2. Download `registry-images.json` from the exact release and calculate its
-   SHA-256. Independently retrieve and validate the expected signing public-key
-   fingerprint from the *trusted release authority*, not from the same unsigned
-   download you intend to check. Verify the signed release and the image/detector
-   identities using the operator tools before declaring the release ready.
-3. Create `deploy/submission-lock.json` using the template, filling the tag and
-   lowercase 64-character SHA-256 values. Commit it, record that commit for the
-   submission, and communicate the trust fingerprint independently.
+2. Retrieve `registry-images.json` and the signed approval from the exact release.
+   Independently validate the expected signing public-key fingerprint against
+   the *trusted release authority*, not the downloaded file alone. Verify the
+   signed release and installed detector identity before declaring the release ready.
+3. Create `deploy/submission-lock.json` using the template. Record the tag,
+   exact signed `release_id`, trusted public-key SHA-256 fingerprint, and all
+   three immutable `pull_by_digest` values from the verified image metadata.
+   Commit it, record that commit for the submission, and communicate trust
+   independently. The reviewed checkout/lock must be trusted; do not derive a
+   new lock from freshly downloaded untrusted assets during installation.
 4. Test **anonymous** pullability on another machine or an uncredentialed Podman
    installation:
    ```powershell
@@ -48,7 +51,7 @@ release approval itself signs the detector/policy identities, **not** the OCI di
    podman pull 'ghcr.io/ilyamich/sovereign-ai-control-plane-audit-reviewer@sha256:<approved-digest>'
    podman pull 'ghcr.io/ilyamich/sovereign-ai-control-plane-opa@sha256:<approved-digest>'
    ```
-   Copy the exact `pull_by_digest` values from `registry-images.json`; the
+   Use the exact reviewed image references from `deploy/submission-lock.json`; the
    placeholders above are not working digests. Check the registry package
    visibility if anonymous pulls fail. The release workflow may not have
    completed successfully merely because a manifest digest was recorded.
@@ -66,13 +69,10 @@ running, and from the checkout root run:
 .\bootstrap.ps1
 ```
 
-If the final lock was handed off separately and has not yet been checked in,
-run with its three explicit values:
+If the final reviewed lock was handed off separately, point to that JSON file:
 
 ```powershell
-.\bootstrap.ps1 -ReleaseTag signed-gN `
-  -TrustedKeySha256 '<trusted-public-key-sha256>' `
-  -RegistrySha256 '<registry-manifest-sha256>'
+.\bootstrap.ps1 -LockFile 'C:\trusted-handoff\submission-lock.json'
 ```
 
 The script does the following, in order:
@@ -82,16 +82,16 @@ The script does the following, in order:
 2. Downloads only `release-state.tar.gz` and `registry-images.json` from the
    named GitHub Release (not the multi-GB image tarballs).
 3. Bounds and safely extracts the release state in a temporary staging folder.
-   Checks the independently pinned public-key fingerprint and the exact
-   `registry-images.json` SHA-256; validates its three GHCR digest references
-   and the signed release metadata's release ID and generation.
+   Checks the independently pinned public-key fingerprint, signed release ID
+   and generation. Compares every published image reference with the three
+   immutable OCI digests in the trusted submission lock.
 4. Pulls the three OCI images by immutable digest. Runs the offline release
    verifier in the prebuilt **reviewer container**, checks the application
    detector manifest against the signed approval, and checks image source
    revision labels against the image metadata.
 5. Initializes a *fresh* Git-ignored `.runtime` from the signed public state.
-   Creates a distinct `.env` with a randomly generated API key, signed policy
-   revision, loopback-only API port and pinned image references. No release
+   Creates a distinct `.env` with a randomly generated API key,
+   loopback-only API port and pinned image references. No release
    private key is created, copied or needed.
 6. Starts `deploy/compose.yaml` **with** `deploy/compose.ghcr.yaml` and
    `up --no-build`. Waits for authenticated API readiness.
@@ -133,9 +133,9 @@ Use the existing operator documentation for upgrades and migrations.
 - **404 / GHCR manifest unknown / unauthorized:** the exact image may not have
   been published, may have been removed, or may not be public. Verify release
   assets and package visibility; do not replace a digest with `:latest`.
-- **Registry manifest checksum or public-key fingerprint differs:** stop and
-  investigate the independent handoff, instead of trusting the downloaded key
-  or disabling signatures.
+- **Published image digest, release ID or public-key fingerprint differs from
+  the trusted lock:** stop and investigate the independent handoff. Do not
+  substitute a downloaded image or signing key or disable signature checks.
 - **Detector identity differs:** the signed release does not authorize the
   pulled image. Do not rebuild after approval or disable signed-release checks.
 - **Readiness fails:** preserve `.runtime`, `.env`, the images and the audit

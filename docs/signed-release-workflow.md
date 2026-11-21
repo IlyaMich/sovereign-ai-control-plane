@@ -108,8 +108,9 @@ Edit `policies/decision.rego`, run
 `python -m tools.build_policy_snapshot`, build the intended detector image,
 then sign a new approval with **generation N+1** and previous release ID.
 `Approve-And-ActivateRelease.ps1 -UseExistingKey` handles the normal next generation.
-If the Rego revision string changes, also update `EXPECTED_POLICY_REVISION`
-in `.env` and recreate the control-plane. Otherwise readiness fails closed.
+The signed approval includes the source revision; no separate
+`EXPECTED_POLICY_REVISION` environment setting is required. Recreate both services,
+and readiness verifies OPA against the active signed policy snapshot.
 
 Rollback is **not** activation of the old approval: sign a new generation
 pointing to the *older archived policy digest*, and activate the new release.

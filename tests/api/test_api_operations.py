@@ -198,7 +198,7 @@ async def test_readiness_auth_cache_and_coalescing(audit):
             entered.set()
             await release.wait()
             return httpx.Response(
-                200, json={"result": {"policy_revision": deps.settings.expected_policy_revision}}
+                200, json={"result": {"policy_revision": "redaction-response-dlp-v5"}}
             )
         return httpx.Response(200, json={"status": "UP"})
 
