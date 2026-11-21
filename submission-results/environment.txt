@@ -1,0 +1,90 @@
+﻿=== TEST DATE ===
+2026-11-21T21:54:24.9737142+02:00
+
+=== GIT COMMIT ===
+2905834c576fe3b0956a7a6091a545a6a5d4e50d
+
+=== WORKING TREE ===
+?? demo-evidence/
+?? submission-results/
+
+=== HOST OS ===
+
+
+Caption        : Microsoft Windows 11 Home
+Version        : 10.0.26300
+OSArchitecture : 64-bit
+
+
+
+
+=== PROCESSOR ===
+
+
+Name                      : AMD Ryzen 9 9955HX 16-Core Processor           
+NumberOfCores             : 16
+NumberOfLogicalProcessors : 32
+
+
+
+
+=== HOST MEMORY ===
+
+
+RAM_GB : 31.18
+
+
+
+
+=== PYTHON ===
+Python 3.14.4
+
+=== PODMAN ===
+podman version 5.8.1
+Docker Compose version v5.1.3
+
+=== PODMAN MACHINE ===
+NAME                     VM TYPE     CREATED      LAST UP            CPUS        MEMORY      DISK SIZE
+podman-machine-default*  wsl         5 hours ago  Currently running  16          2GiB        100GiB
+
+=== DETECTOR PACKAGES ===
+Name: presidio_analyzer
+Version: 2.2.366
+Summary: Presidio Analyzer package
+Home-page: https://github.com/data-privacy-stack/presidio
+Author: Presidio
+Author-email: presidio@dataprivacystack.org
+License-Expression: MIT
+Location: C:\Users\ilmih\Desktop\develop\sovereign-ai-control-plane-clean\.venv\Lib\site-packages
+Requires: click, numpy, phonenumbers, preshed, pydantic, pyyaml, regex, spacy, tldextract
+Required-by: sovereign-ai-control-plane
+---
+Name: spacy
+Version: 3.8.18
+Summary: Industrial-strength Natural Language Processing (NLP) in Python
+Home-page: https://spacy.io
+Author: Explosion
+Author-email: contact@explosion.ai
+License: MIT
+Location: C:\Users\ilmih\Desktop\develop\sovereign-ai-control-plane-clean\.venv\Lib\site-packages
+Requires: catalogue, click, confection, cymem, jinja2, murmurhash, numpy, packaging, preshed, pydantic, requests, setuptools, spacy-legacy, spacy-loggers, srsly, thinc, tqdm, typer, wasabi, weasel
+Required-by: presidio_analyzer, sovereign-ai-control-plane
+---
+Name: en_core_web_sm
+Version: 3.8.0
+Summary: English pipeline optimized for CPU. Components: tok2vec, tagger, parser, senter, ner, attribute_ruler, lemmatizer.
+Home-page: https://explosion.ai
+Author: Explosion
+Author-email: contact@explosion.ai
+License: MIT
+Location: C:\Users\ilmih\Desktop\develop\sovereign-ai-control-plane-clean\.venv\Lib\site-packages
+Requires: 
+Required-by: 
+
+=== DATASET CHECKSUM ===
+
+Algorithm       Hash                                                                   Path                                                                                                                                                 
+---------       ----                                                                   ----                                                                                                                                                 
+SHA256          766980E0E02F92931DAC747A36BCDDF915D8EF597E267D9C552FCE03A4C74109       C:\Users\ilmih\Desktop\develop\control-plane-demo\sovereign-ai-control-plane\evaluation\datasets\v1\cases.jsonl                                      
+
+

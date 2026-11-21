@@ -1,0 +1,5 @@
+﻿sovereign-review-egress-gateway-1 | ghcr.io/ilyamich/sovereign-ai-control-plane@sha256:c827e6a4cc768fa7e58aa670c22ea3da7a2e3f7a57721d84440c0e2ad762c0fa | Up 40 minutes | 8000/tcp
+sovereign-review-external-simulator-1 | ghcr.io/ilyamich/sovereign-ai-control-plane@sha256:c827e6a4cc768fa7e58aa670c22ea3da7a2e3f7a57721d84440c0e2ad762c0fa | Up 40 minutes | 8000/tcp
+sovereign-review-opa-1 | ghcr.io/ilyamich/sovereign-ai-control-plane-opa@sha256:12c31555a4d588d6975adc942ddcab2d3564871b48fcffb71336af14fbc10381 | Up 40 minutes | 8181/tcp
+sovereign-review-sovereign-model-1 | ghcr.io/ilyamich/sovereign-ai-control-plane@sha256:c827e6a4cc768fa7e58aa670c22ea3da7a2e3f7a57721d84440c0e2ad762c0fa | Up 40 minutes | 8000/tcp
+sovereign-review-control-plane-1 | ghcr.io/ilyamich/sovereign-ai-control-plane@sha256:c827e6a4cc768fa7e58aa670c22ea3da7a2e3f7a57721d84440c0e2ad762c0fa | Up 40 minutes | 127.0.0.1:8000->8000/tcp
