@@ -1,0 +1,2706 @@
+{
+  "source_archives_sha256": {
+    "submission-results.zip": "14a2d6b57db5066df7d623fed53ab25f7a5584d5407f5f23d1a881e4fbd6a349",
+    "submission-20261121-215552.zip": "1589be451876e9c6fee71d253429b7808854da55d4ab724fbce37e7d323019b7",
+    "bench-results.zip": "de679874d3e39a2476544057472e76f41ae996e566cb1256e039eeb045e61300"
+  },
+  "environment_commit": "2905834c576fe3b0956a7a6091a545a6a5d4e50d",
+  "release_verification": {
+    "status": "RELEASE_VERIFIED",
+    "release_id": "daf666bf7e58ade915ac487b40cf08e30e2098b4969265b034805dabcb9f45f0",
+    "generation": 2,
+    "policy_digest": "e592df3e38e3c8e80b7742eda4ca154ea1f536b270431ef8134ce4fe30b53b2a",
+    "detector_digest": "9138f19b7dab51a2067002bab364914b0c620822708c8cc16d0a6e2795663c3d",
+    "signer_key_id": "d92f2efebce1430c862fd48edae002334bafa4ba10d5cc73726f32ab0c527b07"
+  },
+  "policy_verification": {
+    "status": "VERIFIED",
+    "schema_version": 1,
+    "policy_digest": "e592df3e38e3c8e80b7742eda4ca154ea1f536b270431ef8134ce4fe30b53b2a",
+    "policy_revision": "redaction-response-dlp-v5",
+    "files": [
+      {
+        "path": "decision.rego",
+        "sha256": "5e7d105527a0ca719faf8ff851b4a7ee57113b5189f6b25da30900f7b19e23dd",
+        "size": 5716
+      }
+    ]
+  },
+  "dataset": {
+    "valid": true,
+    "cases": 1200,
+    "dataset_version": "1.0.0",
+    "sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+    "distribution": {
+      "adversarial": 150,
+      "clean": 250,
+      "hard_negative": 200,
+      "mixed_entities": 150,
+      "standard_sensitive": 350,
+      "unsupported": 100
+    },
+    "splits": {
+      "development": 240,
+      "evaluation": 720,
+      "validation": 240
+    }
+  },
+  "input_detection": {
+    "stock": {
+      "adapter": "presidio-stock",
+      "adapter_metadata": {
+        "aggregation": "Presidio native output; no Sovereign aggregation or patterns",
+        "config_digest": "c50ed728c9bca640380a444f7dcdfba3ef646c24479ed6f61b4c0e8045475d44",
+        "evaluation_scope": "ASCII English; unsupported input returns UNKNOWN",
+        "kind": "stock-presidio-built-in-recognizers-only",
+        "model": "en_core_web_sm",
+        "model_version": "3.8.0",
+        "presidio_version": "2.2.366",
+        "supported_categories": [
+          "CREDIT_CARD",
+          "EMAIL_ADDRESS",
+          "IBAN_CODE",
+          "LOCATION",
+          "PERSON",
+          "PHONE_NUMBER",
+          "US_SSN"
+        ],
+        "taxonomy": [
+          "EMAIL_ADDRESS",
+          "PHONE_NUMBER",
+          "PERSON",
+          "LOCATION",
+          "CREDIT_CARD",
+          "US_SSN",
+          "IBAN_CODE",
+          "API_CREDENTIAL",
+          "PRIVATE_KEY"
+        ],
+        "threshold": 0.5,
+        "unsupported_categories": [
+          "API_CREDENTIAL",
+          "PRIVATE_KEY"
+        ]
+      },
+      "aggregator_source_sha256": "25a8486ea354d76d916065267a79483b113f8795a09e391b607d099c0e0ee631",
+      "dataset_name": "sovereign-synthetic-v1",
+      "dataset_sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+      "dataset_version": "1.0.0",
+      "detector_artifact_digest": "",
+      "detector_config_digest": "c50ed728c9bca640380a444f7dcdfba3ef646c24479ed6f61b4c0e8045475d44",
+      "detector_rules_sha256": "e0b553ce57d25c06627c8cd6571fcb6a4ade1ead4c3ccfe1ce576691a8b02292",
+      "detector_source_sha256": "81cd99722fc004d5f7730d332af32a9aca05b06c70be3dedc9b454d7bb8b47f6",
+      "detector_version": "presidio-stock-v1",
+      "git_commit": "2905834c576fe3b0956a7a6091a545a6a5d4e50d",
+      "metrics": {
+        "detector_error_count": 0,
+        "entities_exact_full": {
+          "by_category": {
+            "API_CREDENTIAL": {
+              "f1": null,
+              "fn": 99,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "CREDIT_CARD": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            },
+            "EMAIL_ADDRESS": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 101
+            },
+            "IBAN_CODE": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 67
+            },
+            "LOCATION": {
+              "f1": null,
+              "fn": 86,
+              "fp": 175,
+              "precision": 0.0,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "PERSON": {
+              "f1": 0.7853403141361256,
+              "fn": 20,
+              "fp": 21,
+              "precision": 0.78125,
+              "recall": 0.7894736842105263,
+              "tp": 75
+            },
+            "PHONE_NUMBER": {
+              "f1": null,
+              "fn": 96,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "PRIVATE_KEY": {
+              "f1": null,
+              "fn": 74,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "US_SSN": {
+              "f1": 0.9166666666666666,
+              "fn": 14,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.8461538461538461,
+              "tp": 77
+            }
+          },
+          "overall": {
+            "f1": 0.5842217484008528,
+            "fn": 389,
+            "fp": 196,
+            "precision": 0.6771004942339374,
+            "recall": 0.51375,
+            "tp": 411
+          }
+        },
+        "entities_exact_selective": {
+          "by_category": {
+            "API_CREDENTIAL": {
+              "f1": null,
+              "fn": 99,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "CREDIT_CARD": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            },
+            "EMAIL_ADDRESS": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 101
+            },
+            "IBAN_CODE": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 67
+            },
+            "LOCATION": {
+              "f1": null,
+              "fn": 86,
+              "fp": 175,
+              "precision": 0.0,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "PERSON": {
+              "f1": 0.7853403141361256,
+              "fn": 20,
+              "fp": 21,
+              "precision": 0.78125,
+              "recall": 0.7894736842105263,
+              "tp": 75
+            },
+            "PHONE_NUMBER": {
+              "f1": null,
+              "fn": 96,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "PRIVATE_KEY": {
+              "f1": null,
+              "fn": 74,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "US_SSN": {
+              "f1": 0.9166666666666666,
+              "fn": 14,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.8461538461538461,
+              "tp": 77
+            }
+          },
+          "overall": {
+            "f1": 0.5842217484008528,
+            "fn": 389,
+            "fp": 196,
+            "precision": 0.6771004942339374,
+            "recall": 0.51375,
+            "tp": 411
+          }
+        },
+        "entities_overlap_full": {
+          "by_category": {
+            "API_CREDENTIAL": {
+              "f1": null,
+              "fn": 99,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "CREDIT_CARD": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            },
+            "EMAIL_ADDRESS": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 101
+            },
+            "IBAN_CODE": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 67
+            },
+            "LOCATION": {
+              "f1": 0.6590038314176245,
+              "fn": 0,
+              "fp": 89,
+              "precision": 0.49142857142857144,
+              "recall": 1.0,
+              "tp": 86
+            },
+            "PERSON": {
+              "f1": 0.900523560209424,
+              "fn": 9,
+              "fp": 10,
+              "precision": 0.8958333333333334,
+              "recall": 0.9052631578947369,
+              "tp": 86
+            },
+            "PHONE_NUMBER": {
+              "f1": null,
+              "fn": 96,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "PRIVATE_KEY": {
+              "f1": null,
+              "fn": 74,
+              "fp": 0,
+              "precision": null,
+              "recall": 0.0,
+              "tp": 0
+            },
+            "US_SSN": {
+              "f1": 0.9166666666666666,
+              "fn": 14,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.8461538461538461,
+              "tp": 77
+            }
+          },
+          "overall": {
+            "f1": 0.7221037668798863,
+            "fn": 292,
+            "fp": 99,
+            "precision": 0.8369028006589786,
+            "recall": 0.635,
+            "tp": 508
+          }
+        },
+        "false_positive_rate_on_negatives": 0.022222222222222223,
+        "group_accuracy": {
+          "adversarial": {
+            "accuracy": 0.6333333333333333,
+            "correct": 95,
+            "total": 150
+          },
+          "clean": {
+            "accuracy": 1.0,
+            "correct": 250,
+            "total": 250
+          },
+          "hard_negative": {
+            "accuracy": 0.95,
+            "correct": 190,
+            "total": 200
+          },
+          "mixed_entities": {
+            "accuracy": 0.7866666666666666,
+            "correct": 118,
+            "total": 150
+          },
+          "standard_sensitive": {
+            "accuracy": 0.66,
+            "correct": 231,
+            "total": 350
+          },
+          "unsupported": {
+            "accuracy": 1.0,
+            "correct": 100,
+            "total": 100
+          }
+        },
+        "in_scope_cases": 1100,
+        "in_scope_unknown_count": 0,
+        "in_scope_unknown_rate": 0.0,
+        "negative_specificity": 0.9777777777777777,
+        "positive_detection_recall": 0.683076923076923,
+        "status_accuracy": 0.82,
+        "status_confusion": {
+          "NO_PRIVATE_DETECTED": {
+            "NO_PRIVATE_DETECTED": 440,
+            "PRIVATE": 10
+          },
+          "PRIVATE": {
+            "NO_PRIVATE_DETECTED": 206,
+            "PRIVATE": 444
+          },
+          "UNKNOWN": {
+            "UNKNOWN": 100
+          }
+        },
+        "total_cases": 1200,
+        "unknown_reasons": {},
+        "unsafe_negative_rate": 0.3169230769230769,
+        "unsupported_cases": 100,
+        "unsupported_unknown_rate": 1.0
+      },
+      "run_id": "20261121T195621Z-29caf061",
+      "runtime": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "presidio_analyzer": "2.2.366",
+        "python": "3.14.4",
+        "spacy": "3.8.18",
+        "spacy_model": "3.8.0"
+      },
+      "schema_version": 1,
+      "scoring_spec": "strict-and-overlap-v1",
+      "split": "all",
+      "timestamp_utc": "2026-11-21T19:56:21.715736+00:00",
+      "timing": {
+        "cases_per_second": 291.012,
+        "detector_call_p50_ms": 3.3977,
+        "detector_call_p95_ms": 5.363,
+        "detector_call_p99_ms": 5.9238,
+        "note": "Sequential detection calls only; includes Python adapter overhead.",
+        "total_seconds": 4.1235
+      }
+    },
+    "custom": {
+      "adapter": "control-plane",
+      "aggregator_source_sha256": "25a8486ea354d76d916065267a79483b113f8795a09e391b607d099c0e0ee631",
+      "dataset_name": "sovereign-synthetic-v1",
+      "dataset_sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+      "dataset_version": "1.0.0",
+      "detector_artifact_digest": "",
+      "detector_config_digest": "d0e91335f7b99c496f9c2016e933a43529bcb16e83b8c8d4fbcbe04629a7901e",
+      "detector_rules_sha256": "e0b553ce57d25c06627c8cd6571fcb6a4ade1ead4c3ccfe1ce576691a8b02292",
+      "detector_source_sha256": "81cd99722fc004d5f7730d332af32a9aca05b06c70be3dedc9b454d7bb8b47f6",
+      "detector_version": "presidio-spacy-v1",
+      "git_commit": "2905834c576fe3b0956a7a6091a545a6a5d4e50d",
+      "metrics": {
+        "detector_error_count": 0,
+        "entities_exact_full": {
+          "by_category": {
+            "API_CREDENTIAL": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 99
+            },
+            "CREDIT_CARD": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            },
+            "EMAIL_ADDRESS": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 101
+            },
+            "IBAN_CODE": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 67
+            },
+            "LOCATION": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 86
+            },
+            "PERSON": {
+              "f1": 0.983957219251337,
+              "fn": 3,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.968421052631579,
+              "tp": 92
+            },
+            "PHONE_NUMBER": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 96
+            },
+            "PRIVATE_KEY": {
+              "f1": 0.7837837837837838,
+              "fn": 16,
+              "fp": 16,
+              "precision": 0.7837837837837838,
+              "recall": 0.7837837837837838,
+              "tp": 58
+            },
+            "US_SSN": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            }
+          },
+          "overall": {
+            "f1": 0.9780839073262366,
+            "fn": 19,
+            "fp": 16,
+            "precision": 0.9799247176913425,
+            "recall": 0.97625,
+            "tp": 781
+          }
+        },
+        "entities_exact_selective": {
+          "by_category": {
+            "API_CREDENTIAL": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 99
+            },
+            "CREDIT_CARD": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            },
+            "EMAIL_ADDRESS": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 101
+            },
+            "IBAN_CODE": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 67
+            },
+            "LOCATION": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 86
+            },
+            "PERSON": {
+              "f1": 0.983957219251337,
+              "fn": 3,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.968421052631579,
+              "tp": 92
+            },
+            "PHONE_NUMBER": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 96
+            },
+            "PRIVATE_KEY": {
+              "f1": 0.7837837837837838,
+              "fn": 16,
+              "fp": 16,
+              "precision": 0.7837837837837838,
+              "recall": 0.7837837837837838,
+              "tp": 58
+            },
+            "US_SSN": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            }
+          },
+          "overall": {
+            "f1": 0.9780839073262366,
+            "fn": 19,
+            "fp": 16,
+            "precision": 0.9799247176913425,
+            "recall": 0.97625,
+            "tp": 781
+          }
+        },
+        "entities_overlap_full": {
+          "by_category": {
+            "API_CREDENTIAL": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 99
+            },
+            "CREDIT_CARD": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            },
+            "EMAIL_ADDRESS": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 101
+            },
+            "IBAN_CODE": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 67
+            },
+            "LOCATION": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 86
+            },
+            "PERSON": {
+              "f1": 0.983957219251337,
+              "fn": 3,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.968421052631579,
+              "tp": 92
+            },
+            "PHONE_NUMBER": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 96
+            },
+            "PRIVATE_KEY": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 74
+            },
+            "US_SSN": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 91
+            }
+          },
+          "overall": {
+            "f1": 0.9981214777708203,
+            "fn": 3,
+            "fp": 0,
+            "precision": 1.0,
+            "recall": 0.99625,
+            "tp": 797
+          }
+        },
+        "false_positive_rate_on_negatives": 0.0,
+        "group_accuracy": {
+          "adversarial": {
+            "accuracy": 1.0,
+            "correct": 150,
+            "total": 150
+          },
+          "clean": {
+            "accuracy": 1.0,
+            "correct": 250,
+            "total": 250
+          },
+          "hard_negative": {
+            "accuracy": 1.0,
+            "correct": 200,
+            "total": 200
+          },
+          "mixed_entities": {
+            "accuracy": 1.0,
+            "correct": 150,
+            "total": 150
+          },
+          "standard_sensitive": {
+            "accuracy": 1.0,
+            "correct": 350,
+            "total": 350
+          },
+          "unsupported": {
+            "accuracy": 1.0,
+            "correct": 100,
+            "total": 100
+          }
+        },
+        "in_scope_cases": 1100,
+        "in_scope_unknown_count": 0,
+        "in_scope_unknown_rate": 0.0,
+        "negative_specificity": 1.0,
+        "positive_detection_recall": 1.0,
+        "status_accuracy": 1.0,
+        "status_confusion": {
+          "NO_PRIVATE_DETECTED": {
+            "NO_PRIVATE_DETECTED": 450
+          },
+          "PRIVATE": {
+            "PRIVATE": 650
+          },
+          "UNKNOWN": {
+            "UNKNOWN": 100
+          }
+        },
+        "total_cases": 1200,
+        "unknown_reasons": {},
+        "unsafe_negative_rate": 0.0,
+        "unsupported_cases": 100,
+        "unsupported_unknown_rate": 1.0
+      },
+      "run_id": "20261121T195611Z-ffb5c331",
+      "runtime": {
+        "platform": "Windows-11-10.0.26300-SP0",
+        "presidio_analyzer": "2.2.366",
+        "python": "3.14.4",
+        "spacy": "3.8.18",
+        "spacy_model": "3.8.0"
+      },
+      "schema_version": 1,
+      "scoring_spec": "strict-and-overlap-v1",
+      "split": "all",
+      "timestamp_utc": "2026-11-21T19:56:11.775765+00:00",
+      "timing": {
+        "cases_per_second": 283.123,
+        "detector_call_p50_ms": 3.4829,
+        "detector_call_p95_ms": 5.5354,
+        "detector_call_p99_ms": 6.3507,
+        "note": "Sequential detection calls only; includes Python adapter overhead.",
+        "total_seconds": 4.2384
+      }
+    },
+    "comparison_metrics": {
+      "detector_error_count": {
+        "baseline": 0,
+        "candidate": 0,
+        "delta": 0
+      },
+      "exact_f1": {
+        "baseline": 0.5842217484008528,
+        "candidate": 0.9780839073262366,
+        "delta": 0.3938621589253838
+      },
+      "exact_fn": {
+        "baseline": 389,
+        "candidate": 19,
+        "delta": -370
+      },
+      "exact_fp": {
+        "baseline": 196,
+        "candidate": 16,
+        "delta": -180
+      },
+      "exact_precision": {
+        "baseline": 0.6771004942339374,
+        "candidate": 0.9799247176913425,
+        "delta": 0.3028242234574051
+      },
+      "exact_recall": {
+        "baseline": 0.51375,
+        "candidate": 0.97625,
+        "delta": 0.4624999999999999
+      },
+      "exact_tp": {
+        "baseline": 411,
+        "candidate": 781,
+        "delta": 370
+      },
+      "false_positive_rate_on_negatives": {
+        "baseline": 0.022222222222222223,
+        "candidate": 0.0,
+        "delta": -0.022222222222222223
+      },
+      "in_scope_unknown_rate": {
+        "baseline": 0.0,
+        "candidate": 0.0,
+        "delta": 0.0
+      },
+      "overlap_f1": {
+        "baseline": 0.7221037668798863,
+        "candidate": 0.9981214777708203,
+        "delta": 0.27601771089093396
+      },
+      "overlap_fn": {
+        "baseline": 292,
+        "candidate": 3,
+        "delta": -289
+      },
+      "overlap_fp": {
+        "baseline": 99,
+        "candidate": 0,
+        "delta": -99
+      },
+      "overlap_precision": {
+        "baseline": 0.8369028006589786,
+        "candidate": 1.0,
+        "delta": 0.1630971993410214
+      },
+      "overlap_recall": {
+        "baseline": 0.635,
+        "candidate": 0.99625,
+        "delta": 0.36124999999999996
+      },
+      "overlap_tp": {
+        "baseline": 508,
+        "candidate": 797,
+        "delta": 289
+      },
+      "positive_detection_recall": {
+        "baseline": 0.683076923076923,
+        "candidate": 1.0,
+        "delta": 0.316923076923077
+      },
+      "status_accuracy": {
+        "baseline": 0.82,
+        "candidate": 1.0,
+        "delta": 0.18000000000000005
+      },
+      "unsafe_negative_rate": {
+        "baseline": 0.3169230769230769,
+        "candidate": 0.0,
+        "delta": -0.3169230769230769
+      }
+    },
+    "changed_case_count": 363,
+    "unsafe_negative_cases_resolved": 206,
+    "new_unsafe_negative_cases": 0
+  },
+  "enforcement": {
+    "enforcement-controlled": {
+      "report": {
+        "cases": 21,
+        "evaluation_mode": "controlled-orchestrator",
+        "failed": 0,
+        "passed": 21,
+        "policy_mode": "fixture-policy-not-opa",
+        "schema_version": 1,
+        "scope": "isolated in-process orchestrator and temporary SQLite; no live egress",
+        "timestamp_utc": "2026-11-21T19:57:45.222794+00:00"
+      },
+      "rows": 21,
+      "status_counts": {
+        "COMPLETED": 4,
+        "BLOCKED": 14,
+        "EXCEPTION": 2,
+        "ERROR": 1
+      },
+      "forwarded": 0,
+      "transformed": 1,
+      "rows_with_issues": 0
+    },
+    "enforcement-replay": {
+      "report": {
+        "cases": 1200,
+        "dataset_sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+        "dataset_version": "1.0.0",
+        "evaluation_mode": "real-detector-orchestrator-replay",
+        "incomplete_or_unknown_cases": 0,
+        "issues": {},
+        "limit": null,
+        "policy_mode": "fixture-policy-not-opa",
+        "schema_version": 1,
+        "scope": "no live model/egress; isolated temporary audit; no signed-release verification",
+        "split": "all",
+        "timestamp_utc": "2026-11-21T19:58:09.596254+00:00",
+        "unsafe_external_forward_count": 0
+      },
+      "rows": 1200,
+      "status_counts": {
+        "COMPLETED": 579,
+        "BLOCKED": 621
+      },
+      "forwarded": 579,
+      "transformed": 129,
+      "rows_with_issues": 0
+    },
+    "enforcement-opa": {
+      "report": {
+        "cases": 1200,
+        "dataset_sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+        "dataset_version": "1.0.0",
+        "evaluation_mode": "real-detector-orchestrator-replay",
+        "incomplete_or_unknown_cases": 0,
+        "issues": {},
+        "limit": null,
+        "policy_digest": "e592df3e38e3c8e80b7742eda4ca154ea1f536b270431ef8134ce4fe30b53b2a",
+        "policy_mode": "opa-cli-verified-snapshot",
+        "policy_revision": "redaction-response-dlp-v5",
+        "schema_version": 1,
+        "scope": "no live model/egress; isolated temporary audit; no signed-release verification",
+        "split": "all",
+        "timestamp_utc": "2026-11-21T20:07:55.488091+00:00",
+        "unsafe_external_forward_count": 0
+      },
+      "rows": 1200,
+      "status_counts": {
+        "COMPLETED": 579,
+        "BLOCKED": 621
+      },
+      "forwarded": 579,
+      "transformed": 129,
+      "rows_with_issues": 0
+    }
+  },
+  "output": {
+    "output-controlled": {
+      "cases": 15,
+      "dataset_sha256": "c43f82bb53368f6a483710359d406a5ff91fcfaabca5c908246783b965d7c5eb",
+      "detector_identities": [
+        {
+          "artifact_digest": "",
+          "config_digest": "synthetic-fixture-not-provenance",
+          "version": "presidio-spacy-v1"
+        }
+      ],
+      "detector_mode": "fixture",
+      "evaluation_mode": "response-side-dlp",
+      "evidence": {
+        "audit_key_pinned_for_this_run": true,
+        "checkpoint_pinned_for_this_run": true,
+        "exported_events": 29,
+        "input_policy_decisions_replayed": 15,
+        "output_evidence_cases": 13,
+        "output_local_denials_verified": 6,
+        "output_policy_decisions_replayed": 7,
+        "per_case_evidence_mismatches": 0,
+        "release_signer_trusted_externally": false,
+        "signed_events_verified": 29,
+        "status": "EVIDENCE_PACKAGE_VERIFIED"
+      },
+      "failed": 0,
+      "git_commit": "2905834c576fe3b0956a7a6091a545a6a5d4e50d",
+      "limit": null,
+      "limitations": "Synthetic in-memory model outputs; local isolated signed audit; no production release signature, independent checkpoint witness, real inference, service API, or network egress tested",
+      "metrics": {
+        "benign_cases": 9,
+        "blocked_count": 11,
+        "blocked_rate": 0.7333333333333333,
+        "error_count": 2,
+        "failure_handling": {
+          "by_fault": {
+            "detector_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "detector_unknown": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "model_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "outcome_audit_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "policy_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            }
+          },
+          "injected_cases": 5,
+          "unexpected_release": 0,
+          "withheld": 5
+        },
+        "false_block_count": 0,
+        "false_block_rate_on_expected_releases": 0.0,
+        "issues": {},
+        "output_detection": {
+          "detector_error_count": 0,
+          "entities_exact_full": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              }
+            },
+            "overall": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 6
+            }
+          },
+          "entities_exact_selective": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              }
+            },
+            "overall": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 6
+            }
+          },
+          "entities_overlap_full": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              }
+            },
+            "overall": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 6
+            }
+          },
+          "false_positive_rate_on_negatives": 0.0,
+          "group_accuracy": {
+            "output": {
+              "accuracy": 0.6,
+              "correct": 9,
+              "total": 15
+            }
+          },
+          "in_scope_cases": 14,
+          "in_scope_unknown_count": 6,
+          "in_scope_unknown_rate": 0.42857142857142855,
+          "negative_specificity": 0.3333333333333333,
+          "positive_detection_recall": 1.0,
+          "status_accuracy": 0.6,
+          "status_confusion": {
+            "NO_PRIVATE_DETECTED": {
+              "NO_PRIVATE_DETECTED": 3,
+              "UNKNOWN": 6
+            },
+            "PRIVATE": {
+              "PRIVATE": 5
+            },
+            "UNKNOWN": {
+              "UNKNOWN": 1
+            }
+          },
+          "total_cases": 15,
+          "unknown_reasons": {
+            "OUTPUT_DETECTION_UNAVAILABLE": 1,
+            "OUTPUT_INVALID_CONTENT": 2,
+            "OUTPUT_UNINSPECTABLE": 1,
+            "UNKNOWN_NO_REASON": 2
+          },
+          "unsafe_negative_rate": 0.0,
+          "unsupported_cases": 1,
+          "unsupported_unknown_rate": 1.0
+        },
+        "output_detection_latency_ms": {
+          "count": 12,
+          "p50": 0.0058,
+          "p95": 0.0109
+        },
+        "released_count": 2,
+        "sensitive_cases": 5,
+        "unsafe_release_rate_on_sensitive": 0.0,
+        "unsafe_sensitive_release_count": 0
+      },
+      "passed": 15,
+      "policy_digest": "e592df3e38e3c8e80b7742eda4ca154ea1f536b270431ef8134ce4fe30b53b2a",
+      "policy_mode": "fixture-policy-not-opa",
+      "policy_revision": "redaction-response-dlp-v5",
+      "schema_version": 1,
+      "split": "controlled",
+      "timestamp_utc": "2026-11-21T20:09:26.561065+00:00"
+    },
+    "output-dataset": {
+      "cases": 1200,
+      "dataset_sha256": "766980e0e02f92931dac747a36bcddf915d8ef597e267d9c552fce03a4c74109",
+      "detector_identities": [
+        {
+          "artifact_digest": "",
+          "config_digest": "d0e91335f7b99c496f9c2016e933a43529bcb16e83b8c8d4fbcbe04629a7901e",
+          "version": "presidio-spacy-v1"
+        }
+      ],
+      "detector_mode": "presidio",
+      "evaluation_mode": "response-side-dlp",
+      "evidence": {
+        "audit_key_pinned_for_this_run": true,
+        "checkpoint_pinned_for_this_run": true,
+        "exported_events": 2400,
+        "input_policy_decisions_replayed": 1200,
+        "output_evidence_cases": 1200,
+        "output_local_denials_verified": 100,
+        "output_policy_decisions_replayed": 1100,
+        "per_case_evidence_mismatches": 0,
+        "release_signer_trusted_externally": false,
+        "signed_events_verified": 2400,
+        "status": "EVIDENCE_PACKAGE_VERIFIED"
+      },
+      "failed": 0,
+      "git_commit": "2905834c576fe3b0956a7a6091a545a6a5d4e50d",
+      "limit": null,
+      "limitations": "Synthetic in-memory model outputs; local isolated signed audit; no production release signature, independent checkpoint witness, real inference, service API, or network egress tested",
+      "metrics": {
+        "benign_cases": 450,
+        "blocked_count": 750,
+        "blocked_rate": 0.625,
+        "error_count": 0,
+        "failure_handling": {
+          "by_fault": {},
+          "injected_cases": 0,
+          "unexpected_release": 0,
+          "withheld": 0
+        },
+        "false_block_count": 0,
+        "false_block_rate_on_expected_releases": 0.0,
+        "issues": {},
+        "output_detection": {
+          "detector_error_count": 0,
+          "entities_exact_full": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 99
+              },
+              "CREDIT_CARD": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 91
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 101
+              },
+              "IBAN_CODE": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 67
+              },
+              "LOCATION": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 86
+              },
+              "PERSON": {
+                "f1": 0.983957219251337,
+                "fn": 3,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 0.968421052631579,
+                "tp": 92
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 96
+              },
+              "PRIVATE_KEY": {
+                "f1": 0.7837837837837838,
+                "fn": 16,
+                "fp": 16,
+                "precision": 0.7837837837837838,
+                "recall": 0.7837837837837838,
+                "tp": 58
+              },
+              "US_SSN": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 91
+              }
+            },
+            "overall": {
+              "f1": 0.9780839073262366,
+              "fn": 19,
+              "fp": 16,
+              "precision": 0.9799247176913425,
+              "recall": 0.97625,
+              "tp": 781
+            }
+          },
+          "entities_exact_selective": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 99
+              },
+              "CREDIT_CARD": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 91
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 101
+              },
+              "IBAN_CODE": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 67
+              },
+              "LOCATION": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 86
+              },
+              "PERSON": {
+                "f1": 0.983957219251337,
+                "fn": 3,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 0.968421052631579,
+                "tp": 92
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 96
+              },
+              "PRIVATE_KEY": {
+                "f1": 0.7837837837837838,
+                "fn": 16,
+                "fp": 16,
+                "precision": 0.7837837837837838,
+                "recall": 0.7837837837837838,
+                "tp": 58
+              },
+              "US_SSN": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 91
+              }
+            },
+            "overall": {
+              "f1": 0.9780839073262366,
+              "fn": 19,
+              "fp": 16,
+              "precision": 0.9799247176913425,
+              "recall": 0.97625,
+              "tp": 781
+            }
+          },
+          "entities_overlap_full": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 99
+              },
+              "CREDIT_CARD": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 91
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 101
+              },
+              "IBAN_CODE": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 67
+              },
+              "LOCATION": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 86
+              },
+              "PERSON": {
+                "f1": 0.983957219251337,
+                "fn": 3,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 0.968421052631579,
+                "tp": 92
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 96
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 74
+              },
+              "US_SSN": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 91
+              }
+            },
+            "overall": {
+              "f1": 0.9981214777708203,
+              "fn": 3,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 0.99625,
+              "tp": 797
+            }
+          },
+          "false_positive_rate_on_negatives": 0.0,
+          "group_accuracy": {
+            "adversarial": {
+              "accuracy": 1.0,
+              "correct": 150,
+              "total": 150
+            },
+            "clean": {
+              "accuracy": 1.0,
+              "correct": 250,
+              "total": 250
+            },
+            "hard_negative": {
+              "accuracy": 1.0,
+              "correct": 200,
+              "total": 200
+            },
+            "mixed_entities": {
+              "accuracy": 1.0,
+              "correct": 150,
+              "total": 150
+            },
+            "standard_sensitive": {
+              "accuracy": 1.0,
+              "correct": 350,
+              "total": 350
+            },
+            "unsupported": {
+              "accuracy": 1.0,
+              "correct": 100,
+              "total": 100
+            }
+          },
+          "in_scope_cases": 1100,
+          "in_scope_unknown_count": 0,
+          "in_scope_unknown_rate": 0.0,
+          "negative_specificity": 1.0,
+          "positive_detection_recall": 1.0,
+          "status_accuracy": 1.0,
+          "status_confusion": {
+            "NO_PRIVATE_DETECTED": {
+              "NO_PRIVATE_DETECTED": 450
+            },
+            "PRIVATE": {
+              "PRIVATE": 650
+            },
+            "UNKNOWN": {
+              "UNKNOWN": 100
+            }
+          },
+          "total_cases": 1200,
+          "unknown_reasons": {},
+          "unsafe_negative_rate": 0.0,
+          "unsupported_cases": 100,
+          "unsupported_unknown_rate": 1.0
+        },
+        "output_detection_latency_ms": {
+          "count": 1200,
+          "p50": 4.386,
+          "p95": 6.6575
+        },
+        "released_count": 450,
+        "sensitive_cases": 650,
+        "unsafe_release_rate_on_sensitive": 0.0,
+        "unsafe_sensitive_release_count": 0
+      },
+      "passed": 1200,
+      "policy_digest": "e592df3e38e3c8e80b7742eda4ca154ea1f536b270431ef8134ce4fe30b53b2a",
+      "policy_mode": "fixture-policy-not-opa",
+      "policy_revision": "redaction-response-dlp-v5",
+      "schema_version": 1,
+      "split": "all",
+      "timestamp_utc": "2026-11-21T20:09:55.349153+00:00"
+    },
+    "output-opa": {
+      "cases": 15,
+      "dataset_sha256": "c43f82bb53368f6a483710359d406a5ff91fcfaabca5c908246783b965d7c5eb",
+      "detector_identities": [
+        {
+          "artifact_digest": "",
+          "config_digest": "synthetic-fixture-not-provenance",
+          "version": "presidio-spacy-v1"
+        }
+      ],
+      "detector_mode": "fixture",
+      "evaluation_mode": "response-side-dlp",
+      "evidence": {
+        "audit_key_pinned_for_this_run": true,
+        "checkpoint_pinned_for_this_run": true,
+        "exported_events": 29,
+        "input_policy_decisions_replayed": 15,
+        "output_evidence_cases": 13,
+        "output_local_denials_verified": 6,
+        "output_policy_decisions_replayed": 7,
+        "per_case_evidence_mismatches": 0,
+        "release_signer_trusted_externally": false,
+        "signed_events_verified": 29,
+        "status": "EVIDENCE_PACKAGE_VERIFIED"
+      },
+      "failed": 0,
+      "git_commit": "2905834c576fe3b0956a7a6091a545a6a5d4e50d",
+      "limit": null,
+      "limitations": "Synthetic in-memory model outputs; local isolated signed audit; no production release signature, independent checkpoint witness, real inference, service API, or network egress tested",
+      "metrics": {
+        "benign_cases": 9,
+        "blocked_count": 11,
+        "blocked_rate": 0.7333333333333333,
+        "error_count": 2,
+        "failure_handling": {
+          "by_fault": {
+            "detector_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "detector_unknown": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "model_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "outcome_audit_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            },
+            "policy_error": {
+              "cases": 1,
+              "unexpected_release": 0,
+              "violations": 0,
+              "withheld": 1
+            }
+          },
+          "injected_cases": 5,
+          "unexpected_release": 0,
+          "withheld": 5
+        },
+        "false_block_count": 0,
+        "false_block_rate_on_expected_releases": 0.0,
+        "issues": {},
+        "output_detection": {
+          "detector_error_count": 0,
+          "entities_exact_full": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              }
+            },
+            "overall": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 6
+            }
+          },
+          "entities_exact_selective": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              }
+            },
+            "overall": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 6
+            }
+          },
+          "entities_overlap_full": {
+            "by_category": {
+              "API_CREDENTIAL": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              },
+              "EMAIL_ADDRESS": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PHONE_NUMBER": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 2
+              },
+              "PRIVATE_KEY": {
+                "f1": 1.0,
+                "fn": 0,
+                "fp": 0,
+                "precision": 1.0,
+                "recall": 1.0,
+                "tp": 1
+              }
+            },
+            "overall": {
+              "f1": 1.0,
+              "fn": 0,
+              "fp": 0,
+              "precision": 1.0,
+              "recall": 1.0,
+              "tp": 6
+            }
+          },
+          "false_positive_rate_on_negatives": 0.0,
+          "group_accuracy": {
+            "output": {
+              "accuracy": 0.6,
+              "correct": 9,
+              "total": 15
+            }
+          },
+          "in_scope_cases": 14,
+          "in_scope_unknown_count": 6,
+          "in_scope_unknown_rate": 0.42857142857142855,
+          "negative_specificity": 0.3333333333333333,
+          "positive_detection_recall": 1.0,
+          "status_accuracy": 0.6,
+          "status_confusion": {
+            "NO_PRIVATE_DETECTED": {
+              "NO_PRIVATE_DETECTED": 3,
+              "UNKNOWN": 6
+            },
+            "PRIVATE": {
+              "PRIVATE": 5
+            },
+            "UNKNOWN": {
+              "UNKNOWN": 1
+            }
+          },
+          "total_cases": 15,
+          "unknown_reasons": {
+            "OUTPUT_DETECTION_UNAVAILABLE": 1,
+            "OUTPUT_INVALID_CONTENT": 2,
+            "OUTPUT_UNINSPECTABLE": 1,
+            "UNKNOWN_NO_REASON": 2
+          },
+          "unsafe_negative_rate": 0.0,
+          "unsupported_cases": 1,
+          "unsupported_unknown_rate": 1.0
+        },
+        "output_detection_latency_ms": {
+          "count": 12,
+          "p50": 0.0107,
+          "p95": 0.0165
+        },
+        "released_count": 2,
+        "sensitive_cases": 5,
+        "unsafe_release_rate_on_sensitive": 0.0,
+        "unsafe_sensitive_release_count": 0
+      },
+      "passed": 15,
+      "policy_digest": "e592df3e38e3c8e80b7742eda4ca154ea1f536b270431ef8134ce4fe30b53b2a",
+      "policy_mode": "opa-cli",
+      "policy_revision": "redaction-response-dlp-v5",
+      "schema_version": 1,
+      "split": "controlled",
+      "timestamp_utc": "2026-11-21T20:10:11.536482+00:00"
+    }
+  },
+  "historical_performance": {
+    "m7_9_medians": {
+      "local_permit": {
+        "goodput": 10.467,
+        "goodput_range": [
+          10.283,
+          10.667
+        ],
+        "p95": 849.92,
+        "p95_range": [
+          840.22,
+          880.12
+        ],
+        "events": 3818,
+        "requests": 1909
+      },
+      "credential_deny": {
+        "goodput": 10.55,
+        "goodput_range": [
+          10.367,
+          10.583
+        ],
+        "p95": 834.51,
+        "p95_range": [
+          833.62,
+          845.03
+        ],
+        "events": 3828,
+        "requests": 1914
+      },
+      "unsupported_input": {
+        "goodput": 27.483,
+        "goodput_range": [
+          27.1,
+          29.517
+        ],
+        "p95": 365.48,
+        "p95_range": [
+          302.63,
+          367.77
+        ],
+        "events": 10140,
+        "requests": 5070
+      }
+    },
+    "runs": {
+      "m7-2-8clients": {
+        "suite": {
+          "label": "m7-2-8clients",
+          "git_commit": "db8945018760ed20afb2d4b53915f18ee9a9ad4e",
+          "clients": 8,
+          "duration_s": 60.0,
+          "errors": [],
+          "allow_overload": false,
+          "trusted_audit_public_key_pinned": false,
+          "completed_utc": "2026-11-19T01:33:11.167376+00:00"
+        },
+        "rows": {
+          "local_permit": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 283,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.664,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 4.583,
+              "http_statuses": {
+                "200": 283
+              },
+              "label": "m7-2-8clients",
+              "latency_ms": {
+                "max": 2407.18,
+                "p50": 1736.3,
+                "p95": 1967.8,
+                "p99": 2146.27
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 283,
+              "responses_per_test_second": 4.583,
+              "responses_within_window": 275,
+              "run_id": "daeb5b6a9346",
+              "scenario": "local_permit",
+              "schema_version": 1,
+              "success_count": 283,
+              "timestamp_utc": "2026-11-19T01:29:43.639938+00:00",
+              "total_completed_per_elapsed_second": 4.665,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 566,
+              "expected_new_events": 566
+            }
+          },
+          "credential_deny": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 293,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 61.082,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 4.75,
+              "http_statuses": {
+                "403": 293
+              },
+              "label": "m7-2-8clients",
+              "latency_ms": {
+                "max": 6852.63,
+                "p50": 1617.29,
+                "p95": 2477.32,
+                "p99": 4721.8
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 293,
+              "responses_per_test_second": 4.75,
+              "responses_within_window": 285,
+              "run_id": "0d7531be1589",
+              "scenario": "credential_deny",
+              "schema_version": 1,
+              "success_count": 293,
+              "timestamp_utc": "2026-11-19T01:30:53.262098+00:00",
+              "total_completed_per_elapsed_second": 4.797,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 586,
+              "expected_new_events": 586
+            }
+          },
+          "unsupported_input": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 607,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.759,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 9.983,
+              "http_statuses": {
+                "403": 607
+              },
+              "label": "m7-2-8clients",
+              "latency_ms": {
+                "max": 1163.8,
+                "p50": 791.48,
+                "p95": 858.62,
+                "p99": 1069.9
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 607,
+              "responses_per_test_second": 9.983,
+              "responses_within_window": 599,
+              "run_id": "316fcc56a59f",
+              "scenario": "unsupported_input",
+              "schema_version": 1,
+              "success_count": 607,
+              "timestamp_utc": "2026-11-19T01:32:03.494602+00:00",
+              "total_completed_per_elapsed_second": 9.99,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1214,
+              "expected_new_events": 1214
+            }
+          }
+        }
+      },
+      "m7-3-8clients": {
+        "suite": {
+          "label": "m7-3-8clients",
+          "git_commit": "344a7c08517aa61a161a93c77db3d5702f328f7f",
+          "clients": 8,
+          "duration_s": 60.0,
+          "errors": [],
+          "allow_overload": false,
+          "trusted_audit_public_key_pinned": false,
+          "completed_utc": "2026-11-19T13:21:50.211975+00:00"
+        },
+        "rows": {
+          "local_permit": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 242,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.585,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 3.9,
+              "http_statuses": {
+                "200": 242
+              },
+              "label": "m7-3-8clients",
+              "latency_ms": {
+                "max": 2810.74,
+                "p50": 2033.32,
+                "p95": 2361.61,
+                "p99": 2657.92
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 242,
+              "responses_per_test_second": 3.9,
+              "responses_within_window": 234,
+              "run_id": "9ddbb915fefa",
+              "scenario": "local_permit",
+              "schema_version": 1,
+              "success_count": 242,
+              "timestamp_utc": "2026-11-19T13:18:18.017231+00:00",
+              "total_completed_per_elapsed_second": 3.994,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 484,
+              "expected_new_events": 484
+            }
+          },
+          "credential_deny": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 246,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.929,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 3.967,
+              "http_statuses": {
+                "403": 246
+              },
+              "label": "m7-3-8clients",
+              "latency_ms": {
+                "max": 2511.31,
+                "p50": 1966.2,
+                "p95": 2179.87,
+                "p99": 2423.09
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 246,
+              "responses_per_test_second": 3.967,
+              "responses_within_window": 238,
+              "run_id": "014466064746",
+              "scenario": "credential_deny",
+              "schema_version": 1,
+              "success_count": 246,
+              "timestamp_utc": "2026-11-19T13:19:29.861494+00:00",
+              "total_completed_per_elapsed_second": 4.037,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 492,
+              "expected_new_events": 492
+            }
+          },
+          "unsupported_input": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 589,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.209,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 9.683,
+              "http_statuses": {
+                "403": 589
+              },
+              "label": "m7-3-8clients",
+              "latency_ms": {
+                "max": 1272.13,
+                "p50": 727.48,
+                "p95": 1030.31,
+                "p99": 1217.21
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 589,
+              "responses_per_test_second": 9.683,
+              "responses_within_window": 581,
+              "run_id": "37736fa55a24",
+              "scenario": "unsupported_input",
+              "schema_version": 1,
+              "success_count": 589,
+              "timestamp_utc": "2026-11-19T13:20:41.734161+00:00",
+              "total_completed_per_elapsed_second": 9.783,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1178,
+              "expected_new_events": 1178
+            }
+          }
+        }
+      },
+      "m7-9-8clients-r01": {
+        "suite": {
+          "label": "m7-9-8clients-r01",
+          "git_commit": "17a8f315ad5c782aaa7aa65639e2db4498eea277",
+          "clients": 8,
+          "duration_s": 60.0,
+          "errors": [],
+          "allow_overload": false,
+          "trusted_audit_public_key_pinned": false,
+          "completed_utc": "2026-11-19T22:33:33.887577+00:00"
+        },
+        "rows": {
+          "local_permit": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 625,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.449,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 10.283,
+              "http_statuses": {
+                "200": 625
+              },
+              "label": "m7-9-8clients-r01",
+              "latency_ms": {
+                "max": 954.18,
+                "p50": 779.29,
+                "p95": 880.12,
+                "p99": 927.49
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 625,
+              "responses_per_test_second": 10.283,
+              "responses_within_window": 617,
+              "run_id": "da1b7dc289b3",
+              "scenario": "local_permit",
+              "schema_version": 1,
+              "success_count": 625,
+              "timestamp_utc": "2026-11-19T22:30:04.003385+00:00",
+              "total_completed_per_elapsed_second": 10.339,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1250,
+              "expected_new_events": 1250
+            }
+          },
+          "credential_deny": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 630,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.479,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 10.367,
+              "http_statuses": {
+                "403": 630
+              },
+              "label": "m7-9-8clients-r01",
+              "latency_ms": {
+                "max": 927.06,
+                "p50": 772.53,
+                "p95": 845.03,
+                "p99": 882.54
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 630,
+              "responses_per_test_second": 10.367,
+              "responses_within_window": 622,
+              "run_id": "a139d0791331",
+              "scenario": "credential_deny",
+              "schema_version": 1,
+              "success_count": 630,
+              "timestamp_utc": "2026-11-19T22:31:14.426943+00:00",
+              "total_completed_per_elapsed_second": 10.417,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1260,
+              "expected_new_events": 1260
+            }
+          },
+          "unsupported_input": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 1657,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.258,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 27.483,
+              "http_statuses": {
+                "403": 1657
+              },
+              "label": "m7-9-8clients-r01",
+              "latency_ms": {
+                "max": 565.87,
+                "p50": 275.84,
+                "p95": 365.48,
+                "p99": 433.12
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 1657,
+              "responses_per_test_second": 27.483,
+              "responses_within_window": 1649,
+              "run_id": "8ea7ff11057f",
+              "scenario": "unsupported_input",
+              "schema_version": 1,
+              "success_count": 1657,
+              "timestamp_utc": "2026-11-19T22:32:24.877010+00:00",
+              "total_completed_per_elapsed_second": 27.498,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 3314,
+              "expected_new_events": 3314
+            }
+          }
+        }
+      },
+      "m7-9-8clients-r02": {
+        "suite": {
+          "label": "m7-9-8clients-r02",
+          "git_commit": "17a8f315ad5c782aaa7aa65639e2db4498eea277",
+          "clients": 8,
+          "duration_s": 60.0,
+          "errors": [],
+          "allow_overload": false,
+          "trusted_audit_public_key_pinned": false,
+          "completed_utc": "2026-11-19T22:37:35.150196+00:00"
+        },
+        "rows": {
+          "local_permit": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 636,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.32,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 10.467,
+              "http_statuses": {
+                "200": 636
+              },
+              "label": "m7-9-8clients-r02",
+              "latency_ms": {
+                "max": 892.44,
+                "p50": 771.54,
+                "p95": 849.92,
+                "p99": 871.29
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 636,
+              "responses_per_test_second": 10.467,
+              "responses_within_window": 628,
+              "run_id": "b7c9138fceec",
+              "scenario": "local_permit",
+              "schema_version": 1,
+              "success_count": 636,
+              "timestamp_utc": "2026-11-19T22:34:02.438747+00:00",
+              "total_completed_per_elapsed_second": 10.544,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1272,
+              "expected_new_events": 1272
+            }
+          },
+          "credential_deny": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 643,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.417,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 10.583,
+              "http_statuses": {
+                "403": 643
+              },
+              "label": "m7-9-8clients-r02",
+              "latency_ms": {
+                "max": 886.57,
+                "p50": 747.39,
+                "p95": 833.62,
+                "p99": 852.62
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 643,
+              "responses_per_test_second": 10.583,
+              "responses_within_window": 635,
+              "run_id": "b0a03ad0840c",
+              "scenario": "credential_deny",
+              "schema_version": 1,
+              "success_count": 643,
+              "timestamp_utc": "2026-11-19T22:35:13.797004+00:00",
+              "total_completed_per_elapsed_second": 10.643,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1286,
+              "expected_new_events": 1286
+            }
+          },
+          "unsupported_input": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 1779,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.184,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 29.517,
+              "http_statuses": {
+                "403": 1779
+              },
+              "label": "m7-9-8clients-r02",
+              "latency_ms": {
+                "max": 510.2,
+                "p50": 268.5,
+                "p95": 302.63,
+                "p99": 343.81
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 1779,
+              "responses_per_test_second": 29.517,
+              "responses_within_window": 1771,
+              "run_id": "0be48f50e75e",
+              "scenario": "unsupported_input",
+              "schema_version": 1,
+              "success_count": 1779,
+              "timestamp_utc": "2026-11-19T22:36:25.540581+00:00",
+              "total_completed_per_elapsed_second": 29.559,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 3558,
+              "expected_new_events": 3558
+            }
+          }
+        }
+      },
+      "m7-9-8clients-r03": {
+        "suite": {
+          "label": "m7-9-8clients-r03",
+          "git_commit": "17a8f315ad5c782aaa7aa65639e2db4498eea277",
+          "clients": 8,
+          "duration_s": 60.0,
+          "errors": [],
+          "allow_overload": false,
+          "trusted_audit_public_key_pinned": false,
+          "completed_utc": "2026-11-19T22:41:45.690698+00:00"
+        },
+        "rows": {
+          "local_permit": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 648,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.552,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 10.667,
+              "http_statuses": {
+                "200": 648
+              },
+              "label": "m7-9-8clients-r03",
+              "latency_ms": {
+                "max": 894.82,
+                "p50": 752.11,
+                "p95": 840.22,
+                "p99": 866.45
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 648,
+              "responses_per_test_second": 10.667,
+              "responses_within_window": 640,
+              "run_id": "242ef21ad978",
+              "scenario": "local_permit",
+              "schema_version": 1,
+              "success_count": 648,
+              "timestamp_utc": "2026-11-19T22:38:10.795617+00:00",
+              "total_completed_per_elapsed_second": 10.702,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1296,
+              "expected_new_events": 1296
+            }
+          },
+          "credential_deny": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 641,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.536,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 10.55,
+              "http_statuses": {
+                "403": 641
+              },
+              "label": "m7-9-8clients-r03",
+              "latency_ms": {
+                "max": 901.64,
+                "p50": 760.56,
+                "p95": 834.51,
+                "p99": 863.34
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 641,
+              "responses_per_test_second": 10.55,
+              "responses_within_window": 633,
+              "run_id": "fc3c18fc0204",
+              "scenario": "credential_deny",
+              "schema_version": 1,
+              "success_count": 641,
+              "timestamp_utc": "2026-11-19T22:39:23.247209+00:00",
+              "total_completed_per_elapsed_second": 10.589,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 1282,
+              "expected_new_events": 1282
+            }
+          },
+          "unsupported_input": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 1634,
+              "clients": 8,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 60.0,
+              "elapsed_with_drain_s": 60.265,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 100.0,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 27.1,
+              "http_statuses": {
+                "403": 1634
+              },
+              "label": "m7-9-8clients-r03",
+              "latency_ms": {
+                "max": 470.9,
+                "p50": 277.56,
+                "p95": 367.77,
+                "p99": 390.62
+              },
+              "max_inflight_client_requests": 8,
+              "overload_rejections_429": 0,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 1634,
+              "responses_per_test_second": 27.1,
+              "responses_within_window": 1626,
+              "run_id": "b0da4a215706",
+              "scenario": "unsupported_input",
+              "schema_version": 1,
+              "success_count": 1634,
+              "timestamp_utc": "2026-11-19T22:40:35.467375+00:00",
+              "total_completed_per_elapsed_second": 27.114,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 3268,
+              "expected_new_events": 3268
+            }
+          }
+        }
+      },
+      "m7-9-overload-16-r01": {
+        "suite": {
+          "label": "m7-9-overload-16-r01",
+          "git_commit": "c07729148d77d915b82bed75d01b73ecf000bd27",
+          "clients": 16,
+          "duration_s": 20.0,
+          "errors": [],
+          "allow_overload": true,
+          "trusted_audit_public_key_pinned": false,
+          "completed_utc": "2026-11-19T23:09:06.726413+00:00"
+        },
+        "rows": {
+          "local_permit": {
+            "summary": {
+              "api_url": "http://127.0.0.1:8000",
+              "audited_receipt_responses": 182,
+              "clients": 16,
+              "duplicate_request_ids": 0,
+              "duration_configured_s": 20.0,
+              "elapsed_with_drain_s": 20.63,
+              "evidence_validation_failures": 0,
+              "expected_success_rate_pct": 4.92,
+              "functional_validation_failures": 0,
+              "goodput_per_test_second": 8.65,
+              "http_statuses": {
+                "200": 182,
+                "429": 3516
+              },
+              "label": "m7-9-overload-16-r01",
+              "latency_ms": {
+                "max": 1064.35,
+                "p50": 44.65,
+                "p95": 169.49,
+                "p99": 955.11
+              },
+              "max_inflight_client_requests": 16,
+              "overload_rejections_429": 3516,
+              "privacy": "Synthetic prompts only; prompts, API keys, and model outputs not written",
+              "request_count": 3698,
+              "responses_per_test_second": 184.1,
+              "responses_within_window": 3682,
+              "run_id": "930d32ecdd7b",
+              "scenario": "local_permit",
+              "schema_version": 1,
+              "success_count": 182,
+              "timestamp_utc": "2026-11-19T23:08:38.232236+00:00",
+              "total_completed_per_elapsed_second": 179.251,
+              "transport_errors": 0,
+              "unresolved_status_error": 0
+            },
+            "assertions": {
+              "passed": true,
+              "actual_new_events": 364,
+              "expected_new_events": 364
+            }
+          }
+        }
+      }
+    },
+    "overload_followup": {
+      "evidence_lookups": {
+        "eight_way": {
+          "audit_capacity_rejections_delta": 8,
+          "concurrency": 8,
+          "eight_way_saturation_observed": true,
+          "issues": [],
+          "passed": true,
+          "rounds": 12,
+          "successful_verified_queries": 96,
+          "target_queries": 96,
+          "transient_audit_503": 8,
+          "unexpected_errors": 0
+        },
+        "four_way": {
+          "audit_capacity_rejections_delta": 0,
+          "concurrency": 4,
+          "eight_way_saturation_observed": false,
+          "issues": [],
+          "passed": true,
+          "rounds": 12,
+          "successful_verified_queries": 48,
+          "target_queries": 48,
+          "transient_audit_503": 0,
+          "unexpected_errors": 0
+        },
+        "saturation_comparison": "REPRODUCED"
+      },
+      "note": "Independent signed chain checked by benchmarks.suite; evidence GETs match its receipts",
+      "overload": {
+        "admission_rejected_429": 3516,
+        "admitted_200": 182,
+        "clients": 16,
+        "diagnostic_admission_rejections": 3516,
+        "duration_s": 20.0,
+        "issues": [],
+        "other_statuses": 0,
+        "passed": true,
+        "signed_audit_verification": true
+      },
+      "passed": true,
+      "schema_version": 1
+    }
+  }
+}
