@@ -315,7 +315,7 @@ def main() -> int:
     for filename in ("deploy/compose.yaml", "deploy/compose.ghcr.yaml"):
         if not (root / filename).is_file():
             fail(f"Repository root is missing {filename}")
-    if (root / ".runtime").exists() or (root / ".env").exists():
+    if any(p.exists() or p.is_symlink() for p in (root / ".runtime", root / ".env")):
         fail(
             "Fresh-install only: .runtime or .env already exists. "
             "Never overwrite existing signed state"
@@ -324,6 +324,14 @@ def main() -> int:
         fail("Install Podman and its Compose provider before running this script")
     run("podman", "info", capture=True)
     run("podman", "compose", "version", capture=True)
+    existing_volumes = run(
+        "podman", "volume", "ls", "--format", "{{.Name}}", capture=True
+    ).splitlines()
+    if f"{args.project}_audit-data" in existing_volumes:
+        fail(
+            "The selected Compose project already has an audit-data volume; "
+            "choose a fresh project name rather than reusing existing audit history"
+        )
 
     with tempfile.TemporaryDirectory(prefix=".submission-bootstrap-", dir=root) as folder:
         state, refs, images = verify_package(
@@ -339,7 +347,7 @@ def main() -> int:
         if not isinstance(revision, str) or not re.fullmatch(r"[a-zA-Z0-9._-]{1,128}", revision):
             fail("Unsupported policy revision in approval")
         # Publish only after all preflights have succeeded. No private signer is ever created.
-        if (root / ".runtime").exists() or (root / ".env").exists():
+        if any(p.exists() or p.is_symlink() for p in (root / ".runtime", root / ".env")):
             fail("Deployment state appeared during bootstrap; refusing to overwrite it")
         shutil.move(str(state), str(root / ".runtime"))
         create_environment(root / ".env", refs, revision, args.project, args.api_port)
