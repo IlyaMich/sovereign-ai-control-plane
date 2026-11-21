@@ -52,7 +52,9 @@ Assert-M6 ($release.release_id -match '^[0-9a-f]{64}$') 'Release content address
 Write-Host '[2/5] Rego unit tests + signed-release readiness' -ForegroundColor Cyan
 & podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
 if ($LASTEXITCODE -ne 0) { throw 'OPA policy tests failed' }
-$ready = Invoke-RestMethod "$baseUrl/health/ready"
+$ready = Invoke-RestMethod `
+    -Uri "$baseUrl/health/ready" `
+    -Headers @{'X-API-Key'=$key}
 Assert-M6 ($ready.status -eq 'READY') 'Runtime accepted signed policy/detector release'
 
 Write-Host '[3/5] Real decision is bound to approved release' -ForegroundColor Cyan
