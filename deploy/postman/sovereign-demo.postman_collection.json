@@ -1,0 +1,727 @@
+{
+  "info": {
+    "name": "Sovereign AI Control Plane | Submission Demo v2",
+    "description": "Synthetic demo; send each POST then matching GET. Tests inspect evidence, not cryptographic signatures. Expected input decisions must match the installed signed release. Use cases 01–03 in sovereign-only mode.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "00 - Readiness",
+      "request": {
+        "method": "GET",
+        "header": [
+          {
+            "key": "X-API-Key",
+            "value": "{{apiKey}}",
+            "type": "text"
+          }
+        ],
+        "url": "{{baseUrl}}/health/ready"
+      },
+      "response": [],
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "pm.test(\"HTTP 200\", () => pm.response.to.have.status(200));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 - Non-private data: permit",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Explain network segmentation.\",\n  \"destination_id\": \"sovereign-model\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId1\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"NO_PRIVATE_DETECTED\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"PERMIT\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId1\", r.request_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId1}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId1\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId1\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "02 - Synthetic private credential: deny",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Analyze this synthetic marker: -----BEGIN PRIVATE KEY-----\",\n  \"destination_id\": \"sovereign-model\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId2\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"PRIVATE\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"DENY\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([403]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId2\", r.request_id);",
+                  "pm.test(\"Detected category\", () => { pm.expect(r.classification.findings.some(f => f.category === \"PRIVATE_KEY\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId2}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId2\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId2\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "03 - Synthetic personal data: local processing",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Summarize this contact record: jane@example.com\",\n  \"destination_id\": \"sovereign-model\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId3\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"PRIVATE\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"PERMIT\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([200,403]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId3\", r.request_id);",
+                  "pm.test(\"Detected category\", () => { pm.expect(r.classification.findings.some(f => f.category === \"EMAIL_ADDRESS\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId3}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId3\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId3\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "04 - Non-private data: external permit",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Explain network segmentation.\",\n  \"destination_id\": \"external-simulator\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId4\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"NO_PRIVATE_DETECTED\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"PERMIT\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([200]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId4\", r.request_id);"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId4}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId4\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId4\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "05 - Restricted PII: local permit",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Summarize this synthetic test record containing SSN 123-45-6789.\",\n  \"destination_id\": \"sovereign-model\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId5\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"PRIVATE\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"PERMIT\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([200,403]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId5\", r.request_id);",
+                  "pm.test(\"Detected category\", () => { pm.expect(r.classification.findings.some(f => f.category === \"US_SSN\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId5}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId5\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId5\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "06 - Restricted PII: external deny",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Summarize this synthetic test record containing SSN 123-45-6789.\",\n  \"destination_id\": \"external-simulator\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId6\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"PRIVATE\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"DENY\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([403]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId6\", r.request_id);",
+                  "pm.test(\"Detected category\", () => { pm.expect(r.classification.findings.some(f => f.category === \"US_SSN\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId6}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId6\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId6\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(false); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "name": "07 - Redactable PII: external redact and permit",
+      "item": [
+        {
+          "name": "A - Submit prompt",
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              },
+              {
+                "key": "Content-Type",
+                "value": "application/json",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/prompts",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"prompt\": \"Summarize this synthetic contact record: jane@example.com\",\n  \"destination_id\": \"external-simulator\",\n  \"purpose\": \"GENERAL\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.collectionVariables.unset(\"demoRequestId7\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"Input classification\", () => { pm.expect(r.classification.status).to.eql(\"PRIVATE\"); });",
+                  "pm.test(\"Input decision\", () => { pm.expect(r.decision.effect).to.eql(\"PERMIT\"); });",
+                  "pm.test(\"HTTP outcome\", () => { pm.expect(pm.response.code).to.be.oneOf([200,403]); });",
+                  "pm.test(\"Request ID returned\", () => { pm.expect(r.request_id).to.be.a(\"string\").and.not.empty; });",
+                  "if (typeof r.request_id === \"string\" && [200,403].includes(pm.response.code)) pm.collectionVariables.set(\"demoRequestId7\", r.request_id);",
+                  "pm.test(\"Detected category\", () => { pm.expect(r.classification.findings.some(f => f.category === \"EMAIL_ADDRESS\")).to.eql(true); });",
+                  "pm.test(\"Redaction obligation\", () => { pm.expect(r.decision.obligations.some(o => o.type === \"REDACT\")).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "name": "B - Retrieve matching audit evidence",
+          "request": {
+            "method": "GET",
+            "header": [
+              {
+                "key": "X-API-Key",
+                "value": "{{apiKey}}",
+                "type": "text"
+              }
+            ],
+            "url": "{{baseUrl}}/v1/requests/{{demoRequestId7}}"
+          },
+          "response": [],
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.collectionVariables.get(\"demoRequestId7\")) throw new Error(\"Run the paired POST first.\");"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const r = pm.response.json();",
+                  "pm.test(\"HTTP 200\", () => { pm.response.to.have.status(200); });",
+                  "pm.test(\"Matching request ID\", () => { pm.expect(r.request_id).to.eql(pm.collectionVariables.get(\"demoRequestId7\")); });",
+                  "pm.test(\"Decision and outcome events\", () => { pm.expect(r.events.map(e => e.event.event_type)).to.include.members([\"DECISION\",\"OUTCOME\"]); });",
+                  "pm.test(\"Model invoked\", () => { pm.expect(r.events.find(e => e.event.event_type === \"OUTCOME\").event.payload.model_invoked).to.eql(true); });"
+                ]
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
