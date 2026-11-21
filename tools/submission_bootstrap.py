@@ -418,9 +418,7 @@ def main() -> int:
             sovereign_only=args.sovereign_only,
         )
 
-    compose = compose_command(
-        root, args.project, sovereign_only=args.sovereign_only, engine=engine
-    )
+    compose = compose_command(root, args.project, sovereign_only=args.sovereign_only, engine=engine)
     run(*compose, "config", "--quiet")
     run(*compose, "up", "--no-build", "--force-recreate", "-d")
     env = dict(

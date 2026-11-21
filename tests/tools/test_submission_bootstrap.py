@@ -113,9 +113,7 @@ def test_deployment_modes(tmp_path, sovereign_only, engine):
         env_path, refs, "revision", "review-case", 8001, sovereign_only=sovereign_only
     )
     assert f"ENABLE_EXTERNAL_SIMULATOR={str(not sovereign_only).lower()}" in env_path.read_text()
-    command = compose_command(
-        tmp_path, "review-case", sovereign_only=sovereign_only, engine=engine
-    )
+    command = compose_command(tmp_path, "review-case", sovereign_only=sovereign_only, engine=engine)
     assert command[:2] == [engine, "compose"]
     assert ("egress-test" in command) is (not sovereign_only)
     assert ("--profile" in command) is (not sovereign_only)
