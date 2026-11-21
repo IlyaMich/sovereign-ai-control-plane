@@ -81,6 +81,20 @@ new-install instructions and follow-on release workflow see
 The running image can remain approved across this host-only migration; no
 new signature or generation is needed simply to move the bind sources.
 
+## Fresh reviewer install from published GHCR images
+
+For a **new, isolated Windows/Podman reviewer machine**, use
+[the signed-image submission bootstrap](docs/submission-bootstrap.md). Once
+the submission includes a reviewed `deploy/submission-lock.json` pinning an
+actual published release and its independently trusted checksums, the reviewer
+can run `.\\bootstrap.ps1` from the checkout root. This pulls immutable OCI
+images and verifies release/detector identity; it **does not rebuild or sign**
+the application. The bootstrap refuses existing `.env` or `.runtime` state.
+
+The source-build path below remains appropriate for a fresh independently
+signed developer environment or an **existing** signed-release installation.
+Do not use the submission bootstrap as an upgrade/migration command.
+
 ## Start an existing signed-release installation
 
 Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and enough resources for local spaCy. Building the detector image requires network access to install dependencies and the pinned `en_core_web_sm` model; request processing does not download the model.
