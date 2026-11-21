@@ -55,7 +55,7 @@ def verify_installation(args: argparse.Namespace) -> dict:
         detector_manifest=Path(args.detector_manifest) if args.detector_manifest else None,
     )
     approval = store.verify_active()
-    result = {
+    result: dict[str, object] = {
         "policy": {"status": "VERIFIED", "digest": policy.policy_digest},
         "release": {"status": "VERIFIED", **summary(approval)},
     }
@@ -73,8 +73,11 @@ def verify_installation(args: argparse.Namespace) -> dict:
         raise ValueError("--audit-checkpoint requires audit database and trusted public key")
     if args.audit_db:
         audit = verify_database(args.audit_db, args.audit_public_key, args.audit_checkpoint)
-        result["audit"] = {"status": "VERIFIED", **audit}
-        result["audit"]["checkpoint_witnessed"] = bool(args.audit_checkpoint)
+        result["audit"] = {
+            "status": "VERIFIED",
+            **audit,
+            "checkpoint_witnessed": bool(args.audit_checkpoint),
+        }
     else:
         result["audit"] = {"status": "NOT_CHECKED", "reason": "No audit DB/key supplied"}
 
