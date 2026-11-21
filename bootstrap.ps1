@@ -2,13 +2,10 @@
 # Never use this on an existing deployment: it refuses .env and .runtime.
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
     [string] $ReleaseTag,
 
-    [Parameter(Mandatory = $true)]
     [string] $TrustedKeySha256,
 
-    [Parameter(Mandatory = $true)]
     [string] $RegistrySha256,
 
     [string] $Project = 'sovereign-review',
@@ -17,6 +14,16 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
+$lockPath = Join-Path $PSScriptRoot 'deploy/submission-lock.json'
+if (Test-Path -LiteralPath $lockPath -PathType Leaf) {
+    $lock = Get-Content -LiteralPath $lockPath -Raw | ConvertFrom-Json
+    if (-not $ReleaseTag) { $ReleaseTag = $lock.release_tag }
+    if (-not $TrustedKeySha256) { $TrustedKeySha256 = $lock.trusted_key_sha256 }
+    if (-not $RegistrySha256) { $RegistrySha256 = $lock.registry_sha256 }
+}
+if (-not $ReleaseTag -or -not $TrustedKeySha256 -or -not $RegistrySha256) {
+    throw 'Supply -ReleaseTag, -TrustedKeySha256 and -RegistrySha256, or provide a reviewed deploy/submission-lock.json.'
+}
 $python = Get-Command python -ErrorAction SilentlyContinue
 if (-not $python) {
     throw 'Python 3.12+ is required. Install Python and reopen PowerShell.'
