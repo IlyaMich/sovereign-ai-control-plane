@@ -1,256 +1,271 @@
 # Sovereign AI Control Plane
 
-A **local security reference implementation** for governing requests to AI models. The control plane detects sensitive input, evaluates versioned OPA/Rego policies, enforces approved routing and redaction, inspects model responses before releasing them, and records independently checkable evidence.
+A policy-driven security gateway for governing how sensitive data is processed by AI systems.
 
-**Source implementation: API version 0.6.0, M6 signed releases, M7 operational features and response-side DLP.** M1-M6 functionality has been exercised on Windows with Podman Compose; the Milestone 6 operator verification reported `RELEASE_VERIFIED`, 14/14 Rego tests, signed request evidence, and successful disconnected policy replay. M7 adds bounded concurrency, durable opt-in idempotency, diagnostics, upload deadlines, serialized release publication, and profiling tools. These implemented features do not establish completion of the M7 performance acceptance criteria. This is a **single-host prototype**, not a certified compliant or production multi-tenant platform.
+The control plane inspects incoming prompts, detects sensitive information, evaluates governance policies, enforces approved routing and redaction, inspects model responses before releasing them, and generates cryptographically verifiable evidence of its decisions.
 
-Response-side DLP is implemented in source, including **operator-disabled-by-default v5 output masking** and detector refinements. Earlier operator reports describe v4 approval, but the **tracked generation-7 approval is a historical v3 example** and is not the host's live release. Source changes require a separately reviewed and signed successor approval to activate. See [release status](docs/release-status.md) and [response-side DLP](docs/response-side-dlp.md).
+The objective is to demonstrate how an organization can maintain control over sensitive data throughout the AI request lifecycle, independently of the underlying model.
 
-## Capabilities at a glance
+This project is a single-host reference implementation developed for a home assignment. It demonstrates security and governance mechanisms rather than claiming production readiness or regulatory compliance.
 
-| Area | Implemented now | Important boundary |
-| --- | --- | --- |
-| Ingress | FastAPI `POST /v1/prompts`, API-key authentication, size limits, sanitized errors | One fixed local principal/tenant, not OIDC/RBAC |
-| Request lifecycle | Durable opt-in idempotency, status lookup, bounded admission and worker queues | No automatic recovery, cached output or exactly-once inference |
-| Diagnostics | Authenticated process-local concurrency metrics and profiling tools | Rolling samples; no global monitoring or proven capacity guarantee |
-| Detection | Local Presidio/spaCy, custom recognizers, deterministic normalized findings, coverage and `UNKNOWN` | Best-effort English ASCII scope; false negatives remain possible |
-| Policy | Direct OPA/Rego with default deny; content-addressed archived policy snapshots | Rego inputs are structured detection metadata, not raw prompt text |
-| Enforcement | `PERMIT`/`DENY`, ordered `REDACT` then `ROUTE`, post-redaction rescan, destination registry | External route is **test-only simulator**, disabled by default |
-| Response DLP (v5 source; runtime depends on approval) | Inspect generated responses locally, enforce OPA output allow/block, sign audit outcome before release; v5 can selectively mask email/phone | Source or passing tests do not prove installed signed approval; best-effort classification |
-| Audit | SQLite WAL, signed SHA-256 event chain, decision committed before model invocation, separate outcome events | Keys live on the local host; a lost outcome can remain unresolved |
-| Provenance | Detector model/source manifest, exact policy digest and archived replay | Artifact identity does not prove classifier correctness |
-| Releases | Separate Ed25519 release approval for policy/detector identities, activation generation and predecessor | Local generation checks are not hardware-backed anti-rollback |
-| Evidence | Portable ZIP; offline audit verification and OPA replay; optional independent public-key/checkpoint anchors | Without external audit key/checkpoint, history is self-consistent but not independently complete |
+## 1. Quick start
 
-## System overview
+### Prerequisites
+
+The reference deployment assumes:
+
+- Windows with PowerShell.
+- Git.
+- Python 3.12 or newer.
+- Podman Desktop with a running Podman machine and a working Compose provider.
+- An x86-64-compatible container environment.
+- Internet access during installation to download release artifacts and container images.
+- Sufficient CPU, memory and disk space for the local NLP detector and containerized services.
+
+No GPU, paid AI subscription or external model-provider API key is required.
+
+### Installation
+
+Clone the repository:
+
+```powershell
+git clone https://github.com/IlyaMich/sovereign-ai-control-plane.git
+cd sovereign-ai-control-plane
+```
+
+Ensure Podman is running:
+
+```powershell
+podman machine list
+podman machine start
+```
+
+If the machine is already running, skip the start command.
+
+From a fresh checkout, run the single installation command:
+
+```powershell
+.\bootstrap.ps1
+```
+
+The bootstrap script:
+
+- Downloads the pinned published release.
+- Verifies release metadata and the trusted signing-key fingerprint.
+- Pulls the required container images by immutable digest.
+- Verifies the approved policy and detector identities.
+- Initializes isolated runtime state.
+- Generates a local API key.
+- Starts the services and checks authenticated readiness.
+
+The reviewer does not need to build container images manually or possess the release-signing private key.
+
+The exact submitted release is identified by `deploy/submission-lock.json`.
+
+### Accessing the application
+
+| Resource | Address |
+|---|---|
+| Interactive API documentation | http://127.0.0.1:8000/docs |
+| Request processing | POST /v1/prompts |
+| Request evidence | GET /v1/requests/{request_id} |
+| Readiness | GET /health/ready |
+| Concurrency diagnostics | GET /v1/diagnostics/concurrency |
+| DLP diagnostics | GET /v1/diagnostics/dlp |
+
+The API is exposed on localhost by default.
+
+### API keys and configuration
+
+The bootstrap generates a local API key and stores it in the Git-ignored `.env` file under:
+
+```dotenv
+CONTROL_PLANE_API_KEY=<generated-key>
+```
+
+Other important settings include:
+
+| Variable | Purpose |
+|---|---|
+| API_PORT | Local API port |
+| ENABLE_EXTERNAL_SIMULATOR | Enables the optional simulated external route |
+| OUTPUT_MASKING_ENABLED | Enables optional response masking |
+| MAX_INFLIGHT_REQUESTS | Maximum concurrently admitted prompt requests |
+| EXPECTED_POLICY_REVISION | Expected active policy revision |
+
+Do not commit the generated `.env` file or disclose its API key.
+
+See [Configuration](docs/configuration.md) for the complete configuration reference.
+
+### Send your first request
+
+```powershell
+$key = (Get-Content .env |
+    Select-String '^CONTROL_PLANE_API_KEY='
+).ToString().Split('=',2)[1].Trim()
+
+$body = @{
+    prompt = 'Explain secure software development'
+    destination_id = 'sovereign-model'
+    purpose = 'GENERAL'
+} | ConvertTo-Json
+
+Invoke-RestMethod `
+    -Uri http://127.0.0.1:8000/v1/prompts `
+    -Method POST `
+    -Headers @{'X-API-Key'=$key} `
+    -ContentType 'application/json' `
+    -Body $body
+```
+
+An accepted request returns its processing status, policy decision, model output and signed audit receipts.
+
+Requests containing prohibited information may be blocked either before model execution or during response inspection.
+
+Use only synthetic data for demonstrations.
+
+### Stopping the application
+
+```powershell
+podman compose -p sovereign-review `
+    -f deploy/compose.yaml `
+    -f deploy/compose.ghcr.yaml `
+    --env-file .env down
+```
+
+This preserves the audit volume.
+
+Do not use `down -v` unless you explicitly intend to destroy the installation's audit history and associated state.
+
+For alternative deployment options and troubleshooting, see the [Reviewer Bootstrap Guide](docs/submission-bootstrap.md).
+
+## 2. Implemented capabilities
+
+| Capability | Implementation |
+|---|---|
+| Sensitive-data detection | Local NLP and pattern-based recognizers |
+| Policy-based governance | Versioned OPA/Rego policies |
+| Input protection | Denial, routing, redaction and post-redaction verification |
+| Response protection | Output classification, masking where enabled, and policy-based release or blocking |
+| Destination control | Fixed destination registry and optional isolated egress gateway |
+| Evidence generation | Signed, hash-linked decision and outcome events |
+| Policy and detector integrity | Content-addressed artifacts and signed release approvals |
+| Independent verification | Portable evidence export and offline policy replay |
+| Operational resilience | Bounded concurrency, request limits, timeouts and opt-in idempotency |
+| Observability | Process-local diagnostics, application logging and metrics |
+
+## 3. Architecture overview
 
 ```mermaid
 flowchart TD
-    Caller["Untrusted caller"] --> API["FastAPI ingress (X-API-Key)"]
+    Client[API Client] --> API[Control Plane API]
 
-    subgraph Control["Local sovereign control plane"]
-        API --> Detector["Presidio / spaCy detection"]
-        Detector --> Policy["OPA / Rego policy evaluation"]
-        Policy --> Planner["Enforcement-plan validation"]
-        Planner --> Redact{"REDACT required?"}
-        Redact -- Yes --> Verify["Redact and run second detection"]
-        Redact -- No --> Decision["Durable signed DECISION"]
-        Verify --> Decision
-        Decision --> Effect{"Authorized decision"}
-        Effect -- DENY --> Blocked["Blocked: no model invocation"]
-        Effect -- PERMIT --> Router["Approved model gateway"]
-        Router --> Local["Local sovereign simulator"]
-        Router --> Egress["Test-only egress gateway"]
-        Local --> Inspect["Output Presidio + OPA DLP"]
-        Blocked --> Outcome["Signed OUTCOME"]
-        Outcome --> Audit[("SQLite signed audit chain")]
-        Decision -. "Precommit" .-> Audit
+    subgraph Local["Local Trust Boundary"]
+        API --> Detection[Presidio / spaCy]
+        Detection --> Policy[OPA / Rego]
+        Policy --> Enforcement[Policy Enforcement]
+        Enforcement --> Audit[Signed Decision]
+        Audit --> Router[Model Gateway]
+        Router --> Model[Local Model Simulator]
+        Model --> Output[Response DLP]
+        Output --> Outcome[Signed Outcome]
+        Audit --> DB[(SQLite Audit Chain)]
+        Outcome --> DB
     end
 
-    subgraph TestNetwork["Optional simulated external network"]
-        External["External simulator"]
-    end
-    Egress --> External
-    External --> Inspect
-    Inspect --> Outcome
-
-    Signer["Offline release signer"] --> Approval["Signed policy + detector release approval"]
-    Approval -. "Verified by runtime" .-> Policy
-    Approval -. "Verified by runtime" .-> Detector
-
-    Audit --> Bundle["Portable evidence ZIP"]
-    Artifacts["Archived policy snapshots + detector manifests + release approvals"] --> Bundle
-    Bundle --> Reviewer["Network-disabled independent reviewer"]
+    Outcome --> Client
+    Router --> Egress[Optional Simulated Egress Gateway]
+    Egress --> External[External Simulator]
+    External --> Egress
+    Egress --> Output
+    DB --> Reviewer[Offline Evidence Reviewer]
 ```
 
-The default Compose network is private. The API binds to `127.0.0.1:8000`; OPA and model ports are not published. The optional `egress-test` profile creates a separate simulated network. **Neither a Compose network nor a policy label establishes real-world data residency.**
+The system follows a modular-monolith architecture with separate policy evaluation, model simulation and evidence-review services.
 
-## Protect live signed state from Git checkouts
+The application evaluates requests before model invocation and inspects generated responses before returning them to clients.
 
-**Host-side live policy, release, trust and archive files now live in the
-Git-ignored `.runtime/` directory, not the Git-tracked legacy examples.**
-This prevents a `git pull` or GitHub Desktop checkout from rolling back the
-live release or changing its policy bytes. Container bind mounts reject
-missing state directories rather than silently creating empty ones.
+For a detailed explanation of component responsibilities, trust boundaries and security invariants, see [System Design](docs/DESIGN.md).
 
-**Existing deployments must migrate before using the updated Compose mounts.**
-Do not run `git clean -fdx` or delete the checkout without backing up
-`.runtime`. For the verified, copy-only migration, operator preflight,
-new-install instructions and follow-on release workflow see
-[Git-safe operator state migration](docs/operator-state-migration.md).
-The running image can remain approved across this host-only migration; no
-new signature or generation is needed simply to move the bind sources.
+## 4. Technology and AI choices
 
-## Fresh reviewer install from published GHCR images
+| Technology | Reason for selection |
+|---|---|
+| Python and FastAPI | Rapid implementation, typed API contracts and mature security tooling |
+| Microsoft Presidio | Extensible local sensitive-data recognition |
+| spaCy and en_core_web_sm 3.8.0 | Lightweight English named-entity recognition without external inference |
+| Custom recognizers | Additional coverage for credentials, private keys and other specific sensitive-data formats |
+| OPA and Rego | Declarative, testable and independently replayable policy decisions |
+| SQLite WAL | Durable local evidence storage with minimal operational dependencies |
+| SHA-256, HMAC and Ed25519 | Artifact addressing, privacy-conscious fingerprints and authenticated audit/release evidence |
+| Podman Compose | Repeatable, isolated local deployment |
+| GitHub Actions and GHCR | Automated checks, container scanning and controlled release publication |
 
-For a **new, isolated Windows/Podman reviewer machine**, use
-[the signed-image submission bootstrap](docs/submission-bootstrap.md). Once
-the submission includes a reviewed `deploy/submission-lock.json` pinning an
-actual published release and its independently trusted checksums, the reviewer
-can run `.\bootstrap.ps1` from the checkout root. This pulls immutable OCI
-images and verifies release/detector identity; it **does not rebuild or sign**
-the application. By default it starts five containers including the isolated
-external simulator and egress gateway; use `.\bootstrap.ps1 -SovereignOnly`
-for the three-container mode. Import the [Postman demo](deploy/postman/sovereign-demo.postman_collection.json)
-and [environment](deploy/postman/sovereign-local.postman_environment.json) for seven
-synthetic scenarios with paired audit lookups. The bootstrap refuses existing `.env` or `.runtime` state.
+### AI models and providers
 
-The source-build path below remains appropriate for a fresh independently
-signed developer environment or an **existing** signed-release installation.
-Do not use the submission bootstrap as an upgrade/migration command.
+Sensitive-data classification uses the locally installed spaCy `en_core_web_sm` model together with Microsoft Presidio recognizers and project-specific detection rules.
 
-## Start an existing signed-release installation
+The model was selected to avoid sending sensitive prompts to an external detection service, eliminate provider credentials and keep the installation lightweight.
 
-Requirements: Windows PowerShell, Python 3.12+, Podman + Compose provider, and enough resources for local spaCy. Building the detector image requires network access to install dependencies and the pinned `en_core_web_sm` model; request processing does not download the model.
+The local and external model endpoints are deterministic simulators. They are used to demonstrate routing, redaction, response inspection and evidence generation without introducing the variability, cost or external dependencies of a real inference provider.
 
-**Keep `.env`, `.runtime/`, the `audit-data` volume and the existing release signing key.** The legacy example `release-active/` files in Git are not a substitute for possession of the corresponding trusted private key. For a brand-new independent installation, provision an appropriate release authority and initialize a clean deployment history instead of attempting to sign over another authority's previously active approval.
+The project does not claim to evaluate the reasoning quality of an LLM or demonstrate actual geographic data residency.
 
-~~~powershell
-# From the repository root, with .env and a trusted release key already provisioned:
-python -m pip install "cryptography>=50.0.2,<51"
-python -m tools.verify_policy_snapshot
-python -m tools.verify_release
+### AI-assisted development
 
-# If a new release is necessary, use the EXISTING signer and sign an N+1 approval.
-# Stop services before changing active release artifacts.
-# This rebuilds the intended image before signing:
-podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane
-.\Approve-And-ActivateRelease.ps1 -UseExistingKey
+AI-assisted development tools were used throughout the project to support design, implementation, documentation, testing, and troubleshooting.
 
-# Run the EXACT approved image. Do not rebuild after signing:
-podman compose -f deploy/compose.yaml --env-file .env up --no-build --force-recreate -d
-Invoke-RestMethod http://127.0.0.1:8000/health/ready -Headers @{"X-API-Key"=$env:CONTROL_PLANE_API_KEY}
-.\Verify-SignedReleaseWorkflow.ps1
-~~~
+ChatGPT (OpenAI) was the primary AI assistant, used for architectural discussions, technology selection, implementation guidance, code generation and review, security considerations, test design, analysis of evaluation results, troubleshooting, and documentation.
 
-For the optional simulated egress test, add `ENABLE_EXTERNAL_SIMULATOR=true` to `.env` and place `--profile egress-test` before `up`. Use **synthetic** inputs only.
+Codex (OpenAI) was used to a limited extent within the IDE to assist with code-level development tasks.
 
-**Never run `podman compose down -v`** on a deployment whose audit history or signing keys you need to keep. `down` without `-v` preserves the named volume.
+AI-generated suggestions and code were treated as development contributions requiring review and validation. The final implementation was iteratively reviewed, tested, and refined through unit and integration tests, CI checks, containerized execution, security verification, and empirical evaluations.
 
-### Developer workflows
+The choice of architecture, project scope, security requirements, trade-offs, and final acceptance of changes remained under my control.
 
-Policy identity is bound to exact archived source bytes and authorized by a signed
-release. Editing source or restarting OPA alone does not activate an approved
-change. Follow [Changing policy or detector code](#changing-policy-or-detector-code)
-and the [release workflow](docs/signed-release-workflow.md).
+Development assistance is distinct from the runtime architecture. The deployed application does not require access to a commercial AI assistant.
 
-## Python code quality
+## 5. Major design decisions and trade-offs
 
-Install the development tools into your virtual environment:
+| Decision | Benefit | Accepted trade-off |
+|---|---|---|
+| Modular monolith | Simpler deployment and explicit request orchestration | Individual application modules cannot scale independently |
+| Local sensitive-data detection | Sensitive prompts remain inside the local boundary | Limited language coverage and imperfect recognition |
+| Externalized OPA policy | Policy changes are separate from enforcement implementation | Additional service dependency and policy-integrity checks |
+| Fail-closed enforcement | Uncertain or unauthorized requests are not forwarded or released | False positives and dependency failures can reduce availability |
+| Model simulators | Predictable, inexpensive and offline demonstrations | No real inference-provider assurance |
+| Signed release approvals | Explicit authorization of policy and detector artifacts | Additional release-management complexity |
+| Signed SQLite audit chain | Durable and independently verifiable local evidence | Single-writer bottleneck and local key-management risks |
+| No raw prompt or output persistence in normal audit records | Reduced exposure of sensitive data | Original model responses and NLP classifications cannot be fully reconstructed |
+| Static API-key identity | Straightforward local authentication | No enterprise identity federation or production tenant isolation |
 
-```powershell
-.venv\Scripts\python.exe -m pip install -e ".[dev]"
-```
+The implementation prioritizes explicit security invariants, evidence generation and reproducible local execution over broad provider integrations and distributed infrastructure.
 
-Run the checks from the repository root (no virtual-environment activation needed):
+## 6. Evaluation and performance
 
-```powershell
-make lint          # Ruff: Python errors, unused imports, and import ordering
-make format-check  # Verify Ruff formatting without editing files
-make typecheck     # mypy: app, simulator, tools, and tests
-make check         # All of the above plus pytest
-```
+The project includes synthetic detector evaluations, comparison against stock Presidio, orchestration and enforcement tests, response-DLP evaluations, signed-evidence verification, and concurrency/performance benchmarks.
 
-Use `make lint-fix` to apply safe lint fixes and `make format` to format code.
-Ruff targets Python 3.12 with a 100-character line length. Mypy checks annotated
-code and the bodies of unannotated functions; full annotations are not required.
-Tool versions are pinned in the `dev` extra so formatting stays consistent.
+The [Evaluation Report](docs/EVALUATION.md) contains the measured results, methodology, environment, release identity, known failure cases and links to the generated reports.
 
-Without Make, run the equivalent commands directly in PowerShell:
+Evaluation uses synthetic data and simulated model endpoints. Its results should not be interpreted as production detection accuracy or maximum sustainable capacity.
 
-```powershell
-.venv\Scripts\python.exe -m ruff check .
-.venv\Scripts\python.exe -m ruff format --check .
-.venv\Scripts\python.exe -m mypy
-.venv\Scripts\python.exe -m pytest -q
-```
+## 7. Limitations and future work
 
-On Linux/macOS, use `.venv/bin/python` instead. For direct fixes, use
-`python -m ruff check --fix .` and `python -m ruff format .` with your
-virtual environment active.
+With additional time, the main priorities would be:
 
-Classifier source bytes are part of the detector manifest. After formatting or
-editing them, rebuild the image and approve a new release using the existing
-Milestone 6 workflow before deploying it.
+1. Strengthen independent audit trust through externally witnessed checkpoints and protected signing keys.
+2. Integrate a real local inference runtime and authenticated external model-provider gateways.
+3. Expand detection coverage to additional languages, structured documents, attachments and streaming responses.
+4. Improve detection accuracy using larger, more representative datasets and systematic false-positive analysis.
+5. Add enterprise identity integration, tenant isolation and tenant-specific policies.
+6. Replace single-host assumptions with scalable audit storage, admission control, monitoring and resilient deployment.
+7. Improve release and benchmark reproducibility through complete dependency locking, simplified distribution and automated clean-install acceptance tests.
 
-## Regression tests
-~~~powershell
-python -m pip install -e '.[dev]'
-python -m pytest -q
-podman compose -f deploy/compose.yaml --env-file .env exec control-plane python -m tools.smoke_detection
-podman compose -f deploy/compose.yaml --env-file .env run --rm opa test /policies /policy-tests
-~~~
+## 8. Documentation
 
-A `Makefile` also provides `make test`, `make smoke`, `make test-policy` and other conveniences (requires Make). `make up` and `make restart` verify the image against the mounted signed release and start with `--no-build`. `make build` remains a separate operation; approve its resulting detector identity before starting it.
-
-If startup reports `Installed detector identity is not approved`, the rebuilt image differs from the active approval. For an intended change, approve that existing image with `.\Approve-And-ActivateRelease.ps1 -UseExistingKey -SkipBuild -Python .\.venv\Scripts\python.exe`, then run `make up` and `make check-containers`. Omitting `-SkipBuild` builds the image before approval. The helper signs a successor generation with the existing key and preserves release archives.
-
-### API smoke test (PowerShell)
-
-~~~powershell
-$key = (Get-Content .env | Select-String '^CONTROL_PLANE_API_KEY=').ToString().Split('=',2)[1]
-$body = @{prompt='Explain local policy evaluation';destination_id='sovereign-model';purpose='GENERAL'} | ConvertTo-Json
-Invoke-RestMethod -Uri http://127.0.0.1:8000/v1/prompts -Method POST -Headers @{'X-API-Key'=$key} -ContentType 'application/json; charset=utf-8' -Body ([Text.Encoding]::UTF8.GetBytes($body)) | ConvertTo-Json -Depth 10
-~~~
-
-On an approved local request, expect `COMPLETED`, a `PERMIT` decision, and signed decision/outcome receipts. A private-key marker should be blocked; unsupported non-ASCII text is classified `UNKNOWN` and denied. `GET /v1/requests/{request_id}` returns tenant-scoped signed evidence metadata (not the raw prompt). API docs: `http://127.0.0.1:8000/docs`.
-
-Requests may include an `Idempotency-Key` header. A matching retry returns HTTP 409
-with the original request ID; a conflicting payload returns HTTP 409 without it.
-`GET /v1/idempotency/status` accepts the same API key and idempotency key in headers.
-It reports recorded lifecycle state without recovering the original output or
-retrying inference. See [idempotency and reconciliation](docs/idempotency-and-request-lifecycle.md).
-
-`GET /v1/diagnostics/concurrency` requires `X-API-Key`. Prompt admission can return
-429, ingress saturation can return 503, and an expired upload deadline returns
-408. See [configuration](docs/configuration.md) for limits and defaults.
-
-## Changing policy or detector code
-
-Editing `policies/decision.rego` **does not activate** a new policy. The current deployment requires a content-addressed policy snapshot and a **newly signed release** approving the exact policy and installed detector digests.
-
-1. Review the proposed policy and run tests. Stop OPA and control-plane before changing active artifacts (`podman compose -f deploy/compose.yaml --env-file .env stop opa control-plane`); build and verify the snapshot with `python -m tools.build_policy_snapshot` and `python -m tools.verify_policy_snapshot`.
-2. Build the intended detector image and obtain the installed artifact digest.
-3. Use the existing out-of-runtime private signing key to sign a new generation (predecessor must match the currently active release), then run `tools.activate_release` / `tools.verify_release`. The operator helper `Approve-And-ActivateRelease.ps1 -UseExistingKey` covers the normal next-generation workflow.
-4. If the Rego revision changed, update `EXPECTED_POLICY_REVISION` in `.env`.
-5. Recreate **OPA and control-plane** with the approved image, without rebuilding; run `Verify-SignedReleaseWorkflow.ps1`.
-
-A rollback to older policy bytes is **a new signed generation**, not reactivation of an earlier approval. Retain every policy/release archive needed for replay. See [Milestone 6](docs/signed-release-workflow.md).
-
-## Evidence and trust
-
-The exporter (`python -m tools.export_evidence_package --out /var/lib/sovereign/evidence.zip` inside the control plane) packages a consistent read-only SQLite snapshot, audit public key, relevant Rego snapshots, detector manifests and signed release approvals. `Verify-SignedReleaseWorkflow.ps1` tests export and verification in a **network-disabled** reviewer.
-
-A result of `EVIDENCE_PACKAGE_SELF_CONSISTENT` with `REPLAY_VERIFIED` confirms the package's internal signatures, chain, manifests and eligible policy replays. It does **not** by itself authenticate the audit signing key or establish complete history. A separately provisioned release verification key authenticates release approvals only. Use separately retained `--trusted-public-key` and `--trusted-checkpoint` for stronger audit authentication. A checkpoint generated inside the same ZIP is not an independent witness.
-
-The verifier cannot replay original NLP classifications: raw prompts and original model binaries are intentionally absent. Historic M1-M3 events are integrity-only; later events are replayable to the extent supported by their recorded provenance.
-
-## Documentation
-
-Start with the [documentation guide](docs/README.md) for the canonical current operational references, [release-status reconciliation](docs/release-status.md), [reviewer walkthrough](docs/submission-reviewer-guide.md), evaluation guides, historical records, and [submission-readiness audit](docs/submission-documentation-audit.md). Historical milestone instructions are not substitutes for the current signed-release workflow.
-
-- [Current architecture and request lifecycle](docs/architecture.md)
-- [Current threat model and sovereignty limitations](docs/threat-model.md)
-- [Detection and provenance](docs/detection-design.md)
-- [Policy authoring, signing and activation](docs/policy-design.md)
-- [Audit integrity, replay and evidence trust](docs/audit-design.md)
-- [Testing and release verification](docs/testing.md)
-- [Operational logging and privacy](docs/logging.md)
-- [Configuration, capacity limits and upload deadlines](docs/configuration.md)
-- [Idempotency and request-lifecycle reconciliation](docs/idempotency-and-request-lifecycle.md)
-- [Concurrency profiling and acceptance criteria](docs/concurrency-performance-profiling.md)
-- [Live overload and audit lookup diagnostics](docs/overload-and-audit-lookup.md)
-- [Synthetic detection evaluation](evaluation/README.md)
-- [Milestone 3: redaction and simulated egress](docs/history/redaction-and-egress.md)
-- [Milestone 4: content-bound Rego](docs/history/policy-snapshots-and-replay.md)
-- [Milestone 5: detector provenance](docs/history/detector-provenance-and-evidence.md)
-- [Milestone 6: release approvals](docs/signed-release-workflow.md)
-- [Architecture decisions (ADRs)](docs/adr)
-
-## Deliberate limitations / next work
-
-This prototype does **not** provide a real external inference provider, evidence of geographic model residency, streaming/attachment DLP, OIDC or multi-tenant RBAC, full detector replay, production key protection, hardware anti-rollback, independent audit witnessing, or distributed audit sequencing. Requests complete within the HTTP lifecycle. Async orchestration uses bounded detector, audit and integrity worker pools; SQLite remains one local audit sequencer. Automatic execution recovery and response caching are not implemented.
-
-The proposed next priorities are **independently witnessed audit checkpoints and externally pinned audit trust anchors**, then a real local inference runtime with stronger egress/workload identity, followed by enterprise governance and operations. These are roadmap items, **not implemented guarantees**. Security and compliance claims must be bounded by the threat model and actual deployment evidence.
-
-See [Configuration](docs/configuration.md) for request limits, timeouts, deployment overrides, and signed detector rules.
+- [System Design](docs/DESIGN.md)
+- [Evaluation and Performance Report](docs/EVALUATION.md)
+- [Reviewer Bootstrap Guide](docs/submission-bootstrap.md)
+- [Reviewer Demonstration Guide](docs/submission-reviewer-guide.md)
+- [Configuration Reference](docs/configuration.md)
+- [Complete Developer and Operator Documentation](docs/README.md)
