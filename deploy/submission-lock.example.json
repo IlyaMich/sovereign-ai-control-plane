@@ -1,0 +1,5 @@
+{
+  "release_tag": "signed-gN",
+  "trusted_key_sha256": "<independently trusted SHA-256 of release-signing.pub.pem>",
+  "registry_sha256": "<independently recorded SHA-256 of registry-images.json>"
+}
