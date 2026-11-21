@@ -243,13 +243,15 @@ def create_environment(
     revision: str,
     project: str,
     api_port: int,
+    *,
+    sovereign_only: bool = False,
 ) -> None:
     lines = [
         f"COMPOSE_PROJECT_NAME={project}",
         f"CONTROL_PLANE_API_KEY={secrets.token_hex(32)}",
         "API_HOST=127.0.0.1",
         f"API_PORT={api_port}",
-        "ENABLE_EXTERNAL_SIMULATOR=false",
+        f"ENABLE_EXTERNAL_SIMULATOR={str(not sovereign_only).lower()}",
         "OUTPUT_MASKING_ENABLED=false",
         "REQUIRE_SIGNED_RELEASE=true",
         f"EXPECTED_POLICY_REVISION={revision}",
@@ -284,6 +286,51 @@ def check_readiness(api_port: int, key: str) -> None:
     )
 
 
+def check_external_route(api_port: int, key: str) -> None:
+    """Exercise the actual policy/gateway route with a synthetic public prompt."""
+    url = f"http://127.0.0.1:{api_port}/v1/prompts"
+    request = urllib.request.Request(
+        url,
+        data=json.dumps(
+            {
+                "prompt": "Explain network segmentation.",
+                "destination_id": "external-simulator",
+                "purpose": "GENERAL",
+            }
+        ).encode("utf-8"),
+        headers={"X-API-Key": key, "Content-Type": "application/json"},
+        method="POST",
+    )
+    try:
+        # Fixed loopback-only API endpoint, using synthetic public content.
+        response = urllib.request.urlopen(request, timeout=30)  # nosec B310
+        with response:
+            result = json.load(response)
+    except (OSError, ValueError) as exc:
+        fail(f"External simulator smoke test failed ({type(exc).__name__}); inspect logs")
+    if result.get("status") != "COMPLETED" or result.get("model_id") != "external-simulator":
+        fail("External simulator smoke test did not complete on the expected route")
+    print("External simulator route: VERIFIED (synthetic request audited)", flush=True)
+
+
+def compose_command(root: Path, project: str, *, sovereign_only: bool = False) -> list[str]:
+    command = [
+        "podman",
+        "compose",
+        "-p",
+        project,
+        "-f",
+        str(root / "deploy/compose.yaml"),
+        "-f",
+        str(root / "deploy/compose.ghcr.yaml"),
+        "--env-file",
+        str(root / ".env"),
+    ]
+    if not sovereign_only:
+        command.extend(["--profile", "egress-test"])
+    return command
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--release-tag", required=True, help="e.g. signed-g8")
@@ -296,6 +343,7 @@ def main() -> int:
     parser.add_argument("--project", default="sovereign-review", help="Isolated Compose project")
     parser.add_argument("--api-port", default=8000, type=int)
     parser.add_argument("--root", default=".", help="Repository checkout root")
+    parser.add_argument("--sovereign-only", action="store_true", help="Disable simulated egress")
     args = parser.parse_args()
     root = Path(args.root).resolve()
     if not TAG.fullmatch(args.release_tag):
@@ -351,20 +399,16 @@ def main() -> int:
         if any(p.exists() or p.is_symlink() for p in (root / ".runtime", root / ".env")):
             fail("Deployment state appeared during bootstrap; refusing to overwrite it")
         shutil.move(str(state), str(root / ".runtime"))
-        create_environment(root / ".env", refs, revision, args.project, args.api_port)
+        create_environment(
+            root / ".env",
+            refs,
+            revision,
+            args.project,
+            args.api_port,
+            sovereign_only=args.sovereign_only,
+        )
 
-    compose = [
-        "podman",
-        "compose",
-        "-p",
-        args.project,
-        "-f",
-        str(root / "deploy/compose.yaml"),
-        "-f",
-        str(root / "deploy/compose.ghcr.yaml"),
-        "--env-file",
-        str(root / ".env"),
-    ]
+    compose = compose_command(root, args.project, sovereign_only=args.sovereign_only)
     run(*compose, "config", "--quiet")
     run(*compose, "up", "--no-build", "--force-recreate", "-d")
     env = dict(
@@ -373,7 +417,10 @@ def main() -> int:
         if "=" in line and not line.startswith("#")
     )
     check_readiness(args.api_port, env["CONTROL_PLANE_API_KEY"])
+    if not args.sovereign_only:
+        check_external_route(args.api_port, env["CONTROL_PLANE_API_KEY"])
     print(f"Installation complete: signed release {args.release_tag}, project {args.project}")
+    print("Mode: sovereign-only" if args.sovereign_only else "Mode: full simulated egress demo")
     print(f"API docs: http://127.0.0.1:{args.api_port}/docs")
     return 0
 

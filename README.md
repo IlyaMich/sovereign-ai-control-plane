@@ -89,7 +89,11 @@ the submission includes a reviewed `deploy/submission-lock.json` pinning an
 actual published release and its independently trusted checksums, the reviewer
 can run `.\bootstrap.ps1` from the checkout root. This pulls immutable OCI
 images and verifies release/detector identity; it **does not rebuild or sign**
-the application. The bootstrap refuses existing `.env` or `.runtime` state.
+the application. By default it starts five containers including the isolated
+external simulator and egress gateway; use `.\bootstrap.ps1 -SovereignOnly`
+for the three-container mode. Import the [Postman demo](deploy/postman/sovereign-demo.postman_collection.json)
+and [environment](deploy/postman/sovereign-local.postman_environment.json) for seven
+synthetic scenarios with paired audit lookups. The bootstrap refuses existing `.env` or `.runtime` state.
 
 The source-build path below remains appropriate for a fresh independently
 signed developer environment or an **existing** signed-release installation.

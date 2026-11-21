@@ -1,6 +1,7 @@
 """Offline tests for the fresh-reviewer release bootstrap."""
 
 import io
+import json
 import tarfile
 
 import pytest
@@ -8,6 +9,8 @@ import pytest
 from tools.submission_bootstrap import (
     REGISTRY_ROOT,
     STATE_DIRS,
+    check_external_route,
+    compose_command,
     create_environment,
     extract_public_state,
     image_reference,
@@ -79,6 +82,7 @@ def test_environment_keeps_secrets_local_and_images_immutable(tmp_path):
     assert "COMPOSE_PROJECT_NAME=review-case" in text
     assert "API_PORT=8001" in text
     assert "REQUIRE_SIGNED_RELEASE=true" in text
+    assert "ENABLE_EXTERNAL_SIMULATOR=true" in text
     assert "CONTROL_PLANE_IMAGE=" + refs["application"] in text
     assert "CONTROL_PLANE_API_KEY=" in text
     assert "replace-with-a-random-key" not in text
@@ -93,3 +97,41 @@ def test_manifest_checksum_is_checked_before_extraction(tmp_path, monkeypatch):
     monkeypatch.setattr("tools.submission_bootstrap.fetch_asset", fake_download)
     with pytest.raises(RuntimeError, match="independently pinned checksum"):
         verify_package(tmp_path, "signed-g8", "a" * 64, "0" * 64)
+
+
+@pytest.mark.parametrize("sovereign_only", [False, True])
+def test_deployment_modes(tmp_path, sovereign_only):
+    refs = {
+        "application": REGISTRY_ROOT + "@sha256:" + "a" * 64,
+        "audit_reviewer": REGISTRY_ROOT + "-audit-reviewer@sha256:" + "b" * 64,
+        "opa": REGISTRY_ROOT + "-opa@sha256:" + "c" * 64,
+    }
+    env_path = tmp_path / ".env"
+    create_environment(
+        env_path, refs, "revision", "review-case", 8001, sovereign_only=sovereign_only
+    )
+    assert f"ENABLE_EXTERNAL_SIMULATOR={str(not sovereign_only).lower()}" in env_path.read_text()
+    command = compose_command(tmp_path, "review-case", sovereign_only=sovereign_only)
+    assert ("egress-test" in command) is (not sovereign_only)
+    assert ("--profile" in command) is (not sovereign_only)
+    assert str(tmp_path / "deploy/compose.ghcr.yaml") in command
+
+
+def test_external_route_smoke_check(monkeypatch):
+    def fake_open(request, timeout):
+        assert request.full_url == "http://127.0.0.1:8001/v1/prompts"
+        assert timeout == 30
+        assert json.loads(request.data)["destination_id"] == "external-simulator"
+        return io.BytesIO(b'{"status":"COMPLETED","model_id":"external-simulator"}')
+
+    monkeypatch.setattr("tools.submission_bootstrap.urllib.request.urlopen", fake_open)
+    check_external_route(8001, "test-key")
+
+
+def test_external_route_rejects_wrong_model(monkeypatch):
+    def fake_open(_request, timeout):
+        return io.BytesIO(b'{"status":"COMPLETED","model_id":"sovereign-model"}')
+
+    monkeypatch.setattr("tools.submission_bootstrap.urllib.request.urlopen", fake_open)
+    with pytest.raises(RuntimeError, match="expected route"):
+        check_external_route(8001, "test-key")
