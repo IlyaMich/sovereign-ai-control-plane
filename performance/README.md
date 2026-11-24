@@ -72,3 +72,12 @@ preserved. The [submission evidence matrix](../docs/submission-evidence.md)
 records required metadata; historical M7.9 profiling is described in
 [concurrency profiling](../docs/concurrency-performance-profiling.md), with
 [live overload checks](../docs/overload-and-audit-lookup.md).
+
+## GitHub Actions
+
+A **manual** [`Performance Benchmark`](../.github/workflows/performance.yml) workflow
+can run the existing signed-evidence suite on a dedicated, approved **self-hosted**
+Podman performance runner. It cannot run from a bare hosted checkout because the
+independent Git-ignored kit and live signed deployment are not tracked. Configure
+and operate it using [the runner guide](../docs/performance-github-actions.md).
+Only aggregate reports are uploaded to Actions; raw evidence stays on the host.
