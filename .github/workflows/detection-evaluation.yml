@@ -1,0 +1,98 @@
+# Synthetic-only detector comparison; never runs a deployed control plane or real egress.
+name: Detection Evaluation
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - '.github/workflows/detection-evaluation.yml'
+      - 'evaluation/**'
+      - 'app/detection/**'
+      - 'app/domain/contracts.py'
+      - 'tests/evaluation/**'
+      - 'pyproject.toml'
+      - 'deploy/Containerfile'
+      - 'docs/detection-github-actions.md'
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/detection-evaluation.yml'
+      - 'evaluation/**'
+      - 'app/detection/**'
+      - 'app/domain/contracts.py'
+      - 'tests/evaluation/**'
+      - 'pyproject.toml'
+      - 'deploy/Containerfile'
+      - 'docs/detection-github-actions.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: detection-evaluation-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  detection:
+    name: Frozen v1 detector evaluation
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+          cache: pip
+      - name: Install development dependencies
+        run: python -m pip install '.[dev]'
+      - name: Install pinned English spaCy model
+        run: |
+          python -m pip install \
+            'https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl'
+      - name: Verify exact spaCy model version
+        run: |
+          python -c "import spacy; assert spacy.load('en_core_web_sm').meta['version'] == '3.8.0'"
+      - name: Test detection evaluation framework
+        run: |
+          python -m pytest -q -ra -W error \
+            tests/evaluation/test_dataset.py \
+            tests/evaluation/test_scoring.py \
+            tests/evaluation/test_runner.py \
+            tests/evaluation/test_detector_comparison.py \
+            tests/evaluation/test_detection_ci_gate.py
+      - name: Validate frozen synthetic dataset
+        run: python -m evaluation.cli validate
+      - name: Run stock Presidio baseline (all cases)
+        run: |
+          python -m evaluation.cli detect \
+            --adapter presidio-stock --split all \
+            --output-dir "$RUNNER_TEMP/detection-evaluation/stock"
+      - name: Run control-plane detector candidate (all cases)
+        run: |
+          python -m evaluation.cli detect \
+            --adapter control-plane --split all \
+            --output-dir "$RUNNER_TEMP/detection-evaluation/candidate"
+      - name: Independently rescore and compare paired predictions
+        run: |
+          python -m evaluation.cli compare \
+            --baseline "$RUNNER_TEMP/detection-evaluation/stock" \
+            --candidate "$RUNNER_TEMP/detection-evaluation/candidate" \
+            --output-dir "$RUNNER_TEMP/detection-evaluation/paired"
+      - name: Enforce detection quality and safety gates
+        run: |
+          python -m evaluation.ci_gate \
+            --stock "$RUNNER_TEMP/detection-evaluation/stock" \
+            --candidate "$RUNNER_TEMP/detection-evaluation/candidate" \
+            --comparison "$RUNNER_TEMP/detection-evaluation/paired" \
+            --aggregate-dir "$RUNNER_TEMP/detection-evaluation/aggregate"
+      - name: Upload aggregate metrics (no prompt or case-level predictions)
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: detection-evaluation-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/detection-evaluation/aggregate/
+          if-no-files-found: warn
+          retention-days: 14
