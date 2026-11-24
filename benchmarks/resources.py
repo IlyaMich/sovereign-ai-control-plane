@@ -1,15 +1,18 @@
 """Optional, nonintrusive Podman CPU/memory sampling during the timed phase."""
+
 from __future__ import annotations
 
-from datetime import datetime, timezone
 import json
-from pathlib import Path
 import subprocess
 import threading
+from datetime import datetime, timezone
+from pathlib import Path
 
 
 class ResourceSampler:
-    def __init__(self, container: str, output: Path, *, podman: str = "podman", interval: float = 3.0):
+    def __init__(
+        self, container: str, output: Path, *, podman: str = "podman", interval: float = 3.0
+    ):
         self.container = container
         self.output = output
         self.podman = podman
@@ -30,7 +33,9 @@ class ResourceSampler:
                 try:
                     sample = subprocess.run(
                         [self.podman, "stats", "--no-stream", "--format", "json", self.container],
-                        text=True, capture_output=True, timeout=min(10.0, self.interval + 5.0),
+                        text=True,
+                        capture_output=True,
+                        timeout=min(10.0, self.interval + 5.0),
                         check=False,
                     )
                     data = {
@@ -40,8 +45,12 @@ class ResourceSampler:
                         "error": sample.stderr[:500].strip() if sample.returncode else "",
                     }
                 except (OSError, subprocess.TimeoutExpired) as exc:
-                    data = {"utc": datetime.now(timezone.utc).isoformat(),
-                            "exit_code": -1, "raw": "", "error": type(exc).__name__}
+                    data = {
+                        "utc": datetime.now(timezone.utc).isoformat(),
+                        "exit_code": -1,
+                        "raw": "",
+                        "error": type(exc).__name__,
+                    }
                 handle.write(json.dumps(data, sort_keys=True) + "\n")
                 handle.flush()
                 self.stop_event.wait(self.interval)

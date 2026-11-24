@@ -3,6 +3,7 @@
 Exercises independent SQLiteAuditStore instances (analogous to separate workers)
 without requiring spaCy, OPA or a containerized deployment.
 """
+
 from concurrent.futures import ThreadPoolExecutor
 
 import pytest
@@ -21,7 +22,9 @@ def test_independent_store_instances_share_one_signed_chain(tmp_path):
         result = []
         for n in range(12):
             receipt = stores[index].commit(
-                f"synthetic-{index}-{n}", "local-tenant", "DECISION",
+                f"synthetic-{index}-{n}",
+                "local-tenant",
+                "DECISION",
                 {"synthetic": True, "worker": index, "n": n},
             )
             result.append(receipt.sequence)

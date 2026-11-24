@@ -4,11 +4,12 @@ The source audit database is never rewritten or checkpointed by this benchmark.
 The snapshot is created by the running control-plane process, then verified in a
 network-disabled read-only audit-reviewer container, and finally removed.
 """
+
 from __future__ import annotations
 
-from pathlib import PurePosixPath
 import re
 import uuid
+from pathlib import PurePosixPath
 
 SNAPSHOT_PREFIX = ".bench-audit-snapshot-"
 SNAPSHOT_RE = re.compile(r"^\.bench-audit-snapshot-[0-9a-f]{32}\.sqlite$")
@@ -65,7 +66,9 @@ print('SNAPSHOT_REMOVED', flush=True)
 """
 
 
-def snapshot_paths(control_db: str, reviewer_db: str, *, identifier: str | None = None) -> tuple[str, str]:
+def snapshot_paths(
+    control_db: str, reviewer_db: str, *, identifier: str | None = None
+) -> tuple[str, str]:
     """Use matching filenames in the shared audit volume, regardless of mount target."""
     tag = uuid.uuid4().hex if identifier is None else identifier
     if not re.fullmatch(r"[0-9a-f]{32}", tag):
@@ -74,5 +77,7 @@ def snapshot_paths(control_db: str, reviewer_db: str, *, identifier: str | None 
         if not PurePosixPath(path).is_absolute():
             raise ValueError("Audit database paths must be absolute container paths")
     filename = SNAPSHOT_PREFIX + tag + ".sqlite"
-    return (str(PurePosixPath(control_db).with_name(filename)),
-            str(PurePosixPath(reviewer_db).with_name(filename)))
+    return (
+        str(PurePosixPath(control_db).with_name(filename)),
+        str(PurePosixPath(reviewer_db).with_name(filename)),
+    )

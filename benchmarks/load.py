@@ -3,23 +3,24 @@
 External dependencies: httpx. Python >=3.12. Does not require repository imports.
 Never records prompts, API keys, model output, or full audit evidence.
 """
+
 from __future__ import annotations
 
 import argparse
 import asyncio
 import base64
-from collections import Counter
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import json
 import math
 import os
-from pathlib import Path
 import re
 import time
+import uuid
+from collections import Counter
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
-import uuid
 
 import httpx
 
@@ -76,13 +77,19 @@ def check_receipt(receipt: Any) -> bool:
         return False
 
 
-def validate_result(scenario: str, http_status: int, body: Any, *, allow_overload: bool = False) -> list[str]:
+def validate_result(
+    scenario: str, http_status: int, body: Any, *, allow_overload: bool = False
+) -> list[str]:
     errors: list[str] = []
     if allow_overload and http_status == 429:
-        if (isinstance(body, dict) and body.get("status") == "REJECTED"
+        if (
+            isinstance(body, dict)
+            and body.get("status") == "REJECTED"
             and "CAPACITY_EXCEEDED" in body.get("reason_codes", [])
-            and "request_id" not in body and "decision_receipt" not in body
-            and "outcome_receipt" not in body):
+            and "request_id" not in body
+            and "decision_receipt" not in body
+            and "outcome_receipt" not in body
+        ):
             return []  # Explicit pre-admission rejection: no audit event required.
         return ["unexpected_overload_contract"]
     status, state, effect, model = expected(scenario)
@@ -97,12 +104,15 @@ def validate_result(scenario: str, http_status: int, body: Any, *, allow_overloa
         errors.append("unexpected_policy_effect")
     if body.get("model_id") != model:
         errors.append("unexpected_model_id")
-    if scenario == "credential_deny" and "CREDENTIAL_BLOCKED" not in decision.get("reason_codes", []):
+    if scenario == "credential_deny" and "CREDENTIAL_BLOCKED" not in decision.get(
+        "reason_codes", []
+    ):
         errors.append("missing_credential_denial_reason")
     classification = body.get("classification")
     if scenario == "unsupported_input" and (
         "DETECTION_UNKNOWN" not in decision.get("reason_codes", [])
-        or not isinstance(classification, dict) or classification.get("status") != "UNKNOWN"
+        or not isinstance(classification, dict)
+        or classification.get("status") != "UNKNOWN"
     ):
         errors.append("missing_unknown_detection_reason")
     if scenario == "external_redaction" and "REDACT" not in [
@@ -177,13 +187,18 @@ async def verify_audited_response(
     """
     if not 1 <= max_attempts <= 20:
         raise ValueError("Invalid evidence lookup retry count")
-    if row.get("request_id") is None or row.get("decision_receipt") is None or row.get("outcome_receipt") is None:
+    if (
+        row.get("request_id") is None
+        or row.get("decision_receipt") is None
+        or row.get("outcome_receipt") is None
+    ):
         return ["no_audited_response_receipt"], 0
     retries = 0
     for attempt in range(max_attempts):
         try:
             response = await client.get(
-                f"/v1/requests/{row['request_id']}", headers={"X-API-Key": key},
+                f"/v1/requests/{row['request_id']}",
+                headers={"X-API-Key": key},
             )
         except httpx.TimeoutException:
             return ["evidence_transport_timeout"], retries
@@ -194,10 +209,12 @@ async def verify_audited_response(
                 failure = response.json()
             except ValueError:
                 return ["evidence_503_invalid_json"], retries
-            if (not isinstance(failure, dict)
+            if (
+                not isinstance(failure, dict)
                 or failure.get("status") != "ERROR"
                 or not isinstance(failure.get("reason_codes"), list)
-                or "AUDIT_UNAVAILABLE" not in failure["reason_codes"]):
+                or "AUDIT_UNAVAILABLE" not in failure["reason_codes"]
+            ):
                 return ["evidence_unexpected_503"], retries
             retries += 1
             if attempt == max_attempts - 1:
@@ -244,7 +261,9 @@ async def run(config: Config) -> dict[str, Any]:
     async with httpx.AsyncClient(
         base_url=config.api_url,
         timeout=httpx.Timeout(config.timeout),
-        limits=httpx.Limits(max_connections=config.clients + 8, max_keepalive_connections=config.clients + 8),
+        limits=httpx.Limits(
+            max_connections=config.clients + 8, max_keepalive_connections=config.clients + 8
+        ),
         trust_env=False,
     ) as client:
         health = await client.get("/health/ready", headers={"X-API-Key": config.key}, timeout=30.0)
@@ -299,12 +318,17 @@ async def run(config: Config) -> dict[str, Any]:
                         row["request_id"] = body.get("request_id")
                         row["request_status"] = body.get("status")
                         decision = body.get("decision")
-                        row["policy_effect"] = decision.get("effect") if isinstance(decision, dict) else None
+                        row["policy_effect"] = (
+                            decision.get("effect") if isinstance(decision, dict) else None
+                        )
                         row["decision_receipt"] = body.get("decision_receipt")
                         row["outcome_receipt"] = body.get("outcome_receipt")
                     # The signature chain is independently verified via the offline reviewer.
                     row["validation_errors"] = validate_result(
-                        config.scenario, response.status_code, body, allow_overload=config.allow_overload
+                        config.scenario,
+                        response.status_code,
+                        body,
+                        allow_overload=config.allow_overload,
                     )
                 except httpx.HTTPError as exc:
                     row["transport_error"] = type(exc).__name__
@@ -325,7 +349,8 @@ async def run(config: Config) -> dict[str, Any]:
             # assuming every deployment uses MAX_AUDIT_AUXILIARY_JOBS=4.
             try:
                 diagnostic_response = await client.get(
-                    "/v1/diagnostics/concurrency", headers={"X-API-Key": config.key},
+                    "/v1/diagnostics/concurrency",
+                    headers={"X-API-Key": config.key},
                 )
                 diagnostic_response.raise_for_status()
                 diagnostic = diagnostic_response.json()
@@ -343,18 +368,34 @@ async def run(config: Config) -> dict[str, Any]:
                     return
                 async with semaphore:
                     errors, transient_503 = await verify_audited_response(
-                        client, key=config.key, scenario=config.scenario, row=row,
+                        client,
+                        key=config.key,
+                        scenario=config.scenario,
+                        row=row,
                     )
                     row["evidence_errors"] = errors
                     evidence_transient_audit_503 += transient_503
 
             await asyncio.gather(*(inspect(r) for r in rows))
-        success = [r for r in rows if not r["validation_errors"] and r["transport_error"] is None
-                   and r["http_status"] == expected(config.scenario)[0]]
-        latencies = [r["latency_ms"] for r in rows if r["latency_ms"] is not None and r["transport_error"] is None]
-        by_status = Counter(str(r["http_status"] if r["http_status"] is not None else "transport") for r in rows)
+        success = [
+            r
+            for r in rows
+            if not r["validation_errors"]
+            and r["transport_error"] is None
+            and r["http_status"] == expected(config.scenario)[0]
+        ]
+        latencies = [
+            r["latency_ms"]
+            for r in rows
+            if r["latency_ms"] is not None and r["transport_error"] is None
+        ]
+        by_status = Counter(
+            str(r["http_status"] if r["http_status"] is not None else "transport") for r in rows
+        )
         unknown_outcome = sum(1 for r in rows if r["request_status"] == "ERROR")
-        evidence_errors = sum(bool(r["evidence_errors"]) for r in rows) if config.verify_evidence else None
+        evidence_errors = (
+            sum(bool(r["evidence_errors"]) for r in rows) if config.verify_evidence else None
+        )
         with (config.output_dir / "requests.jsonl").open("w", encoding="utf-8") as out:
             for row in sorted(rows, key=lambda x: (x["started_s"], x["client"])):
                 out.write(json.dumps(row, separators=(",", ":"), allow_nan=False) + "\n")
@@ -372,17 +413,32 @@ async def run(config: Config) -> dict[str, Any]:
             "success_count": len(success),
             "overload_rejections_429": sum(r["http_status"] == 429 for r in rows),
             "expected_success_rate_pct": round(100 * len(success) / measured, 2) if measured else 0,
-            "responses_within_window": sum(r["finished_s"] <= config.duration for r in rows if r["http_status"] is not None),
-            "responses_per_test_second": round(sum(r["finished_s"] <= config.duration for r in rows if r["http_status"] is not None) / config.duration, 3),
-            "goodput_per_test_second": round(sum(r["finished_s"] <= config.duration for r in success) / config.duration, 3),
+            "responses_within_window": sum(
+                r["finished_s"] <= config.duration for r in rows if r["http_status"] is not None
+            ),
+            "responses_per_test_second": round(
+                sum(
+                    r["finished_s"] <= config.duration for r in rows if r["http_status"] is not None
+                )
+                / config.duration,
+                3,
+            ),
+            "goodput_per_test_second": round(
+                sum(r["finished_s"] <= config.duration for r in success) / config.duration, 3
+            ),
             "total_completed_per_elapsed_second": round(measured / elapsed, 3) if elapsed else 0,
             "http_statuses": dict(sorted(by_status.items())),
             "transport_errors": sum(r["transport_error"] is not None for r in rows),
             "functional_validation_failures": sum(bool(r["validation_errors"]) for r in rows),
             "evidence_validation_failures": evidence_errors,
             "evidence_transient_audit_503": evidence_transient_audit_503,
-            "audited_receipt_responses": sum(check_receipt(r["decision_receipt"]) and check_receipt(r["outcome_receipt"]) for r in rows),
-            "duplicate_request_ids": (lambda ids: len(ids) - len(set(ids)))([r["request_id"] for r in rows if r["request_id"] is not None]),
+            "audited_receipt_responses": sum(
+                check_receipt(r["decision_receipt"]) and check_receipt(r["outcome_receipt"])
+                for r in rows
+            ),
+            "duplicate_request_ids": (lambda ids: len(ids) - len(set(ids)))(
+                [r["request_id"] for r in rows if r["request_id"] is not None]
+            ),
             "unresolved_status_error": unknown_outcome,
             "max_inflight_client_requests": max_inflight,
             "latency_ms": {
@@ -415,10 +471,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--label", default="baseline")
     parser.add_argument("--out-dir", type=Path, required=True)
     parser.add_argument("--skip-evidence-check", action="store_true")
-    parser.add_argument("--allow-overload", action="store_true",
-                        help="Accept explicit HTTP 429 admission rejection as controlled backpressure")
+    parser.add_argument(
+        "--allow-overload",
+        action="store_true",
+        help="Accept explicit HTTP 429 admission rejection as controlled backpressure",
+    )
     args = parser.parse_args()
-    if not 1 <= args.clients <= 64 or not 1 <= args.duration <= 3600 or not 1 <= args.timeout <= 120:
+    if (
+        not 1 <= args.clients <= 64
+        or not 1 <= args.duration <= 3600
+        or not 1 <= args.timeout <= 120
+    ):
         parser.error("clients=1..64, duration=1..3600, timeout=1..120 required")
     local_only(args.api_url)
     if not os.environ.get("BENCH_API_KEY"):
@@ -428,15 +491,28 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> int:
     args = parse_args()
-    config = Config(args.api_url, args.clients, args.duration, args.scenario, args.timeout,
-                    os.environ["BENCH_API_KEY"], args.label, args.out_dir, not args.skip_evidence_check,
-                    args.allow_overload)
+    config = Config(
+        args.api_url,
+        args.clients,
+        args.duration,
+        args.scenario,
+        args.timeout,
+        os.environ["BENCH_API_KEY"],
+        args.label,
+        args.out_dir,
+        not args.skip_evidence_check,
+        args.allow_overload,
+    )
     result = asyncio.run(run(config))
     print(json.dumps(result, indent=2))
     # Return failure on security or functional regression even when HTTP transport succeeded.
-    if (result["functional_validation_failures"] or result["transport_errors"]
-        or (result["evidence_validation_failures"] or 0) or result["duplicate_request_ids"]
-        or not result["request_count"]):
+    if (
+        result["functional_validation_failures"]
+        or result["transport_errors"]
+        or (result["evidence_validation_failures"] or 0)
+        or result["duplicate_request_ids"]
+        or not result["request_count"]
+    ):
         return 1
     return 0
 
