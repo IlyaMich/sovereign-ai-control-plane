@@ -22,7 +22,6 @@ jobs:
     environment: performance-benchmark
     timeout-minutes: 180
     env:
-      PERF_KIT_DIR: ${{ vars.PERF_KIT_DIR }}
       PERF_OPERATOR_ROOT: ${{ vars.PERF_OPERATOR_ROOT }}
       PERF_RESULTS_DIR: ${{ vars.PERF_RESULTS_DIR }}
       PERF_ENVIRONMENT_TAG: ${{ vars.PERF_ENVIRONMENT_TAG }}
@@ -39,15 +38,16 @@ jobs:
           umask 077
           test "$GITHUB_REF" = refs/heads/main
           test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
-          for name in PERF_KIT_DIR PERF_OPERATOR_ROOT PERF_RESULTS_DIR PERF_ENVIRONMENT_TAG COMPOSE_PROJECT_NAME; do
+          for name in PERF_OPERATOR_ROOT PERF_RESULTS_DIR PERF_ENVIRONMENT_TAG COMPOSE_PROJECT_NAME; do
             if [[ -z "${!name}" ]]; then
               echo "Missing runner configuration: $name" >&2; exit 1
             fi
           done
           [[ "$PERF_ENVIRONMENT_TAG" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || exit 1
           [[ "$COMPOSE_PROJECT_NAME" =~ ^[a-z][a-z0-9_-]{2,48}$ ]] || exit 1
-          test -f "$PERF_KIT_DIR/suite.py"
-          test -f "$PERF_KIT_DIR/load.py"
+          test -f benchmarks/suite.py
+          test -f benchmarks/load.py
+          test ! -L benchmarks
           test -f "$PERF_OPERATOR_ROOT/.env"
           test -f "$PERF_OPERATOR_ROOT/.runtime/release-active/release.json"
           test -f "$PERF_OPERATOR_ROOT/.runtime/release-trust/release-signing.pub.pem"
@@ -55,10 +55,8 @@ jobs:
           test -d "$PERF_OPERATOR_ROOT/.runtime/release-archive"
           podman info >/dev/null
           podman compose version
-          test ! -e benchmarks && test ! -L benchmarks
           test ! -e .env && test ! -L .env
           test ! -e .runtime && test ! -L .runtime
-          ln -s "$(realpath "$PERF_KIT_DIR")" benchmarks
           ln -s "$(realpath "$PERF_OPERATOR_ROOT/.env")" .env
           ln -s "$(realpath "$PERF_OPERATOR_ROOT/.runtime")" .runtime
           # Raw evidence must remain off the checkout and out of Actions artifacts.
@@ -75,9 +73,9 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install benchmark dependencies
-        run: python -m pip install 'httpx>=0.27,<1' 'pytest>=8,<10'
+        run: python -m pip install 'httpx>=0.27,<1' 'pytest>=8,<10' 'cryptography>=50.0.2,<51'
       - name: Validate performance harness
-        run: python -m pytest -q tests/performance
+        run: python -m pytest -q tests/performance benchmarks/tests
       - name: Run evidence-verified benchmark against approved local release
         shell: bash
         env:
@@ -126,7 +124,7 @@ jobs:
         if: always()
         shell: bash
         run: |
-          for path in benchmarks .env .runtime; do
+          for path in .env .runtime; do
             if [[ -L "$path" ]]; then unlink "$path"; fi
           done
           # Do not delete existing audit volumes, signed state or full private reports.
