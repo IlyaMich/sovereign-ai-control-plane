@@ -7,12 +7,12 @@ It does not build or sign the application image, modify OPA, or reset audit stor
 
 ## Why not a default GitHub-hosted load job?
 
-The fully verified tests require the separately delivered, Git-ignored
-`benchmarks/` kit, an approved signed release, its trust and policy state,
-and the live SQLite audit volume. A fresh GitHub-hosted checkout cannot
-reproduce that environment. Shared runner CPU/IO also makes performance
-threshold comparisons unreliable. Existing CI already runs the
-`tests/performance/` unit tests on GitHub-hosted runners.
+The independent `benchmarks/` source and tests are now checked in. Full load
+verification still requires an approved signed release, trusted policy/state,
+and a live SQLite audit volume. A fresh GitHub-hosted checkout cannot
+reproduce that deployment. Shared runner CPU/IO also makes performance
+threshold comparisons unreliable. Existing CI runs both
+`tests/performance/` and `benchmarks/tests/` on GitHub-hosted runners.
 
 ## One-time trusted runner setup
 
@@ -29,18 +29,16 @@ threshold comparisons unreliable. Existing CI already runs the
    reviewer image and uses `podman compose` to access the running project.
    Its project name must match the one used when the approved stack started.
 4. Keep the approved install (including `.env` and `.runtime`) in a
-   protected directory outside the GitHub runner workspace. Separately install
-   the validated Git-ignored benchmark kit outside the workspace, including
-   `suite.py`, the **patched** `load.py`, `resources.py`,
-   `compose_audit.py` and `audit_snapshot.py`. Do not fetch an unsigned
-   mutable copy of the kit during the workflow.
+   protected directory outside the GitHub runner workspace. The workflow uses
+   the **reviewed, committed** `benchmarks/` kit from `main`, including its
+   patched `load.py` and regression tests. No separate kit installation or
+   unsigned download is required.
 5. In **Settings → Environments**, create `performance-benchmark`. Restrict
    deployments to `main`; an optional required reviewer protects manual
-   executions. Configure these repository **Actions variables** (not secrets):
+   executions. Configure these four repository **Actions variables** (not secrets):
 
    | Variable | Example |
    | --- | --- |
-   | `PERF_KIT_DIR` | `/srv/sovereign/benchmark-kit/benchmarks` |
    | `PERF_OPERATOR_ROOT` | `/srv/sovereign/approved-install` (contains `.env` and `.runtime`) |
    | `PERF_RESULTS_DIR` | `/srv/sovereign/benchmark-results` (private, persistent, writable) |
    | `PERF_ENVIRONMENT_TAG` | `fixed-perf-host-signed-g2` |
@@ -67,8 +65,8 @@ choose a profile:
   redaction. Requires the running approved stack to be configured with
   `egress-test` and `ENABLE_EXTERNAL_SIMULATOR=true`.
 
-The workflow runs framework unit tests and the **existing independent
-evidence-verified** benchmark. Missing or invalid receipts, failed audit
+The workflow runs both framework and benchmark-kit unit tests, followed by
+the **independent signed-evidence verification** benchmark. Missing or invalid receipts, failed audit
 chains, correctness errors, or missing diagnostic artifacts fail the job.
 
 Only `manifest.json`, `summary.json`, `metrics.csv`, and `report.html`
