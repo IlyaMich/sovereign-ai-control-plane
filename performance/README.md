@@ -8,8 +8,8 @@ are supported. Never use real secrets, production requests or live egress.
 ## Requirements
 
 Run commands from the repository root with Python 3.12+, `httpx`, a running
-**approved** Podman Compose stack and the original, locally installed **Git-ignored**
-`benchmarks/suite.py` kit. That kit remains the independent evidence reviewer.
+**approved** Podman Compose stack and the source-controlled `benchmarks/suite.py`
+kit. It remains an independent offline signed-audit reviewer.
 Do not rebuild the approved image, delete volumes, or use `podman compose down -v`.
 No fallback reviewer is provided: missing or failed signed-audit assertions fail the run.
 Leave competing writers idle for the kit's exclusive audit-delta assertions.
@@ -43,7 +43,7 @@ Generate reports and compare separate commits:
 ```powershell
 python -m performance.cli report --run performance/results/<baseline-run-id>
 python -m performance.cli compare --baseline performance/results/<baseline-run-id> --candidate performance/results/<candidate-run-id> --out performance/results/comparison.json
-python -m pytest -q tests/performance
+python -m pytest -q tests/performance benchmarks/tests
 ```
 
 Comparison **revalidates signed evidence** from both runs and rejects mismatched
@@ -66,9 +66,9 @@ When changing detector/policy/runtime code, deploy through the existing signed
 release process. Never alter production behavior merely to make a benchmark pass.
 
 **Submission status:** no versioned performance result archive is committed here.
-The runner and profiles are reproducible only when the separately delivered
-`benchmarks/` signed-audit reviewer kit, environment and approved image are also
-preserved. The [submission evidence matrix](../docs/submission-evidence.md)
+The runner, profiles and `benchmarks/` source are now version-controlled, but
+reproduction of a live performance test still requires an approved image,
+trusted signed operator state, and a controlled benchmark host. The [submission evidence matrix](../docs/submission-evidence.md)
 records required metadata; historical M7.9 profiling is described in
 [concurrency profiling](../docs/concurrency-performance-profiling.md), with
 [live overload checks](../docs/overload-and-audit-lookup.md).
@@ -77,7 +77,7 @@ records required metadata; historical M7.9 profiling is described in
 
 A **manual** [`Performance Benchmark`](../.github/workflows/performance.yml) workflow
 can run the existing signed-evidence suite on a dedicated, approved **self-hosted**
-Podman performance runner. It cannot run from a bare hosted checkout because the
-independent Git-ignored kit and live signed deployment are not tracked. Configure
+Podman performance runner. It cannot run a live signed benchmark from a bare hosted checkout because the
+approved signed deployment and its private runtime state are not tracked. Configure
 and operate it using [the runner guide](../docs/performance-github-actions.md).
 Only aggregate reports are uploaded to Actions; raw evidence stays on the host.
