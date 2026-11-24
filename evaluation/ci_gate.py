@@ -28,7 +28,9 @@ def _number(value: Any) -> float:
     return result
 
 
-def assess(stock: dict[str, Any], candidate: dict[str, Any], paired: dict[str, Any]) -> dict[str, Any]:
+def assess(
+    stock: dict[str, Any], candidate: dict[str, Any], paired: dict[str, Any]
+) -> dict[str, Any]:
     """Check paired runs, with independent safety and comparative quality gates."""
     failures: list[str] = []
     for label, run, adapter in (
