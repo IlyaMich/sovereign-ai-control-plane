@@ -72,6 +72,8 @@ jobs:
           echo "$RUNNER_TEMP" >> "$GITHUB_PATH"
       - name: Run complete pytest suite
         run: python -m pytest -q -ra -W error
+      - name: Run offline benchmark-kit tests
+        run: python -m pytest -q -ra -W error benchmarks/tests
 
   policy:
     name: Policy verification
