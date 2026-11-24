@@ -118,10 +118,14 @@ def test_exports_only_allowlisted_aggregate_files(tmp_path, monkeypatch):
     assert (
         main(
             [
-                "--stock", str(stock_dir),
-                "--candidate", str(candidate_dir),
-                "--comparison", str(paired_dir),
-                "--aggregate-dir", str(aggregate),
+                "--stock",
+                str(stock_dir),
+                "--candidate",
+                str(candidate_dir),
+                "--comparison",
+                str(paired_dir),
+                "--aggregate-dir",
+                str(aggregate),
             ]
         )
         == 0
@@ -155,10 +159,19 @@ def test_failed_gate_returns_failure_but_writes_summary(tmp_path):
         (directory / "categories.csv").write_text("category\n")
     (sources[2] / "comparison.html").write_text("<html />")
     output = tmp_path / "aggregate"
-    assert main([
-        "--stock", str(sources[0]),
-        "--candidate", str(sources[1]),
-        "--comparison", str(sources[2]),
-        "--aggregate-dir", str(output),
-    ]) == 1
+    assert (
+        main(
+            [
+                "--stock",
+                str(sources[0]),
+                "--candidate",
+                str(sources[1]),
+                "--comparison",
+                str(sources[2]),
+                "--aggregate-dir",
+                str(output),
+            ]
+        )
+        == 1
+    )
     assert json.loads((output / "gate.json").read_text())["passed"] is False
