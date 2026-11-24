@@ -39,8 +39,9 @@ coverage.xml
 Thumbs.db
 Desktop.ini
 
-# Benchmark tests
-benchmarks/
+# Benchmark source/tests are tracked; never commit runtime results or local backups.
+benchmarks/**/*.bak
+benchmarks/**/*.orig
 bench-results/
 # M7.8 operator-side activation lock and recoverable staging directories
 release-active/.release-activation.lock

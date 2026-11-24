@@ -1,0 +1,130 @@
+# Manual-only: never run unreviewed PR code on an approved performance host.
+name: Performance Benchmark
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        type: choice
+        description: 'Synthetic load profile'
+        required: true
+        default: smoke
+        options: [smoke, baseline, saturation, scenario-catalog]
+permissions:
+  contents: read
+concurrency:
+  group: sovereign-performance-benchmark
+  cancel-in-progress: false
+jobs:
+  benchmark:
+    name: Verified ${{ inputs.profile }} benchmark
+    if: github.ref == 'refs/heads/main'
+    runs-on: [self-hosted, linux, x64, sovereign-performance]
+    environment: performance-benchmark
+    timeout-minutes: 180
+    env:
+      PERF_OPERATOR_ROOT: ${{ vars.PERF_OPERATOR_ROOT }}
+      PERF_RESULTS_DIR: ${{ vars.PERF_RESULTS_DIR }}
+      PERF_ENVIRONMENT_TAG: ${{ vars.PERF_ENVIRONMENT_TAG }}
+      COMPOSE_PROJECT_NAME: ${{ vars.PERF_COMPOSE_PROJECT }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+          clean: true
+      - name: Check trusted benchmark host
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          test "$GITHUB_REF" = refs/heads/main
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          for name in PERF_OPERATOR_ROOT PERF_RESULTS_DIR PERF_ENVIRONMENT_TAG COMPOSE_PROJECT_NAME; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing runner configuration: $name" >&2; exit 1
+            fi
+          done
+          [[ "$PERF_ENVIRONMENT_TAG" =~ ^[A-Za-z0-9._-]{1,64}$ ]] || exit 1
+          [[ "$COMPOSE_PROJECT_NAME" =~ ^[a-z][a-z0-9_-]{2,48}$ ]] || exit 1
+          test -f benchmarks/suite.py
+          test -f benchmarks/load.py
+          test ! -L benchmarks
+          test -f "$PERF_OPERATOR_ROOT/.env"
+          test -f "$PERF_OPERATOR_ROOT/.runtime/release-active/release.json"
+          test -f "$PERF_OPERATOR_ROOT/.runtime/release-trust/release-signing.pub.pem"
+          test -d "$PERF_OPERATOR_ROOT/.runtime/policy-active"
+          test -d "$PERF_OPERATOR_ROOT/.runtime/release-archive"
+          podman info >/dev/null
+          podman compose version
+          test ! -e .env && test ! -L .env
+          test ! -e .runtime && test ! -L .runtime
+          ln -s "$(realpath "$PERF_OPERATOR_ROOT/.env")" .env
+          ln -s "$(realpath "$PERF_OPERATOR_ROOT/.runtime")" .runtime
+          # Raw evidence must remain off the checkout and out of Actions artifacts.
+          resolved_results=$(realpath -m "$PERF_RESULTS_DIR")
+          case "$resolved_results/" in
+            "$GITHUB_WORKSPACE/"* )
+              echo 'Results directory must be outside GitHub workspace' >&2; exit 1 ;;
+          esac
+          mkdir -p "$PERF_RESULTS_DIR"
+          chmod 700 "$PERF_RESULTS_DIR"
+          run_root=$(mktemp -d "$PERF_RESULTS_DIR/gh-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}-XXXXXXXX")
+          echo "PERF_RUN_ROOT=$run_root" >> "$GITHUB_ENV"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install benchmark dependencies
+        run: python -m pip install 'httpx>=0.27,<1' 'pytest>=8,<10' 'cryptography>=50.0.2,<51'
+      - name: Validate performance harness
+        run: python -m pytest -q tests/performance benchmarks/tests
+      - name: Run evidence-verified benchmark against approved local release
+        shell: bash
+        env:
+          BENCH_PROFILE: ${{ inputs.profile }}
+        run: |
+          set -euo pipefail
+          # The reviewer may be rebuilt; the running approved image is not.
+          python -m performance.cli run \
+            --profile "$BENCH_PROFILE" \
+            --api-url http://127.0.0.1:8000 \
+            --env-file .env \
+            --results-root "$PERF_RUN_ROOT" \
+            --environment-tag "$PERF_ENVIRONMENT_TAG"
+      - name: Export aggregate-only results
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/perf-aggregate"
+          if [[ -n "${PERF_RUN_ROOT:-}" && -d "${PERF_RUN_ROOT:-}" ]]; then
+            python - <<'PY'
+          import os
+          from pathlib import Path
+          from shutil import copyfile
+          root = Path(os.environ['PERF_RUN_ROOT'])
+          dest = Path(os.environ['RUNNER_TEMP']) / 'perf-aggregate'
+          runs = [p for p in root.iterdir() if (p / 'manifest.json').is_file()]
+          if len(runs) != 1:
+              raise SystemExit('Expected exactly one benchmark run')
+          for name in ('manifest.json', 'summary.json', 'metrics.csv', 'report.html'):
+              file = runs[0] / name
+              if file.is_file():
+                  copyfile(file, dest / name)
+          # Raw receipts, request IDs, secrets and diagnostics stay on the runner.
+          PY
+          fi
+      - name: Upload aggregate report only
+        if: always()
+        uses: actions/upload-artifact@v6
+        with:
+          name: performance-aggregate-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/perf-aggregate/
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Remove workspace links
+        if: always()
+        shell: bash
+        run: |
+          for path in .env .runtime; do
+            if [[ -L "$path" ]]; then unlink "$path"; fi
+          done
+          # Do not delete existing audit volumes, signed state or full private reports.
