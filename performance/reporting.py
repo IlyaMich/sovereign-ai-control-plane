@@ -67,6 +67,7 @@ def collect(folder: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                 or diag.get("benchmark_integrity_issues") != []
                 or not isinstance(diag.get("samples"), list)
                 or not diag["samples"]
+                or suite.get("arrival_rate_rps") != manifest.get("arrival_rate_rps")
             ):
                 raise ValueError(f"Missing, invalid or mismatched diagnostics for {label}")
             for scenario in scenarios:
@@ -76,6 +77,7 @@ def collect(folder: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                     or summary.get("clients") != level
                     or number(summary.get("duration_configured_s"), positive=True)
                     != manifest["duration_s"]
+                    or summary.get("arrival_rate_rps") != manifest.get("arrival_rate_rps")
                 ):
                     raise ValueError(f"Invalid scenario identity for {label}")
                 row: dict[str, Any] = {
@@ -88,7 +90,40 @@ def collect(folder: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                     "p99_ms": number(summary["latency_ms"]["p99"]),
                     "requests": int(number(summary.get("request_count"))),
                     "http_statuses": summary.get("http_statuses", {}),
+                    "offered_rps": (
+                        number(summary.get("offered_rps"))
+                        if manifest.get("arrival_rate_rps") is not None
+                        else None
+                    ),
+                    "dispatched_rps": (
+                        number(summary.get("dispatched_rps"))
+                        if manifest.get("arrival_rate_rps") is not None
+                        else None
+                    ),
+                    "client_capacity_drops": (
+                        number(summary.get("client_capacity_drops"))
+                        if manifest.get("arrival_rate_rps") is not None
+                        else None
+                    ),
+                    "overload_rejections_429": (
+                        number(summary.get("overload_rejections_429"))
+                        if manifest.get("arrival_rate_rps") is not None
+                        else None
+                    ),
                 }
+                if manifest.get("arrival_rate_rps") is not None:
+                    offered = summary.get("offered_requests")
+                    dispatched = summary.get("dispatched_requests")
+                    dropped = summary.get("client_capacity_drops")
+                    if (
+                        type(offered) is not int
+                        or type(dispatched) is not int
+                        or type(dropped) is not int
+                        or offered != dispatched + dropped
+                        or dispatched != row["requests"]
+                        or dropped != 0
+                    ):
+                        raise ValueError(f"Open-loop client capacity or accounting invalid: {label}")
                 if not isinstance(row["http_statuses"], dict):
                     raise ValueError("Invalid status counts")
                 for signal in SIGNALS:
@@ -109,6 +144,14 @@ def aggregate(rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
             item[field] = round(statistics.median(values), 4)
             item[field + "_min"] = round(min(values), 4)
             item[field + "_max"] = round(max(values), 4)
+        for field in (
+            "offered_rps",
+            "dispatched_rps",
+            "client_capacity_drops",
+            "overload_rejections_429",
+        ):
+            values = [number(r[field]) for r in members if r.get(field) is not None]
+            item[field] = round(statistics.median(values), 3) if values else None
         for signal in SIGNALS:
             values = [number(r[signal]) for r in members if r[signal] is not None]
             item[signal] = round(max(values), 3) if values else None
@@ -142,11 +185,32 @@ def write_report(folder: Path) -> Path:
             "p50_ms",
             "p95_ms",
             "p99_ms",
+            "offered_rps",
+            "dispatched_rps",
+            "client_capacity_drops",
+            "overload_rejections_429",
             *SIGNALS,
         )
         writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
         writer.writerows(rows)
+    demand_rows = "\n".join(
+        "<tr>"
+        + "".join(
+            f"<td>{html.escape(str(item[key])) if item[key] is not None else 'N/A'}</td>"
+            for key in (
+                "level",
+                "scenario",
+                "offered_rps",
+                "dispatched_rps",
+                "client_capacity_drops",
+                "overload_rejections_429",
+                "goodput_rps",
+            )
+        )
+        + "</tr>"
+        for item in data
+    )
     table_rows = "\n".join(
         "<tr>"
         + "".join(
@@ -182,6 +246,13 @@ def write_report(folder: Path) -> Path:
         "<table><thead><tr><th>Clients</th><th>Scenario</th><th>Runs</th>"
         "<th>Goodput/s</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th>"
         f"</tr></thead><tbody>{table_rows}</tbody></table>"
+        "<h2>Offered load and admission</h2>"
+        "<p>Offered requests include unissued client-capacity drops; only successfully "
+        "issued and completed requests contribute to goodput. No client drops are "
+        "accepted in a verified run. N/A means closed-loop benchmark.</p>"
+        "<table><thead><tr><th>Clients</th><th>Scenario</th><th>Offered/s</th>"
+        "<th>Issued/s</th><th>Client drops</th><th>HTTP 429</th><th>Goodput/s</th>"
+        f"</tr></thead><tbody>{demand_rows}</tbody></table>"
         "<h2>Maximum observed process-local diagnostics</h2>"
         "<p>These values are maxima of sampled rolling windows or instantaneous job counts; "
         "they are not whole-run quantiles or cluster-wide utilization.</p>"
@@ -208,8 +279,9 @@ def compare(
         "interval_s",
         "scenarios",
         "allow_overload",
+        "arrival_rate_rps",
     )
-    mismatches = [field for field in identity_fields if a[field] != b[field]]
+    mismatches = [field for field in identity_fields if a.get(field) != b.get(field)]
     if a["git_commit"] == b["git_commit"]:
         mismatches.append("git_commit_is_identical")
     # Environment fingerprints are operator-supplied and must be compared before interpreting changes.

@@ -9,6 +9,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import math
 import os
 import re
 import subprocess
@@ -229,6 +230,11 @@ def parser_config() -> argparse.Namespace:
         default=["local_permit", "credential_deny", "unsupported_input"],
     )
     p.add_argument("--clients", type=int, default=8)
+    p.add_argument(
+        "--arrival-rate-rps",
+        type=float,
+        help="Fixed open-loop arrivals per second; absent means closed-loop clients",
+    )
     p.add_argument("--duration", type=float, default=60)
     p.add_argument("--timeout", type=float, default=30)
     p.add_argument("--api-url", default="http://127.0.0.1:8000")
@@ -265,6 +271,12 @@ def parser_config() -> argparse.Namespace:
     local_only(args.api_url)
     if not 1 <= args.clients <= 64 or not 1 <= args.duration <= 3600:
         p.error("clients=1..64 and duration=1..3600 required")
+    if args.arrival_rate_rps is not None and (
+        not math.isfinite(args.arrival_rate_rps)
+        or not 0.1 <= args.arrival_rate_rps <= 64
+        or math.ceil(args.arrival_rate_rps * args.duration) > 50_000
+    ):
+        p.error("arrival-rate-rps must be finite, 0.1..64, at most 50,000 scheduled arrivals")
     if not 1 <= args.timeout <= 120 or not 0 <= args.settle_seconds <= 120:
         p.error("timeout=1..120 and settle-seconds=0..120 required")
     if args.stats_interval < 2:
@@ -323,6 +335,7 @@ def main() -> int:
         "git_commit": git_sha,
         "clients": args.clients,
         "duration_s": args.duration,
+        "arrival_rate_rps": args.arrival_rate_rps,
         "python": sys.version.split()[0],
         "url": args.api_url,
         "trusted_audit_public_key_pinned": args.trusted_audit_public_key is not None,
@@ -338,7 +351,15 @@ def main() -> int:
     for scenario in args.scenarios:
         location = label_dir / scenario
         location.mkdir(parents=True)
-        print(f"\n[{args.label}] {scenario}: {args.clients} clients x {args.duration}s", flush=True)
+        print(
+            f"\n[{args.label}] {scenario}: {args.clients} clients x {args.duration}s"
+            + (
+                f" at scheduled {args.arrival_rate_rps:g} arrivals/s"
+                if args.arrival_rate_rps is not None
+                else " closed-loop"
+            ),
+            flush=True,
+        )
         before = audit_head(prefix, root, paths, control_db)
         save_json(location / "before.json", before)
         sampler = (
@@ -366,6 +387,7 @@ def main() -> int:
                         args.label,
                         location,
                         allow_overload=args.allow_overload,
+                        arrival_rate_rps=args.arrival_rate_rps,
                     )
                 )
             )
@@ -391,11 +413,14 @@ def main() -> int:
             or summary["request_count"] == 0
             or summary["success_count"] == 0
             or summary["duplicate_request_ids"]
+            or summary["client_capacity_drops"]
         ):
             failures.append(f"{scenario}: correctness or availability assertions failed")
         print(
             f"{scenario}: {summary['responses_per_test_second']} responses/s, "
             f"p95={summary['latency_ms']['p95']}ms, "
+            f"offered={summary['offered_requests']} issued={summary['dispatched_requests']} "
+            f"client_drops={summary['client_capacity_drops']}, "
             f"new events={assertions['actual_new_events']} "
             f"(expected={assertions['expected_new_events']}), "
             f"pass={assertions['passed']}",

@@ -513,6 +513,8 @@ async def _capture_run(args: argparse.Namespace, label: str, key: str, git_sha: 
     ]
     if args.allow_overload:
         cmd.append("--allow-overload")
+    if getattr(args, "arrival_rate_rps", None) is not None:
+        cmd.extend(["--arrival-rate-rps", str(args.arrival_rate_rps)])
     env = os.environ.copy()
     env["BENCH_API_KEY"] = key
     # The benchmark child receives the key only through its environment.

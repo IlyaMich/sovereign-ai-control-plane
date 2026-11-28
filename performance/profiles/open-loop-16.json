@@ -1,0 +1,15 @@
+{
+  "schema_version": 2,
+  "description": "Fixed-rate open-loop, 16 synthetic requests/s, 32 outstanding client cap; mixed traffic with independent audit proof.",
+  "levels": [
+    32
+  ],
+  "duration_s": 60,
+  "runs": 3,
+  "interval_s": 0.75,
+  "scenarios": [
+    "mixed_traffic"
+  ],
+  "allow_overload": true,
+  "arrival_rate_rps": 16
+}

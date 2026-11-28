@@ -104,3 +104,15 @@ response uses its own type-specific contract and audit-evidence validation.
 It does not require optional external egress. The aggregate HTML report now
 includes sampled per-process queue, detector, audit and integrity workload
 signals; these are not cluster metrics or whole-run p95 measurements.
+
+### Fixed-rate scalability profiles
+
+The workflow supports `open-loop-4`, `open-loop-8`, and `open-loop-16`.
+Each schedules fixed-rate synthetic arrivals (4, 8 or 16 requests/s) rather
+than waiting for a previous response to complete, with a 32-request client
+concurrency cap. Three repetitions are verified independently using the same
+read-only offline audit reviewer as the baseline benchmark. Client-capacity
+drops, missing evidence or unexpected server failures make the run fail.
+Review the offered-versus-issued and 429 counts in the aggregate report; a
+successful suite does **not** imply every offered request was admitted.
+Never run these loads on a production system or against a real inference model.

@@ -24,6 +24,7 @@ class Profile:
     interval_s: float
     scenarios: tuple[str, ...]
     allow_overload: bool
+    arrival_rate_rps: float | None = None
 
 
 def load_profile(name: str) -> Profile:
@@ -34,6 +35,7 @@ def load_profile(name: str) -> Profile:
     value = json.loads(raw)
     if (
         not isinstance(value, dict)
+        or value.get("schema_version") not in (1, 2)
         or set(value)
         != {
             "schema_version",
@@ -44,8 +46,8 @@ def load_profile(name: str) -> Profile:
             "interval_s",
             "scenarios",
             "allow_overload",
+            *(["arrival_rate_rps"] if value.get("schema_version") == 2 else []),
         }
-        or value["schema_version"] != 1
     ):
         raise ValueError("Unsupported profile schema")
     levels = value["levels"]
@@ -68,6 +70,16 @@ def load_profile(name: str) -> Profile:
         or len(set(scenarios)) != len(scenarios)
     ):
         raise ValueError("Invalid scenarios")
+    rate = value.get("arrival_rate_rps")
+    if value["schema_version"] == 2 and (
+        type(rate) not in (int, float)
+        or not math.isfinite(rate)
+        or not 0.1 <= rate <= 64
+        or type(duration) not in (int, float)
+        or not math.isfinite(duration)
+        or math.ceil(rate * duration) > 50_000
+    ):
+        raise ValueError("Invalid open-loop arrival rate or request budget")
     if (
         type(runs) is not int
         or not 1 <= runs <= 10
@@ -91,4 +103,5 @@ def load_profile(name: str) -> Profile:
         float(interval),
         tuple(scenarios),
         value["allow_overload"],
+        float(rate) if rate is not None else None,
     )

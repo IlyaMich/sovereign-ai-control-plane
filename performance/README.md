@@ -21,6 +21,9 @@ python -m performance.cli run --profile baseline --environment-tag my-host-fixed
 python -m performance.cli run --profile saturation --environment-tag my-host-fixed-config
 python -m performance.cli run --profile scenario-catalog --environment-tag my-host-fixed-config
 python -m performance.cli run --profile mixed-traffic --environment-tag my-host-fixed-config
+python -m performance.cli run --profile open-loop-4 --environment-tag my-host-fixed-config
+python -m performance.cli run --profile open-loop-8 --environment-tag my-host-fixed-config
+python -m performance.cli run --profile open-loop-16 --environment-tag my-host-fixed-config
 ```
 
 `smoke` is a brief end-to-end file-retention and correctness check (one client, 15 seconds per scenario); it is not a capacity benchmark.
@@ -107,3 +110,35 @@ Only aggregate reports are uploaded to Actions; raw evidence stays on the host.
 `mixed_traffic` deterministically rotates synthetic request types per client.
 It is not a statistical model of production demand, an open-loop stress test,
 or a test of geographic data residency.
+
+## Phase 1 fixed-rate (open-loop) arrivals
+
+Profiles `open-loop-4`, `open-loop-8`, and `open-loop-16` schedule
+4, 8, or 16 requests/s regardless of individual response completion, with a
+fixed maximum of 32 outstanding client requests and three 60-second repetitions.
+They interleave the synthetic mixed-traffic categories. Use the same approved
+host, pinned release, resource limits and zero competing audit writers across
+all three profiles. Run `--profile` with one of the names above.
+
+Unlike closed-loop clients, **scheduled demand** is separate from **issued
+requests**, in-window responses, and verified goodput. Every rate profile
+records `offered_requests`, `dispatched_requests`,
+`client_capacity_drops`, `offered_rps`, `dispatched_rps`, and admission
+HTTP 429 counts. The suite **fails** if the load client drops scheduled arrivals
+because of its own concurrency cap or misses the deadline. Never interpret
+a failed/partially offered run as a measured server capacity point. Unexpected
+503, transport errors, bad request/evidence assertions or mismatched audit
+chain counts are failures; valid pre-admission HTTP 429 is reported separately
+and does not add a signed audit event.
+
+The generator uses deterministic fixed-interval scheduling, not a random
+Poisson process; its 32-client cap is a safety bound, not the requested RPS.
+The report uses successful responses that finish inside the window as the
+goodput numerator. It drains issued requests and verifies signed evidence
+*out of band*, after the timed window. Client-side scheduling lag is retained
+in private `requests.jsonl` rows, not uploaded to Actions. The results
+remain specific to the simulator and the pinned runtime configuration.
+
+Comparison still only permits identical profiles, resource tags and confirmed
+signed evidence; use the three rate profiles together for a descriptive offered
+load curve, not a same-profile before/after comparison.
