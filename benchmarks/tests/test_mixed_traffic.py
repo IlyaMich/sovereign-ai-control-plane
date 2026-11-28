@@ -16,8 +16,12 @@ from benchmarks import load
 def test_mixed_request_types_are_interleaved_and_bounded() -> None:
     assert set(load.SCENARIOS) >= {"mixed_traffic", *load.MIXED_SCENARIOS}
     assert [load.select_scenario("mixed_traffic", 0, n) for n in range(1, 7)] == [
-        "local_permit", "credential_deny", "unsupported_input",
-        "local_permit", "credential_deny", "unsupported_input",
+        "local_permit",
+        "credential_deny",
+        "unsupported_input",
+        "local_permit",
+        "credential_deny",
+        "unsupported_input",
     ]
     assert load.select_scenario("mixed_traffic", 1, 1) == "credential_deny"
     assert load.select_scenario("local_permit", 0, 1) == "local_permit"

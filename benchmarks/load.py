@@ -436,7 +436,9 @@ async def run(config: Config) -> dict[str, Any]:
             "request_count": measured,
             "success_count": len(success),
             "scenario_request_counts": dict(sorted(Counter(r["scenario"] for r in rows).items())),
-            "scenario_success_counts": dict(sorted(Counter(r["scenario"] for r in success).items())),
+            "scenario_success_counts": dict(
+                sorted(Counter(r["scenario"] for r in success).items())
+            ),
             "overload_rejections_429": sum(r["http_status"] == 429 for r in rows),
             "expected_success_rate_pct": round(100 * len(success) / measured, 2) if measured else 0,
             "responses_within_window": sum(

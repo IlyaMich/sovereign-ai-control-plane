@@ -26,7 +26,13 @@ import httpx
 
 from app.infrastructure.executables import resolve_executable
 
-SCENARIOS = ("local_permit", "credential_deny", "unsupported_input", "external_redaction", "mixed_traffic")
+SCENARIOS = (
+    "local_permit",
+    "credential_deny",
+    "unsupported_input",
+    "external_redaction",
+    "mixed_traffic",
+)
 START = re.compile(
     r"^\[[^\]\r\n]+\] (local_permit|credential_deny|unsupported_input|external_redaction|mixed_traffic):"
 )
