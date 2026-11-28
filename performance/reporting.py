@@ -123,7 +123,9 @@ def collect(folder: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                         or dispatched != row["requests"]
                         or dropped != 0
                     ):
-                        raise ValueError(f"Open-loop client capacity or accounting invalid: {label}")
+                        raise ValueError(
+                            f"Open-loop client capacity or accounting invalid: {label}"
+                        )
                 if not isinstance(row["http_statuses"], dict):
                     raise ValueError("Invalid status counts")
                 for signal in SIGNALS:
