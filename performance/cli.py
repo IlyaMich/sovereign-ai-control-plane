@@ -94,6 +94,7 @@ async def execute(args: argparse.Namespace) -> int:
         "interval_s": profile.interval_s,
         "scenarios": list(profile.scenarios),
         "allow_overload": profile.allow_overload,
+        "arrival_rate_rps": profile.arrival_rate_rps,
         "git_commit": sha,
         "started_utc": datetime.now(timezone.utc).isoformat(),
         "environment": {
@@ -119,6 +120,7 @@ async def execute(args: argparse.Namespace) -> int:
                     env_file=args.env_file,
                     interval=profile.interval_s,
                     allow_overload=profile.allow_overload,
+                    arrival_rate_rps=profile.arrival_rate_rps,
                 )
                 resource_samples: list[dict] = []
                 stop = asyncio.Event()
@@ -181,7 +183,8 @@ def main(argv: list[str] | None = None) -> int:
             for path in sorted(PROFILE_DIR.glob("*.json")):
                 item = load_profile(path.stem)
                 print(
-                    f"{item.name}: clients={list(item.levels)} repetitions={item.runs} "
+                    f"{item.name}: clients={list(item.levels)} "
+                    f"arrival_rate_rps={item.arrival_rate_rps} repetitions={item.runs} "
                     f"scenarios={list(item.scenarios)}"
                 )
         elif args.command == "run":

@@ -272,9 +272,21 @@ class Config:
     output_dir: Path
     verify_evidence: bool = True
     allow_overload: bool = False
+    arrival_rate_rps: float | None = None
 
 
 async def run(config: Config) -> dict[str, Any]:
+    rate = config.arrival_rate_rps
+    if rate is not None and (
+        type(rate) not in (int, float)
+        or not math.isfinite(rate)
+        or not 0.1 <= rate <= 64
+        or not 1 <= config.duration <= 3600
+        or math.ceil(config.duration * rate) > 50_000
+    ):
+        raise ValueError("Invalid open-loop rate or unsafe scheduled request budget")
+    if type(config.clients) is not int or not 1 <= config.clients <= 64:
+        raise ValueError("Invalid concurrent HTTP client cap")
     config.output_dir.mkdir(parents=True, exist_ok=True)
     run_id = uuid.uuid4().hex[:12]
     created = datetime.now(timezone.utc).isoformat()
@@ -297,73 +309,110 @@ async def run(config: Config) -> dict[str, Any]:
         start = time.perf_counter()
         deadline = start + config.duration
 
-        async def worker(index: int) -> None:
+        async def request_once(
+            index: int, local_seq: int, scheduled_at: float | None = None
+        ) -> None:
             nonlocal max_inflight, inflight
-            local_seq = 0
-            while time.perf_counter() < deadline:
-                local_seq += 1
-                actual_scenario = select_scenario(config.scenario, index, local_seq)
-                nonce = f"{run_id}{index:02d}{local_seq:06d}"
-                t0 = time.perf_counter()
-                inflight += 1
-                max_inflight = max(max_inflight, inflight)
-                row: dict[str, Any] = {
-                    "client": index,
-                    "sequence": local_seq,
-                    "scenario": actual_scenario,
-                    "started_s": round(t0 - start, 4),
-                    "request_id": None,
-                    "http_status": None,
-                    "request_status": None,
-                    "policy_effect": None,
-                    "latency_ms": None,
-                    "decision_receipt": None,
-                    "outcome_receipt": None,
-                    "validation_errors": [],
-                    "transport_error": None,
-                    "evidence_errors": None,
-                }
+            actual_scenario = select_scenario(config.scenario, index, local_seq)
+            nonce = f"{run_id}{index:02d}{local_seq:06d}"
+            t0 = time.perf_counter()
+            inflight += 1
+            max_inflight = max(max_inflight, inflight)
+            row: dict[str, Any] = {
+                "client": index,
+                "sequence": local_seq,
+                "scenario": actual_scenario,
+                "started_s": round(t0 - start, 4),
+                "schedule_lag_ms": (
+                    round(max(0.0, (t0 - scheduled_at) * 1000), 2)
+                    if scheduled_at is not None
+                    else None
+                ),
+                "request_id": None,
+                "http_status": None,
+                "request_status": None,
+                "policy_effect": None,
+                "latency_ms": None,
+                "decision_receipt": None,
+                "outcome_receipt": None,
+                "validation_errors": [],
+                "transport_error": None,
+                "evidence_errors": None,
+            }
+            try:
+                response = await client.post(
+                    "/v1/prompts",
+                    headers={"X-API-Key": config.key},
+                    json={
+                        "prompt": synthetic_prompt(actual_scenario, nonce),
+                        "destination_id": destination(actual_scenario),
+                        "purpose": "GENERAL",
+                    },
+                )
+                row["http_status"] = response.status_code
                 try:
-                    response = await client.post(
-                        "/v1/prompts",
-                        headers={"X-API-Key": config.key},
-                        json={
-                            "prompt": synthetic_prompt(actual_scenario, nonce),
-                            "destination_id": destination(actual_scenario),
-                            "purpose": "GENERAL",
-                        },
+                    body = response.json()
+                except ValueError:
+                    body = None
+                if isinstance(body, dict):
+                    row["request_id"] = body.get("request_id")
+                    row["request_status"] = body.get("status")
+                    decision = body.get("decision")
+                    row["policy_effect"] = (
+                        decision.get("effect") if isinstance(decision, dict) else None
                     )
-                    row["http_status"] = response.status_code
-                    try:
-                        body = response.json()
-                    except ValueError:
-                        body = None
-                    if isinstance(body, dict):
-                        row["request_id"] = body.get("request_id")
-                        row["request_status"] = body.get("status")
-                        decision = body.get("decision")
-                        row["policy_effect"] = (
-                            decision.get("effect") if isinstance(decision, dict) else None
-                        )
-                        row["decision_receipt"] = body.get("decision_receipt")
-                        row["outcome_receipt"] = body.get("outcome_receipt")
-                    # The signature chain is independently verified via the offline reviewer.
-                    row["validation_errors"] = validate_result(
-                        actual_scenario,
-                        response.status_code,
-                        body,
-                        allow_overload=config.allow_overload,
-                    )
-                except httpx.HTTPError as exc:
-                    row["transport_error"] = type(exc).__name__
-                finally:
-                    end = time.perf_counter()
-                    row["latency_ms"] = round((end - t0) * 1000, 2)
-                    row["finished_s"] = round(end - start, 4)
-                    inflight -= 1
-                    rows.append(row)
+                    row["decision_receipt"] = body.get("decision_receipt")
+                    row["outcome_receipt"] = body.get("outcome_receipt")
+                # The signature chain is independently verified via the offline reviewer.
+                row["validation_errors"] = validate_result(
+                    actual_scenario,
+                    response.status_code,
+                    body,
+                    allow_overload=config.allow_overload,
+                )
+            except httpx.HTTPError as exc:
+                row["transport_error"] = type(exc).__name__
+            finally:
+                end = time.perf_counter()
+                row["latency_ms"] = round((end - t0) * 1000, 2)
+                row["finished_s"] = round(end - start, 4)
+                inflight -= 1
+                rows.append(row)
 
-        await asyncio.gather(*(worker(i) for i in range(config.clients)))
+        async def worker(index: int) -> None:
+            sequence = 0
+            while time.perf_counter() < deadline:
+                sequence += 1
+                await request_once(index, sequence)
+
+        offered_requests = 0
+        client_capacity_drops = 0
+        if rate is None:
+            await asyncio.gather(*(worker(i) for i in range(config.clients)))
+        else:
+            # Fixed *scheduled* arrivals, independent of server completion. Never
+            # create an unbounded client queue or silently omit offered load.
+            active: set[asyncio.Task[None]] = set()
+            submitted: list[asyncio.Task[None]] = []
+            for tick in range(math.ceil(config.duration * rate)):
+                scheduled_at = start + tick / rate
+                delay = scheduled_at - time.perf_counter()
+                if delay > 0:
+                    await asyncio.sleep(delay)
+                offered_requests += 1
+                if time.perf_counter() >= deadline or len(active) >= config.clients:
+                    client_capacity_drops += 1
+                    continue
+                task = asyncio.create_task(
+                    request_once(tick % config.clients, tick // config.clients + 1, scheduled_at)
+                )
+                active.add(task)
+                submitted.append(task)
+                task.add_done_callback(active.discard)
+            # Drain and verify all issued requests before querying audit evidence.
+            await asyncio.gather(*submitted)
+        if rate is None:
+            offered_requests = len(rows)
         elapsed = time.perf_counter() - start
         measured = len(rows)
         evidence_transient_audit_503 = 0
@@ -432,6 +481,12 @@ async def run(config: Config) -> dict[str, Any]:
             "api_url": config.api_url,
             "clients": config.clients,
             "duration_configured_s": config.duration,
+            "arrival_rate_rps": rate,
+            "offered_requests": offered_requests,
+            "dispatched_requests": measured,
+            "client_capacity_drops": client_capacity_drops,
+            "offered_rps": round(offered_requests / config.duration, 3),
+            "dispatched_rps": round(measured / config.duration, 3),
             "elapsed_with_drain_s": round(elapsed, 3),
             "request_count": measured,
             "success_count": len(success),
@@ -498,6 +553,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--api-url", default="http://127.0.0.1:8000")
     parser.add_argument("--label", default="baseline")
     parser.add_argument("--out-dir", type=Path, required=True)
+    parser.add_argument(
+        "--arrival-rate-rps",
+        type=float,
+        help="Schedule open-loop arrivals at fixed RPS (default: closed-loop clients)",
+    )
     parser.add_argument("--skip-evidence-check", action="store_true")
     parser.add_argument(
         "--allow-overload",
@@ -530,6 +590,7 @@ def main() -> int:
         args.out_dir,
         not args.skip_evidence_check,
         args.allow_overload,
+        args.arrival_rate_rps,
     )
     result = asyncio.run(run(config))
     print(json.dumps(result, indent=2))
@@ -540,6 +601,7 @@ def main() -> int:
         or (result["evidence_validation_failures"] or 0)
         or result["duplicate_request_ids"]
         or not result["request_count"]
+        or result["client_capacity_drops"]
     ):
         return 1
     return 0

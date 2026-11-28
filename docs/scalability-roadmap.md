@@ -30,9 +30,12 @@ processing time, event-loop lag, and integrity execution activity. The
 HTML report and CSV include per-process sampled diagnostic maxima (not
 whole-run latency distributions or cluster utilization).
 
+Phase 1 increment completed: fixed-rate open-loop synthetic arrivals at
+4/8/16 requests/s with a bounded client dispatcher, explicit offered/issued
+counts, rejection accounting, and evidence-gated goodput. This is **not** a
+distributed load generator or proof of maximum throughput.
+
 Remaining Phase 1 work:
-- Open-loop scheduled arrival rate, bounded client-side backpressure, separate
-  offered/accepted/completed/goodput rates, and explicit overload contracts.
 - Deterministic output-DLP blocking/masking fixtures with signed evidence gates.
 - Per-stage resource utilization and repeatable host/runtime manifest,
   including signed generation and OCI image digest.
