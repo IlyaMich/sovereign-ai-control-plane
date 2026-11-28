@@ -26,12 +26,18 @@ import httpx
 
 from app.infrastructure.executables import resolve_executable
 
-SCENARIOS = ("local_permit", "credential_deny", "unsupported_input", "external_redaction")
+SCENARIOS = (
+    "local_permit",
+    "credential_deny",
+    "unsupported_input",
+    "external_redaction",
+    "mixed_traffic",
+)
 START = re.compile(
-    r"^\[[^\]\r\n]+\] (local_permit|credential_deny|unsupported_input|external_redaction):"
+    r"^\[[^\]\r\n]+\] (local_permit|credential_deny|unsupported_input|external_redaction|mixed_traffic):"
 )
 END = re.compile(
-    r"^(local_permit|credential_deny|unsupported_input|external_redaction): .*responses/s,"
+    r"^(local_permit|credential_deny|unsupported_input|external_redaction|mixed_traffic): .*responses/s,"
 )
 
 # Explicit allowlist: never persist arbitrary diagnostics fields from a future API.

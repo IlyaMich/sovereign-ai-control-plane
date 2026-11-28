@@ -8,7 +8,7 @@ on:
         description: 'Synthetic load profile'
         required: true
         default: smoke
-        options: [smoke, baseline, saturation, scenario-catalog]
+        options: [smoke, baseline, saturation, scenario-catalog, mixed-traffic]
 permissions:
   contents: read
 concurrency:

@@ -94,3 +94,13 @@ audit database growth. Run it with other audit writers idle: the independent
 reviewer expects exclusive signed event deltas. Never attach a
 `pull_request` trigger to the trusted self-hosted runner, share it with the
 release signer, or use `podman compose down -v` to reset the audit history.
+
+### Mixed-traffic scalability profile
+
+The manual workflow also offers `mixed-traffic`. It exercises local permits
+(including output DLP if active in the approved release), credential denies,
+and unsupported-input denies concurrently across closed-loop clients. Every
+response uses its own type-specific contract and audit-evidence validation.
+It does not require optional external egress. The aggregate HTML report now
+includes sampled per-process queue, detector, audit and integrity workload
+signals; these are not cluster metrics or whole-run p95 measurements.

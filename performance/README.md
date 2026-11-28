@@ -20,13 +20,20 @@ python -m performance.cli run --profile smoke --environment-tag my-host-fixed-co
 python -m performance.cli run --profile baseline --environment-tag my-host-fixed-config
 python -m performance.cli run --profile saturation --environment-tag my-host-fixed-config
 python -m performance.cli run --profile scenario-catalog --environment-tag my-host-fixed-config
+python -m performance.cli run --profile mixed-traffic --environment-tag my-host-fixed-config
 ```
 
 `smoke` is a brief end-to-end file-retention and correctness check (one client, 15 seconds per scenario); it is not a capacity benchmark.
 
 `scenario-catalog` is a **sequential** set of scenarios, *not simultaneous mixed
 traffic*. Its `external_redaction` scenario requires the existing enabled
-simulated-egress profile. The benchmark client itself is closed-loop. Saturation
+simulated-egress profile. The benchmark client itself is closed-loop. The `mixed-traffic` profile instead
+interleaves synthetic local permits, credential denies and unsupported-input
+denies *concurrently* inside each load interval, retains the actual per-request
+scenario for signed receipt and evidence assertions, and reports per-scenario
+request/success counts. It does not require external egress. Local permits
+execute response-side DLP when the approved installed release supports it;
+this profile does not prove output blocking or masking functionality. Saturation
 rejections are expected and checked by the underlying reviewer; saturation is
 not a maximum sustainable-throughput measurement.
 
@@ -35,8 +42,9 @@ Results are in `performance/results/<run-id>/` (ignored by Git):
 raw suite artifacts, independent evidence assertions, diagnostic samples, and
 best-effort `resources.json` files. The latter capture only allowlisted Podman
 CPU percentages and memory usage for known services; unavailable sampling is
-explicitly marked unavailable. Other host metrics and a true simultaneously
-mixed workload are deferred to later work.
+explicitly marked unavailable. Other host metrics remain deferred. Mixed traffic is still closed-loop; an
+open-loop arrival-rate generator, explicit output-blocking fixtures and
+multi-replica benchmarks remain future Phase 1 increments.
 
 Generate reports and compare separate commits:
 
@@ -81,3 +89,21 @@ Podman performance runner. It cannot run a live signed benchmark from a bare hos
 approved signed deployment and its private runtime state are not tracked. Configure
 and operate it using [the runner guide](../docs/performance-github-actions.md).
 Only aggregate reports are uploaded to Actions; raw evidence stays on the host.
+
+## Phase 1 scalability measurement guidance
+
+1. Capture baseline and `mixed-traffic` profiles on the **same** approved
+   simulator deployment, with no other audit-producing clients. Never compare
+   different profile digests as a before/after performance result.
+2. Record the approved image digest, detector/policy/release generation, host
+   CPU/RAM, Podman limits, and output DLP activation alongside each run.
+   A Git SHA alone identifies the benchmark harness, not the runtime.
+3. Inspect the new HTML diagnostic table and `metrics.csv`: detector/audit
+   queue delays, integrity active/waiting jobs, and event-loop lag. These
+   process-local sampled signals are clues, not proof of a bottleneck.
+4. Retain independent audit assertions and review the raw results privately
+   before changing executor or audit settings.
+
+`mixed_traffic` deterministically rotates synthetic request types per client.
+It is not a statistical model of production demand, an open-loop stress test,
+or a test of geographic data residency.

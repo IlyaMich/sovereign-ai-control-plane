@@ -1,0 +1,16 @@
+{
+  "schema_version": 1,
+  "description": "Simultaneous interleaved synthetic local permits, credential denies, and unsupported-input denies; closed-loop clients with independent signed evidence verification.",
+  "levels": [
+    1,
+    4,
+    8
+  ],
+  "duration_s": 60,
+  "runs": 3,
+  "interval_s": 0.75,
+  "scenarios": [
+    "mixed_traffic"
+  ],
+  "allow_overload": false
+}

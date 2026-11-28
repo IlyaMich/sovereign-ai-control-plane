@@ -19,6 +19,10 @@ SIGNALS = (
     "audit.processing.p95_ms",
     "event_loop.p95_ms",
     "audit_limits.waiting_for_slot",
+    "detector.active_jobs",
+    "audit.active_jobs",
+    "integrity.active_jobs",
+    "integrity.waiting_for_capacity",
 )
 
 
@@ -138,6 +142,7 @@ def write_report(folder: Path) -> Path:
             "p50_ms",
             "p95_ms",
             "p99_ms",
+            *SIGNALS,
         )
         writer = csv.DictWriter(output, fieldnames=fields, extrasaction="ignore")
         writer.writeheader()
@@ -151,6 +156,18 @@ def write_report(folder: Path) -> Path:
         + "</tr>"
         for item in data
     )
+    signal_rows = "\n".join(
+        "<tr>"
+        + f"<td>{html.escape(str(item['level']))}</td>"
+        + f"<td>{html.escape(item['scenario'])}</td>"
+        + "".join(
+            f"<td>{html.escape(str(item[key])) if item[key] is not None else 'N/A'}</td>"
+            for key in SIGNALS
+        )
+        + "</tr>"
+        for item in data
+    )
+    signal_headers = "".join(f"<th>{html.escape(key)}</th>" for key in SIGNALS)
     page = (
         "<!doctype html><html lang='en'><meta charset='utf-8'>"
         "<meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -165,6 +182,11 @@ def write_report(folder: Path) -> Path:
         "<table><thead><tr><th>Clients</th><th>Scenario</th><th>Runs</th>"
         "<th>Goodput/s</th><th>p50 ms</th><th>p95 ms</th><th>p99 ms</th>"
         f"</tr></thead><tbody>{table_rows}</tbody></table>"
+        "<h2>Maximum observed process-local diagnostics</h2>"
+        "<p>These values are maxima of sampled rolling windows or instantaneous job counts; "
+        "they are not whole-run quantiles or cluster-wide utilization.</p>"
+        f"<table><thead><tr><th>Clients</th><th>Scenario</th>{signal_headers}</tr></thead>"
+        f"<tbody>{signal_rows}</tbody></table>"
         "<p>Raw benchmark assertions and diagnostics remain in raw/.</p></html>"
     )
     out = folder / "report.html"
