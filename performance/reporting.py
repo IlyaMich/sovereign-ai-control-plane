@@ -115,15 +115,16 @@ def collect(folder: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                     offered = summary.get("offered_requests")
                     dispatched = summary.get("dispatched_requests")
                     dropped = summary.get("client_capacity_drops")
+                    expected_offered = math.ceil(
+                        number(manifest["duration_s"], positive=True)
+                        * number(manifest["arrival_rate_rps"], positive=True)
+                    )
                     if (
                         type(offered) is not int
                         or type(dispatched) is not int
                         or type(dropped) is not int
                         or offered != dispatched + dropped
-                        or offered != math.ceil(
-                            number(manifest["duration_s"], positive=True)
-                            * number(manifest["arrival_rate_rps"], positive=True)
-                        )
+                        or offered != expected_offered
                         or dispatched != row["requests"]
                         or dropped != 0
                     ):
