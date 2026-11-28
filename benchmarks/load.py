@@ -25,7 +25,29 @@ from urllib.parse import urlparse
 import httpx
 
 HASH = re.compile(r"^[0-9a-f]{64}$")
-SCENARIOS = ("local_permit", "credential_deny", "unsupported_input", "external_redaction")
+SCENARIOS = (
+    "local_permit",
+    "credential_deny",
+    "unsupported_input",
+    "external_redaction",
+    "mixed_traffic",
+)
+MIXED_SCENARIOS = ("local_permit", "credential_deny", "unsupported_input")
+
+
+def select_scenario(configured: str, client: int, sequence: int) -> str:
+    """Deterministically interleave safe synthetic workloads across concurrent clients.
+
+    Each request retains its *actual* scenario for response and evidence assertions.
+    The mixed profile does not require enabling the optional external simulator.
+    """
+    if configured == "mixed_traffic":
+        if client < 0 or sequence < 1:
+            raise ValueError("Invalid mixed-traffic request coordinates")
+        return MIXED_SCENARIOS[(client + sequence - 1) % len(MIXED_SCENARIOS)]
+    if configured not in SCENARIOS:
+        raise ValueError("Unknown benchmark scenario")
+    return configured
 
 
 def synthetic_prompt(scenario: str, nonce: str) -> str:
@@ -280,6 +302,7 @@ async def run(config: Config) -> dict[str, Any]:
             local_seq = 0
             while time.perf_counter() < deadline:
                 local_seq += 1
+                actual_scenario = select_scenario(config.scenario, index, local_seq)
                 nonce = f"{run_id}{index:02d}{local_seq:06d}"
                 t0 = time.perf_counter()
                 inflight += 1
@@ -287,6 +310,7 @@ async def run(config: Config) -> dict[str, Any]:
                 row: dict[str, Any] = {
                     "client": index,
                     "sequence": local_seq,
+                    "scenario": actual_scenario,
                     "started_s": round(t0 - start, 4),
                     "request_id": None,
                     "http_status": None,
@@ -304,8 +328,8 @@ async def run(config: Config) -> dict[str, Any]:
                         "/v1/prompts",
                         headers={"X-API-Key": config.key},
                         json={
-                            "prompt": synthetic_prompt(config.scenario, nonce),
-                            "destination_id": destination(config.scenario),
+                            "prompt": synthetic_prompt(actual_scenario, nonce),
+                            "destination_id": destination(actual_scenario),
                             "purpose": "GENERAL",
                         },
                     )
@@ -325,7 +349,7 @@ async def run(config: Config) -> dict[str, Any]:
                         row["outcome_receipt"] = body.get("outcome_receipt")
                     # The signature chain is independently verified via the offline reviewer.
                     row["validation_errors"] = validate_result(
-                        config.scenario,
+                        actual_scenario,
                         response.status_code,
                         body,
                         allow_overload=config.allow_overload,
@@ -370,7 +394,7 @@ async def run(config: Config) -> dict[str, Any]:
                     errors, transient_503 = await verify_audited_response(
                         client,
                         key=config.key,
-                        scenario=config.scenario,
+                        scenario=row["scenario"],
                         row=row,
                     )
                     row["evidence_errors"] = errors
@@ -382,7 +406,7 @@ async def run(config: Config) -> dict[str, Any]:
             for r in rows
             if not r["validation_errors"]
             and r["transport_error"] is None
-            and r["http_status"] == expected(config.scenario)[0]
+            and r["http_status"] == expected(r["scenario"])[0]
         ]
         latencies = [
             r["latency_ms"]
@@ -411,6 +435,8 @@ async def run(config: Config) -> dict[str, Any]:
             "elapsed_with_drain_s": round(elapsed, 3),
             "request_count": measured,
             "success_count": len(success),
+            "scenario_request_counts": dict(sorted(Counter(r["scenario"] for r in rows).items())),
+            "scenario_success_counts": dict(sorted(Counter(r["scenario"] for r in success).items())),
             "overload_rejections_429": sum(r["http_status"] == 429 for r in rows),
             "expected_success_rate_pct": round(100 * len(success) / measured, 2) if measured else 0,
             "responses_within_window": sum(
