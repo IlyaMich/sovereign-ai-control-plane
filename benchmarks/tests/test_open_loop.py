@@ -90,9 +90,16 @@ def _run_mock(
 
 
 def test_fixed_rate_is_offered_independently_of_response_completion(tmp_path, monkeypatch):
-    summary = _run_mock(tmp_path, monkeypatch, rate=20.0, response_delay=0.035, reject_every=3)
-    expected_arrivals = math.ceil(0.26 * 20)
-    assert summary["arrival_rate_rps"] == 20.0
+    summary = _run_mock(
+        tmp_path,
+        monkeypatch,
+        rate=10.0,
+        duration=0.5,
+        response_delay=0.11,
+        reject_every=2,
+    )
+    expected_arrivals = math.ceil(0.5 * 10)
+    assert summary["arrival_rate_rps"] == 10.0
     assert summary["offered_requests"] == expected_arrivals
     assert summary["client_capacity_drops"] == 0
     assert summary["dispatched_requests"] == expected_arrivals

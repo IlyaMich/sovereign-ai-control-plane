@@ -120,6 +120,10 @@ def collect(folder: Path) -> tuple[dict[str, Any], list[dict[str, Any]]]:
                         or type(dispatched) is not int
                         or type(dropped) is not int
                         or offered != dispatched + dropped
+                        or offered != math.ceil(
+                            number(manifest["duration_s"], positive=True)
+                            * number(manifest["arrival_rate_rps"], positive=True)
+                        )
                         or dispatched != row["requests"]
                         or dropped != 0
                     ):

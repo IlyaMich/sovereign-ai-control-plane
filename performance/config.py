@@ -72,7 +72,8 @@ def load_profile(name: str) -> Profile:
         raise ValueError("Invalid scenarios")
     rate = value.get("arrival_rate_rps")
     if value["schema_version"] == 2 and (
-        type(rate) not in (int, float)
+        isinstance(rate, bool)
+        or not isinstance(rate, (int, float))
         or not math.isfinite(rate)
         or not 0.1 <= rate <= 64
         or type(duration) not in (int, float)
